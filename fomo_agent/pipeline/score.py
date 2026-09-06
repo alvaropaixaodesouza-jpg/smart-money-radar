@@ -240,7 +240,9 @@ def digest_lines(payload: dict) -> list[str]:
 
 
 def pending_for_scoring(conn: sqlite3.Connection, *, force: bool = False, limit: int | None = None) -> list[sqlite3.Row]:
-    rows = db.traders_by_status(conn, "tracking", "active", "watch", "dropped")
+    # `needs_review` is where a wallet lands when scoring failed or the model refused to commit.
+    # Leaving it out of this list is what makes the status a dead end instead of a retry queue.
+    rows = db.traders_by_status(conn, "tracking", "active", "watch", "dropped", "needs_review")
     rows = [r for r in rows if force or needs_rescore(r)]
     return rows[:limit] if limit else rows
 

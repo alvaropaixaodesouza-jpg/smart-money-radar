@@ -38,7 +38,16 @@ def _store_fomo_rows(conn: sqlite3.Connection, rows, source: str) -> int:
 
 
 def resolve_execution_wallets(conn: sqlite3.Connection, fomo: FomoClient, limit: int | None = None) -> dict:
-    """Turn pending fomo_users into trackable `traders` rows. One request per user."""
+    """Record the per-chain addresses fomo reports for a user. **Not trading wallets.**
+
+    This was written believing fomo's `/swaps` exposed the wallet a trader executes from. It does
+    not: those addresses are internal accounts with zero on-chain events, verified against Codex in
+    session 6. It once wrote them straight into `traders`, which produced 49 rows that could never
+    be tracked or scored.
+
+    So it now only annotates `fomo_users`. The wallet that actually trades is inferred from token
+    events by `pipeline/resolve.py`, which needs no fomo call at all.
+    """
     rows = db.unresolved_fomo_users(conn, limit or settings.fomo_resolve_limit)
     stats = {"looked_up": 0, "wallets": 0, "new_traders": 0, "empty": 0, "errors": 0}
     for u in rows:
@@ -51,19 +60,15 @@ def resolve_execution_wallets(conn: sqlite3.Connection, fomo: FomoClient, limit:
                 conn.execute("UPDATE fomo_users SET resolve_error=? WHERE user_id=?", (str(e)[:200], u["user_id"]))
             log.warning("resolve %s failed: %s", u["handle"] or u["user_id"][:8], e)
             continue
+        stats["wallets"] += len(addrs)
         with db.tx(conn):
-            for chain, address in addrs.items():
-                stats["wallets"] += 1
-                stats["new_traders"] += db.upsert_trader(
-                    conn, norm_addr(address), chain=chain, fomo_user_id=u["user_id"], fomo_handle=u["handle"],
-                    profile_address=u["profile_address"], evm_address=u["evm_address"],
-                    pnl_24h=u["pnl_24h"], pnl_7d=u["pnl_7d"], pnl_30d=u["pnl_30d"],
-                    trades_cnt=u["trades_cnt"], volume_usd=u["volume_usd"],
-                    source=u["source"] or "fomo", status="candidate",
-                )
             if not addrs:
                 stats["empty"] += 1
-            conn.execute("UPDATE fomo_users SET resolved_at=? WHERE user_id=?", (db.now(), u["user_id"]))
+            conn.execute(
+                "UPDATE fomo_users SET resolved_at=?, resolve_error=? WHERE user_id=?",
+                (db.now(), f"fomo reports {addrs} — internal accounts, not trading wallets"
+                 if addrs else None, u["user_id"]),
+            )
     log.info("resolve execution wallets: %s", stats)
     return stats
 

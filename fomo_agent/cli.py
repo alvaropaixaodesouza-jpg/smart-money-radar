@@ -245,7 +245,8 @@ def resolve_cmd(
 
 @app.command("fomo-resolve")
 def fomo_resolve(limit: Optional[int] = typer.Option(None, "--limit")) -> None:
-    """Look up execution wallets for leaderboard entries collected earlier."""
+    """Record the addresses fomo reports per user. These are internal accounts, NOT trading
+    wallets — use `resolve` to infer the wallet that actually trades."""
     from .pipeline.discover import resolve_execution_wallets
     from .sources.fomo import FomoClient
 
