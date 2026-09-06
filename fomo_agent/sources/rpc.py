@@ -141,6 +141,7 @@ class RobinhoodRPC:
         self._wallets: list[str] = []
         self._fills: dict[str, list[Trade]] = {}
         self._fetched_at = 0.0
+        self._probes: dict[int, int] = {}   # block -> timestamp, for dating an arbitrary moment
 
     # ---------- transport ----------
 
@@ -183,6 +184,60 @@ class RobinhoodRPC:
 
     def block_timestamp(self, block: int) -> int:
         return int(self.call("eth_getBlockByNumber", [hex(block), False])["timestamp"], 16)
+
+    def block_at(self, ts: int, tolerance_s: int = 20, max_probes: int = 6) -> int:
+        """The block nearest a wall-clock time.
+
+        Interpolating between two probes is exact over hours but drifts by hours over months,
+        because the chain has not always run at today's pace. So the estimate is refined against
+        the block it lands on, using the local rate each probe reveals; every probe is cached, and
+        recent timestamps converge on the first one.
+        """
+        if len(self._probes) < 2:
+            head = self.block_number()
+            self._probes[head] = self.block_timestamp(head)
+            far = max(head - settings.rpc_window_blocks, 1)
+            self._probes[far] = self.block_timestamp(far)
+
+        for _ in range(max_probes):
+            below = [b for b, t in self._probes.items() if t <= ts]
+            above = [b for b, t in self._probes.items() if t > ts]
+            lo = max(below) if below else min(self._probes)
+            hi = min(above) if above else max(self._probes)
+            if lo == hi:  # every probe sits on one side; extrapolate from the two nearest
+                lo, hi = sorted(self._probes)[:2] if ts < self._probes[min(self._probes)]                     else sorted(self._probes)[-2:]
+            rate = (self._probes[hi] - self._probes[lo]) / max(hi - lo, 1) or 0.1
+            guess = max(int(lo + (ts - self._probes[lo]) / rate), 1)
+            if guess in self._probes:
+                break
+            self._probes[guess] = self.block_timestamp(guess)
+            if abs(self._probes[guess] - ts) <= tolerance_s:
+                return guess
+        return min(self._probes, key=lambda b: abs(self._probes[b] - ts))
+
+    def token_makers(self, token: str, ts: int, side: str, window_s: int | None = None) -> set[str]:
+        """Everyone who traded `token` the same way within a few seconds of `ts`.
+
+        This is the Codex `getTokenEvents` call that wallet resolution runs on, for free: filtering
+        `eth_getLogs` by the token's own address gives every transfer of it in the window, and the
+        legs facing a router are the trades. One request per window.
+        """
+        window_s = settings.resolve_window_s if window_s is None else window_s
+        centre = self.block_at(ts)
+        span = max(int(window_s / 0.1), 1)
+        raw = self.call("eth_getLogs", [{
+            "fromBlock": hex(max(centre - span, 1)), "toBlock": hex(centre + span),
+            "address": norm_addr(token), "topics": [TRANSFER_TOPIC],
+        }])
+        makers = set()
+        for t in (parse_transfer(e) for e in raw):
+            if t is None:
+                continue
+            if side == "buy" and t["frm"] in self.routers:
+                makers.add(t["to"])
+            elif side == "sell" and t["to"] in self.routers:
+                makers.add(t["frm"])
+        return makers
 
     def transfers(self, wallets: list[str], from_block: int, to_block: int, *, outgoing: bool) -> list[dict]:
         """Every Transfer in the range where any of `wallets` is the sender (or the receiver)."""

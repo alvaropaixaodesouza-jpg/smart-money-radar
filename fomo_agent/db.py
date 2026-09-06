@@ -122,9 +122,12 @@ def now() -> int:
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     p = Path(path) if path else settings.db_path
-    conn = sqlite3.connect(p)
+    # WAL lets a long read run beside a write; the busy timeout covers the moment two writers
+    # meet, which happens whenever a collection loop and a one-off command overlap.
+    conn = sqlite3.connect(p, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     migrate(conn)
     return conn
 

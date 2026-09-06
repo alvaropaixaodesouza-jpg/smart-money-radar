@@ -9,7 +9,10 @@ traded that token in that minute is a suspect, and the only address that keeps s
 several of the user's trades is the user. Rare windows count for more than crowded ones, because
 being one of twenty makers is evidence and being one of two hundred is not.
 
-Cost is one Codex request per window, so `CODEX_RESOLVE_WINDOWS` caps how hard we try per trader.
+One request per window, so `RESOLVE_WINDOWS` caps how hard we try per trader. On Robinhood Chain
+those requests are free: filtering `eth_getLogs` by the token's own address returns every transfer
+of it in the window, and the legs facing the trade router are the makers. Other chains still spend
+Codex budget for the same answer.
 """
 from __future__ import annotations
 
@@ -94,7 +97,22 @@ def makers_in_window(codex: Codex, token: str, chain: str, ts: int, side: str,
             if e.get("maker") and (e.get("eventDisplayType") or "").lower() == side}
 
 
-def resolve_user(conn: sqlite3.Connection, codex: Codex, user_id: str, chain: str,
+def maker_source(chain: str, codex: Codex | None = None, rpc=None):
+    """The cheapest way to ask who traded a token in a window, plus the client to count requests on.
+
+    Robinhood Chain answers from its own RPC for nothing. Anything else goes through Codex, where
+    each window is one request out of the monthly cap.
+    """
+    if chain == "robinhood" and "rpc" in settings.resolve_sources:
+        from ..sources.rpc import RobinhoodRPC
+
+        client = rpc or RobinhoodRPC()
+        return (lambda token, ts, side: client.token_makers(token, ts, side)), client
+    client = codex or Codex()
+    return (lambda token, ts, side: makers_in_window(client, token, chain, ts, side)), client
+
+
+def resolve_user(conn: sqlite3.Connection, fetch, user_id: str, chain: str,
                  max_windows: int | None = None) -> tuple[str | None, dict]:
     max_windows = max_windows or settings.resolve_windows
     windows = user_windows(conn, user_id, chain, max_windows)
@@ -103,8 +121,8 @@ def resolve_user(conn: sqlite3.Connection, codex: Codex, user_id: str, chain: st
     sets, used = [], 0
     for token, ts, side in windows:
         try:
-            makers = makers_in_window(codex, token, chain, ts, side)
-        except CodexError as e:
+            makers = fetch(token, ts, side)
+        except Exception as e:  # noqa: BLE001 - one dead window must not abandon the trader
             log.warning("resolve window failed (%s): %s", token[:10], e)
             continue
         if makers:
@@ -116,7 +134,7 @@ def resolve_user(conn: sqlite3.Connection, codex: Codex, user_id: str, chain: st
 def resolve_pending(conn: sqlite3.Connection, codex: Codex | None = None, chain: str = "robinhood",
                     limit: int | None = None) -> dict:
     """Turn fomo users with stored swaps into trackable `traders` rows."""
-    codex = codex or Codex()
+    fetch, client = maker_source(chain, codex)
     rows = conn.execute(
         "SELECT u.* FROM fomo_users u WHERE u.onchain_at IS NULL "
         "AND EXISTS (SELECT 1 FROM fomo_swaps s WHERE s.user_id=u.user_id AND s.chain=?) "
@@ -127,7 +145,7 @@ def resolve_pending(conn: sqlite3.Connection, codex: Codex | None = None, chain:
              "conflicts": 0, "unresolved": 0, "requests": 0}
     for u in rows:
         stats["attempted"] += 1
-        address, info = resolve_user(conn, codex, u["user_id"], chain)
+        address, info = resolve_user(conn, fetch, u["user_id"], chain)
         with db.tx(conn):
             existing = db.get_trader(conn, address) if address else None
             # An address belongs to one trader. If someone else already vouched for this wallet
@@ -162,5 +180,6 @@ def resolve_pending(conn: sqlite3.Connection, codex: Codex | None = None, chain:
                 conn.execute("UPDATE fomo_users SET onchain_note=? WHERE user_id=?",
                              (str(info), u["user_id"]))
         log.info("resolve %s -> %s %s", u["handle"] or u["user_id"][:8], address or "unresolved", info)
-    stats["requests"] = codex.requests
+    stats["requests"] = client.requests
+    stats["source"] = type(client).__name__
     return stats

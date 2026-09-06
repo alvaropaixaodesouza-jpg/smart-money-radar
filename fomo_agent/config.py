@@ -49,6 +49,10 @@ class Settings:
     resolve_min_hits: int = field(default_factory=lambda: _int("RESOLVE_MIN_HITS", 3))
     resolve_min_ratio: float = field(default_factory=lambda: _float("RESOLVE_MIN_RATIO", 1.4))
     resolve_users_per_pass: int = field(default_factory=lambda: _int("RESOLVE_USERS_PER_PASS", 20))
+    # where the "who else traded this token just then" answer comes from. `rpc` is free on
+    # Robinhood Chain; drop it to force every window through Codex.
+    resolve_sources: tuple[str, ...] = field(default_factory=lambda: tuple(
+        c.strip() for c in _env("RESOLVE_SOURCES", "rpc,codex").split(",") if c.strip()))
 
     # robinhoodtrenches.com: third-party public API over fomo traders on Robinhood Chain
     trenches_base_url: str = field(default_factory=lambda: _env("TRENCHES_BASE_URL", "https://robinhoodtrenches.com"))

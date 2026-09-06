@@ -94,6 +94,8 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
         "SELECT p.token, COALESCE(tk.symbol, substr(p.token,1,8)) sym, tk.liquidity_usd liq, "
         "  tk.mcap_usd mcap, COUNT(DISTINCT p.user_id) holders, SUM(p.unrealized_pnl) pnl, "
         "  SUM(p.cost_basis) cost, AVG(t.score) avg_score, "
+        "  SUM(CASE WHEN t.score >= 60 THEN 1 ELSE 0 END) trusted, "
+        "  SUM((t.score / 100.0) * (t.score / 100.0)) conviction, "
         "  GROUP_CONCAT(DISTINCT t.fomo_handle) who "
         "FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
         "LEFT JOIN traders t ON t.fomo_user_id = p.user_id "
@@ -293,7 +295,7 @@ h2{
 
 /* tokens table --------------------------------------------------- */
 .scroll{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface)}
-table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:680px}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:820px}
 th{
   text-align:left; font:500 11px/1 "IBM Plex Mono",monospace; letter-spacing:.08em;
   text-transform:uppercase; color:var(--faint); padding:11px 14px;
@@ -402,12 +404,14 @@ footer b{color:var(--muted); font-weight:500}
 
 <section class="panel" id="p-tokens" role="tabpanel" aria-labelledby="tab-tokens" hidden>
   <p class="note">Every token the cohort still holds, ranked by unrealised profit. <b>Mult</b> is
-  what the position is worth against what it cost — it is the clearest read on how early they were.
-  A dash means fomo reports profit already withdrawn, so the entry price is unknowable.</p>
+  what the position is worth against what it cost — the clearest read on how early they were; a dash
+  means fomo reports profit already withdrawn, so the entry price is unknowable. <b>Conviction</b>
+  weighs <em>whose</em> money is in a token rather than how many wallets hold it: each holder counts
+  as the square of their score, so one trader at 85 outweighs a crowd at 40.</p>
   <div class="scroll"><table>
     <thead><tr>
-      <th>Token</th><th class="r">Holders</th><th class="r">Open PnL</th><th class="r">Cost</th>
-      <th class="r">Mult</th><th class="r">Avg score</th><th class="r">Liquidity</th><th>Held by</th>
+      <th>Token</th><th class="r">Holders</th><th class="r">Conviction</th><th class="r">Open PnL</th>
+      <th class="r">Cost</th><th class="r">Mult</th><th class="r">Liquidity</th><th>Held by</th>
     </tr></thead>
     <tbody>__TOKENS__</tbody>
   </table></div>
@@ -515,14 +519,16 @@ def render_tokens(rows: list[dict]) -> str:
     out = []
     for r in rows:
         pnl, cls = signed(r["pnl"])
-        score = f'{r["avg_score"]:.0f}' if r["avg_score"] is not None else "—"
+        held = f'{r["holders"]}'
+        if r["trusted"]:
+            held += f' <span class="who">{r["trusted"]}&#8239;trusted</span>'
         out.append(
             f'<tr><td>{token_link(r["token"], r["sym"])}</td>'
-            f'<td class="r num">{r["holders"]}</td>'
+            f'<td class="r num">{held}</td>'
+            f'<td class="r num">{(r["conviction"] or 0):.1f}</td>'
             f'<td class="r num {cls}">{pnl}</td>'
             f'<td class="r num">{usd(r["cost"])}</td>'
             f'<td class="r num">{multiple(r["cost"], r["pnl"])}</td>'
-            f'<td class="r num">{score}</td>'
             f'<td class="r num">{usd(r["liq"])}</td>'
             f'<td class="who">{names(r["who"], 3)}</td></tr>'
         )

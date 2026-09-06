@@ -224,8 +224,7 @@ def resolve_cmd(
     handle: Optional[str] = typer.Option(None, "--handle", help="resolve just this trader and print the ranking"),
 ) -> None:
     """Infer the real on-chain wallet of fomo traders from the tokens and times they traded."""
-    from .pipeline.resolve import rank_candidates, resolve_user, resolve_pending, user_windows
-    from .sources.codex import Codex
+    from .pipeline.resolve import maker_source, resolve_pending, resolve_user, user_windows
 
     if handle:
         conn = db.connect()
@@ -235,8 +234,10 @@ def resolve_cmd(
             raise typer.Exit(1)
         windows = user_windows(conn, u["user_id"], chain, settings.resolve_windows)
         typer.echo(f"{handle}: {len(windows)} usable windows on {chain}")
-        address, info = resolve_user(conn, Codex(), u["user_id"], chain)
+        fetch, client = maker_source(chain)
+        address, info = resolve_user(conn, fetch, u["user_id"], chain)
         typer.echo(f"resolved: {address or 'no confident match'}  {info}")
+        typer.echo(f"via {type(client).__name__}, {client.requests} requests")
         conn.close()
         return
     typer.echo(_run("resolve", resolve_pending, None, chain, limit))
