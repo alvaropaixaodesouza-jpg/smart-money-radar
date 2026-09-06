@@ -70,7 +70,7 @@ class Settings:
         "RPC_USER_AGENT",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"))
-    rpc_max_per_min: int = field(default_factory=lambda: _int("RPC_MAX_PER_MIN", 20))
+    rpc_max_per_min: int = field(default_factory=lambda: _int("RPC_MAX_PER_MIN", 45))
     rpc_batch_size: int = field(default_factory=lambda: _int("RPC_BATCH_SIZE", 40))
     # every fomo fill is routed through this contract; a wallet leg without it is not a trade
     rpc_routers: tuple[str, ...] = field(default_factory=lambda: tuple(

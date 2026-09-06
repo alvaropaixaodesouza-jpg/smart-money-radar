@@ -421,10 +421,12 @@ def report(
 
 @app.command()
 def run(once: bool = typer.Option(False, "--once", help="single pass of every step, then exit")) -> None:
-    """Polling loop: discover / new-tokens / track / score / report on their intervals."""
+    """Polling loop: discover / new-tokens / resolve / track / score / page / report."""
     from .pipeline import discover as d
     from .pipeline import new_tokens as nt
+    from .pipeline import resolve as rs
     from .pipeline import score as sc
+    from .pipeline import site
     from .pipeline import track as tr
     from .pipeline.discover import safe_fomo
     from .pipeline.report import build_report
@@ -441,8 +443,13 @@ def run(once: bool = typer.Option(False, "--once", help="single pass of every st
          lambda c: d.discover_trenches(c) if "trenches" in settings.track_sources else {"skipped": "trenches disabled"}),
         ("discover_leaderboard", settings.discover_interval, lambda c: d.discover_leaderboard(c, fomo) if fomo else {"skipped": "fomo not configured"}),
         ("new_tokens", settings.new_tokens_interval, lambda c: nt.poll_new_tokens(c, None, fomo)),
+        # free on Robinhood Chain, and it is what turns collected fomo users into trackable wallets
+        ("resolve", settings.discover_interval, lambda c: rs.resolve_pending(c)),
         ("track", settings.track_interval, lambda c: tr.track_all(c)),
+        # bare contract addresses are useless on the page, and DexScreener names them for nothing
+        ("enrich_tokens", settings.track_interval, lambda c: nt.enrich_tokens(c)),
         ("score", settings.track_interval * 10, lambda c: sc.score_all(c)),
+        ("page", settings.track_interval, lambda c: site.build(c, Path("radar.html"))),
         ("report", settings.report_interval, do_report),
     ]
     last: dict[str, float] = {k: 0.0 for k, _, _ in steps}
