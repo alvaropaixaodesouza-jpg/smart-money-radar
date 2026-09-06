@@ -499,7 +499,7 @@ def render_signals(rows: list[dict], now: int) -> str:
             f'<span class="top">{token_link(r["mint"], r["sym"])} '
             f'<span class="buyers">{r["buyers"]} buyers</span></span>'
             f'<span class="amt">{amt}</span>'
-            f'<span class="bar"><i style="width:{r["buyers"] / top * 100:.0f}%"></i></span>'
+            f'<span class="bar"><i style="width:{(r["conviction"] or 0) / top * 100:.0f}%"></i></span>'
             f'<p class="who">{names(r["who"])} '
             f'<span class="meta">&middot; avg score {r["avg_score"]:.0f} '
             f'&middot; first seen {ago(r["first_ts"], now)} ago'
