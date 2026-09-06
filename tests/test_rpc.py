@@ -1,0 +1,137 @@
+"""Robinhood Chain RPC tracker.
+
+The fixtures are real chain 4663 responses, trimmed: an `eth_getLogs` page holding both routed
+fills and ordinary transfers, and the receipt of one of those fills.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from fomo_agent.sources.rpc import (USDG, WETH, RobinhoodRPC, address_from_topic, fill_usd,
+                                    parse_transfer, quote_legs, routed_fills, topic_for)
+
+FIX = Path(__file__).parent / "fixtures"
+
+
+def load(name):
+    return json.loads((FIX / name).read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def logs():
+    return load("rpc_transfer_logs.json")
+
+
+@pytest.fixture
+def receipt():
+    return load("rpc_receipt.json")
+
+
+def test_topic_round_trip():
+    addr = "0x0a6ebed0155edb4b21d92ad02897a626cd90119e"
+    topic = topic_for(addr.upper().replace("0X", "0x"))
+    assert len(topic) == 66 and topic.startswith("0x" + "0" * 24)
+    assert address_from_topic(topic) == addr
+
+
+def test_parse_transfer_reads_every_log(logs):
+    parsed = [parse_transfer(e) for e in logs["logs"]]
+    assert all(parsed), "every fixture log is a Transfer"
+    one = parsed[0]
+    assert one["to"] == logs["wallet"].lower()
+    assert one["raw"] > 0 and one["tx"].startswith("0x")
+
+
+def test_parse_transfer_rejects_other_events():
+    assert parse_transfer({"topics": [], "address": "0x1"}) is None
+    assert parse_transfer({"topics": ["0xdead", "0x1", "0x2"], "address": "0x1"}) is None
+
+
+def test_only_router_legs_count_as_fills(logs):
+    """A wallet's log traffic is mostly airdrops; a trade is the leg facing the router."""
+    transfers = [parse_transfer(e) for e in logs["logs"]]
+    wallet, router = logs["wallet"].lower(), logs["router"].lower()
+    fills = routed_fills(transfers, {wallet}, {router})
+
+    assert 0 < len(fills) < len(transfers), "some legs are trades and some are not"
+    assert all(f["wallet"] == wallet for f in fills.values())
+    assert all(f["side"] in ("buy", "sell") for f in fills.values())
+    # a transfer from a stranger is not a fill, however large
+    assert not routed_fills(transfers, {wallet}, {"0xsomeoneelse"})
+
+
+def test_side_follows_the_direction_of_the_router_leg():
+    def leg(frm, to):
+        return {"token": "0xtok", "frm": frm, "to": to, "raw": 5, "tx": f"0x{frm}{to}",
+                "index": 1, "block": 100}
+
+    fills = routed_fills([leg("0xrouter", "0xme"), leg("0xme", "0xrouter")], {"0xme"}, {"0xrouter"})
+    assert sorted(f["side"] for f in fills.values()) == ["buy", "sell"]
+
+
+def test_quote_legs_take_the_largest_hop(receipt):
+    """The same dollars pass through several hops, so summing them would double-count."""
+    legs = quote_legs(receipt)
+    assert USDG in legs and legs[USDG] > 0
+    raw = [parse_transfer(e) for e in receipt["logs"]]
+    usdg_legs = [t["raw"] for t in raw if t and t["token"] == USDG]
+    assert legs[USDG] == max(usdg_legs) / 1e6
+    assert legs[USDG] < sum(usdg_legs) / 1e6
+
+
+def test_fill_usd_prefers_the_stablecoin():
+    assert fill_usd({USDG: 120.5, WETH: 1.0}, 2500) == 120.5
+    assert fill_usd({WETH: 2.0}, 2500) == 5000
+    assert fill_usd({WETH: 2.0}, None) is None, "no price, no dollar figure"
+    assert fill_usd({}, 2500) is None
+
+
+def test_get_trades_costs_two_log_queries_and_one_batch(logs, receipt, monkeypatch):
+    """One pass over the whole roster: two eth_getLogs, two block probes, one batched receipt call."""
+    wallet, router = logs["wallet"].lower(), logs["router"].lower()
+    sent = []
+
+    def fake_post(self, payload):
+        sent.append(payload)
+        if isinstance(payload, list):  # batched receipts
+            return [{"id": c["id"], "result": receipt} for c in payload]
+        method = payload["method"]
+        if method == "eth_blockNumber":
+            return {"result": hex(1_000_000)}
+        if method == "eth_getBlockByNumber":
+            block = int(payload["params"][0], 16)
+            return {"result": {"timestamp": hex(1_700_000_000 + block // 10)}}
+        if method == "eth_getLogs":
+            outgoing = payload["params"][0]["topics"][1] is not None
+            return {"result": [] if outgoing else logs["logs"]}
+        raise AssertionError(f"unexpected call {method}")
+
+    monkeypatch.setattr(RobinhoodRPC, "_post", fake_post)
+    rpc = RobinhoodRPC(url="http://offline")
+    rpc.routers = {router}
+    rpc.eth_price = 2500.0  # skip the DexScreener lookup
+    rpc.prime([wallet])
+
+    trades = rpc.get_trades(wallet, "robinhood")
+    assert trades, "the routed legs became fills"
+    assert {t.address for t in trades} == {wallet}
+    assert all(t.source == "rpc" and t.chain == "robinhood" for t in trades)
+    assert all(t.usd_value and t.usd_value > 0 for t in trades)
+    assert all(t.ts > 1_700_000_000 for t in trades), "block numbers became timestamps"
+    assert len({t.sig for t in trades}) == len(trades), "signatures are unique"
+
+    methods = [p["method"] for p in sent if isinstance(p, dict)]
+    assert methods.count("eth_getLogs") == 2
+    assert sum(1 for p in sent if isinstance(p, list)) == 1, "receipts go out in one batch"
+
+    # a second pass inside the cache window costs nothing more
+    before = len(sent)
+    rpc.get_trades(wallet, "robinhood")
+    assert len(sent) == before
+
+
+def test_supports_only_its_own_chain():
+    rpc = RobinhoodRPC(url="http://offline")
+    assert rpc.supports("robinhood") and not rpc.supports("solana")
+    assert rpc.get_trades("0xabc", "solana") == []

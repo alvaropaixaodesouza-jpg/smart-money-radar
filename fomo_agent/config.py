@@ -59,6 +59,21 @@ class Settings:
         default_factory=lambda: _env("TRENCHES_INCLUDE_STOCKS", "false").lower() in ("1", "true", "yes"))
     trenches_window: str = field(default_factory=lambda: _env("TRENCHES_WINDOW", "7d"))
 
+    # Robinhood Chain's own public JSON-RPC: keyless, and two requests cover the whole roster.
+    # Blocks land every ~0.1s, so 200k blocks is ~5.6h and is the widest window it will serve.
+    rpc_url: str = field(default_factory=lambda: _env("RPC_URL", "https://rpc.mainnet.chain.robinhood.com"))
+    rpc_user_agent: str = field(default_factory=lambda: _env(
+        "RPC_USER_AGENT",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"))
+    rpc_max_per_min: int = field(default_factory=lambda: _int("RPC_MAX_PER_MIN", 20))
+    rpc_batch_size: int = field(default_factory=lambda: _int("RPC_BATCH_SIZE", 40))
+    # every fomo fill is routed through this contract; a wallet leg without it is not a trade
+    rpc_routers: tuple[str, ...] = field(default_factory=lambda: tuple(
+        r.strip() for r in _env("RPC_ROUTERS", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f").split(",") if r.strip()))
+    rpc_window_blocks: int = field(default_factory=lambda: _int("RPC_WINDOW_BLOCKS", 200_000))
+    rpc_min_interval_s: float = field(default_factory=lambda: _float("RPC_MIN_INTERVAL_S", 600))
+
     # local endpoint the browser extension posts fomo collections to (loopback only)
     receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
     receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))
@@ -111,7 +126,7 @@ class Settings:
     # codex: all chains + USD per trade, costs 1 request per wallet per pass (10k/month budget!)
     # helius: solana only, needs HELIUS_API_KEY (free tier = 1M credits = ~10k enhanced calls/month)
     track_sources: tuple[str, ...] = field(
-        default_factory=lambda: tuple(c.strip() for c in _env("TRACK_SOURCES", "trenches,codex,helius").split(",") if c.strip())
+        default_factory=lambda: tuple(c.strip() for c in _env("TRACK_SOURCES", "rpc,trenches,codex,helius").split(",") if c.strip())
     )
     track_max_wallets_per_pass: int = field(default_factory=lambda: _int("TRACK_MAX_WALLETS_PER_PASS", 25))
     codex_track_page_limit: int = field(default_factory=lambda: _int("CODEX_TRACK_PAGE_LIMIT", 200))

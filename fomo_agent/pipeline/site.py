@@ -19,6 +19,13 @@ from .. import db
 STATUS_ORDER = {"active": 0, "watch": 1, "dropped": 2, "needs_review": 3}
 TRUSTED_SCORE = 60
 
+# The chain's quote assets. Some sources book a swap from the pool's side, which files "sold token X
+# for USDG" as a USDG trade; left in, the stablecoin every trade passes through tops the feed as the
+# most-bought token on the board. It is plumbing, not a position.
+from ..sources.rpc import QUOTE_TOKENS  # noqa: E402
+
+NOT_QUOTE = " AND {col} NOT IN (%s)" % ",".join("'%s'" % t for t in QUOTE_TOKENS)
+
 
 # ---------------------------------------------------------------- data
 
@@ -49,7 +56,8 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
     for r in conn.execute(
         "SELECT p.*, t.address AS taddr, COALESCE(tk.symbol, substr(p.token,1,8)) sym "
         "FROM fomo_positions p JOIN traders t ON t.fomo_user_id = p.user_id "
-        "LEFT JOIN tokens tk ON tk.mint = p.token ORDER BY p.unrealized_pnl DESC"
+        "LEFT JOIN tokens tk ON tk.mint = p.token "
+        "WHERE 1=1" + NOT_QUOTE.format(col="p.token") + " ORDER BY p.unrealized_pnl DESC"
     ):
         holder = by_address.get(r["taddr"])
         if holder is not None and len(holder["positions"]) < 3:
@@ -65,8 +73,9 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
         "  GROUP_CONCAT(DISTINCT t.fomo_handle) who "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
         "LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        f"WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''} "
-        "GROUP BY tr.mint HAVING buyers >= 2 ORDER BY buyers DESC, usd DESC LIMIT 40",
+        f"WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        + NOT_QUOTE.format(col="tr.mint") +
+        " GROUP BY tr.mint HAVING buyers >= 2 ORDER BY buyers DESC, usd DESC LIMIT 40",
         [since, TRUSTED_SCORE, *params],
     )]
 
@@ -75,8 +84,9 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
         "  COALESCE(tk.symbol, substr(tr.mint,1,8)) sym "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
         "LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        f"WHERE t.score >= ? AND tr.usd_value IS NOT NULL{' AND tr.chain=?' if chain else ''} "
-        "ORDER BY tr.ts DESC LIMIT 60",
+        f"WHERE t.score >= ? AND tr.usd_value IS NOT NULL{' AND tr.chain=?' if chain else ''}"
+        + NOT_QUOTE.format(col="tr.mint") +
+        " ORDER BY tr.ts DESC LIMIT 60",
         [TRUSTED_SCORE, *params],
     )]
 
@@ -87,8 +97,8 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
         "  GROUP_CONCAT(DISTINCT t.fomo_handle) who "
         "FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
         "LEFT JOIN traders t ON t.fomo_user_id = p.user_id "
-        "WHERE p.unrealized_pnl IS NOT NULL GROUP BY p.token "
-        "ORDER BY pnl DESC LIMIT 60"
+        "WHERE p.unrealized_pnl IS NOT NULL" + NOT_QUOTE.format(col="p.token") +
+        " GROUP BY p.token ORDER BY pnl DESC LIMIT 60"
     )]
 
     counts: dict[str, int] = {}
@@ -97,7 +107,8 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
     return {
         "generated_at": db.now(), "hours": hours, "traders": traders, "counts": counts,
         "signals": signals, "tape": tape, "tokens": tokens,
-        "trades": conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0],
+        "trades": conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE 1=1" + NOT_QUOTE.format(col="mint")).fetchone()[0],
         "positions": conn.execute("SELECT COUNT(*) FROM fomo_positions").fetchone()[0],
         "open_pnl": conn.execute("SELECT SUM(unrealized_pnl) FROM fomo_positions").fetchone()[0] or 0,
         "model": next((t["model"] for t in traders if t["model"]), "claude"),

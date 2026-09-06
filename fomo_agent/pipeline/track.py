@@ -3,8 +3,10 @@
 Sources are tried in the order given by TRACK_SOURCES; the first one that supports the
 wallet's chain wins:
 
+  rpc     - Robinhood Chain only, free and keyless: two eth_getLogs calls against the chain's
+            own public endpoint cover the whole roster, whatever its size.
   trenches- Robinhood Chain only, free and keyless: one tape request covers every wallet in a
-            pass, so it costs nothing from the Codex budget.
+            pass, but only for the ~108 wallets that site curates.
   codex   - every chain we watch (solana/base/robinhood), returns USD per trade.
             Costs >=1 request per wallet per pass out of 10k/month, so keep
             TRACK_MAX_WALLETS_PER_PASS and the loop interval sane.
@@ -52,7 +54,11 @@ def build_trackers(names: tuple[str, ...] | None = None) -> list[Tracker]:
     out: list[Tracker] = []
     for name in names or settings.track_sources:
         try:
-            if name == "trenches":
+            if name == "rpc":
+                from ..sources.rpc import RobinhoodRPC
+
+                out.append(RobinhoodRPC())
+            elif name == "trenches":
                 from ..sources.trenches import Trenches
 
                 out.append(Trenches())
@@ -110,6 +116,14 @@ def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, l
     # least-recently-tracked first, so a large candidate pool rotates fairly under the request budget
     rows.sort(key=lambda r: r["last_tracked_ts"] or 0)
     rows = rows[: (limit or settings.track_max_wallets_per_pass)]
+    # batch sources index a whole roster in one shot; tell them which wallets this pass needs
+    for t in trackers:
+        prime = getattr(t, "prime", None)
+        if prime:
+            try:
+                prime([r["address"] for r in rows if t.supports(r["chain"] or "solana")])
+            except Exception as e:  # noqa: BLE001 - a source that cannot prime is simply skipped
+                log.warning("prime %s failed: %s", type(t).__name__, e)
     stats = {"wallets": 0, "unsupported": 0, "trades": 0, "errors": 0, "by_source": {}}
     for r in rows:
         chain = r["chain"] or "solana"
