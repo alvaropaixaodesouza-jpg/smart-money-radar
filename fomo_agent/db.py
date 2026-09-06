@@ -100,6 +100,17 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_positions_user ON fomo_positions(user_id);
     CREATE INDEX IF NOT EXISTS idx_positions_token ON fomo_positions(token);
     """,
+    9: """
+    -- Two sources describing the same fill number their signatures differently (a log index, a
+    -- tape sequence), so the primary key alone lets one trade land twice. `fill_key` is what the
+    -- chain considers the same event, and the unique index makes the duplicate impossible.
+    ALTER TABLE trades ADD COLUMN fill_key TEXT;
+    UPDATE trades SET fill_key = substr(sig, 1, 66) || ':' || address || ':' || mint || ':' || side;
+    DELETE FROM trades WHERE rowid NOT IN (
+      SELECT MIN(rowid) FROM trades GROUP BY fill_key
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_fill ON trades(fill_key);
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -197,11 +208,24 @@ def upsert_token(conn: sqlite3.Connection, mint: str, **fields: Any) -> bool:
 
 # ---------- trades ----------
 
-TRADE_COLS = ("sig", "address", "chain", "mint", "side", "sol_amount", "token_amount", "usd_value", "ts", "source")
+TRADE_COLS = ("sig", "address", "chain", "mint", "side", "sol_amount", "token_amount", "usd_value",
+              "ts", "source", "fill_key")
+
+
+def fill_key(t: dict[str, Any]) -> str:
+    """What makes two rows the same trade, whichever source reported it.
+
+    Signatures carry a source-specific suffix — a log index from the chain, a sequence number from
+    a tape — so the transaction hash is truncated back out of them before comparing. Addresses are
+    taken as stored: sources normalize EVM case on the way in, and Solana base58 is case-sensitive.
+    """
+    return ":".join((str(t.get("sig", ""))[:66], str(t.get("address", "")),
+                     str(t.get("mint", "")), str(t.get("side", ""))))
 
 
 def insert_trade(conn: sqlite3.Connection, **t: Any) -> bool:
     """Idempotent insert keyed by signature. Returns True if a new row was inserted."""
+    t = {**t, "fill_key": t.get("fill_key") or fill_key(t)}
     vals = [t.get(c) for c in TRADE_COLS]
     cur = conn.execute(
         f"INSERT OR IGNORE INTO trades({','.join(TRADE_COLS)}) VALUES({_placeholders(len(TRADE_COLS))})", vals
@@ -235,6 +259,13 @@ def upsert_fomo_position(conn: sqlite3.Connection, **p: Any) -> bool:
     cols = ("trade_id", "user_id", "chain", "token", "symbol", "opened_at", "closed_at", "amount",
             "avg_entry", "avg_exit", "realized_pnl", "unrealized_pnl", "cost_basis",
             "current_price", "liquidity", "seen_at")
+    # fomo's `pnl` can exceed a holding's whole value because it also counts profit already taken
+    # out. Cost basis is then unrecoverable, and a negative one would poison every multiple
+    # computed from it, so it is stored as unknown. Enforced here, where no caller can skip it.
+    p = dict(p)
+    for k in ("cost_basis", "avg_entry"):
+        if p.get(k) is not None and p[k] <= 0:
+            p[k] = None
     vals = [p.get(c) for c in cols[:-1]] + [now()]
     existed = conn.execute("SELECT 1 FROM fomo_positions WHERE trade_id=?", (p.get("trade_id"),)).fetchone()
     conn.execute(

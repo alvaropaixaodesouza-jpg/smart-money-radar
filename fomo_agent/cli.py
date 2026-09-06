@@ -372,6 +372,35 @@ def page(
 
 
 @app.command()
+def token(
+    mint: str = typer.Argument(..., help="contract address of the token"),
+    hours: int = typer.Option(48, "--hours", help="window for the flow section"),
+) -> None:
+    """Who on the watchlist holds this token, what it cost them, and who traded it lately."""
+    from .pipeline.analyze import analyze_token, format_token
+
+    conn = db.connect()
+    typer.echo(format_token(analyze_token(conn, mint, hours)))
+    conn.close()
+
+
+@app.command()
+def trader(
+    who: str = typer.Argument(..., help="fomo handle or wallet address"),
+    hours: int = typer.Option(168, "--hours", help="window for the fills section"),
+) -> None:
+    """One trader: the verdict, the open bags, recent fills and the company they keep."""
+    from .pipeline.analyze import analyze_trader, format_trader
+
+    conn = db.connect()
+    a = analyze_trader(conn, who, hours)
+    conn.close()
+    if a is None:
+        raise typer.BadParameter(f"no trader matches {who!r} (try a fomo handle or a wallet address)")
+    typer.echo(format_trader(a))
+
+
+@app.command()
 def report(
     hours: int = typer.Option(24, "--hours"),
     out: Optional[Path] = typer.Option(None, "--out", help="write markdown to file"),
