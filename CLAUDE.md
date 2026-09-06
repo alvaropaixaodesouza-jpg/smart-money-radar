@@ -1,6 +1,6 @@
 # fomo-agent
 
-Read-only research tool: discovers Solana/Base/Robinhood memecoin traders (fomo.family + fresh-token holders), tracks Solana wallets on-chain (Helius), scores them with Claude, keeps a sqlite watchlist. Never trades.
+Read-only research tool: discovers Robinhood Chain memecoin traders (fomo.family + fresh-token holders), tracks their wallets on-chain, scores them with Claude, and publishes signals / tokens / traders as one HTML page. Never trades.
 
 **Start every session by reading `docs/STATUS.md`** — it has the current state, blockers, and the prioritized work list. Update it at the end of the session.
 
@@ -8,7 +8,8 @@ Read-only research tool: discovers Solana/Base/Robinhood memecoin traders (fomo.
 - Never invent fomo.family endpoints. `sources/fomo.py` is filled only from `docs/fomo-endpoints.md` (phase 0 capture).
 - Thresholds/intervals live in `config.py` + `.env`. No hardcoding.
 - Every source must fail soft: one API down must not stop the loop.
-- Codex budget (10k requests/month) is the system's hard constraint: new tokens, trader discovery and wallet tracking all spend from it. `cli init` prints a projection — check it before adding any new Codex call.
+- Codex budget (10k requests/month) still binds discovery and resolution; `cli init` prints a projection, check it before adding any Codex call. Tracking no longer spends it: `sources/rpc.py` covers the whole Robinhood roster in two `eth_getLogs` calls. Prefer a free source before reaching for Codex.
+- Quote assets (USDG, WETH — `QUOTE_TOKENS` in `sources/rpc.py`) are never positions. Codex books swaps from the pool's side, so "sold X for USDG" arrives as a USDG buy; anything user-facing must exclude them.
 - These Codex queries are plan-gated and unavailable: `filterWallets`, `detailedWalletStats`, `balances`. Working ones: `filterTokens`, `getTokenEvents`, `getTokenEventsForMaker`.
 - Scoring must keep working without `ANTHROPIC_API_KEY` via the `score --export` / `--import` loop.
 - Keep `pytest -q` green (offline fixture tests in `tests/`). Add a fixture + test for every new parser.

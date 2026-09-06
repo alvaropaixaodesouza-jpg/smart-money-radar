@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fomo-agent"
 version = "0.1.0"
-description = "Research tool: discover strong Solana traders via fomo.family, track them on-chain, score with Claude. Read-only, no trading."
+description = "Research tool: find the fomo.family traders worth watching on Robinhood Chain, track their fills on-chain, score them with Claude. Read-only, never trades."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [

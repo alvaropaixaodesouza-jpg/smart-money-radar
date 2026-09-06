@@ -1,105 +1,148 @@
 # fomo-agent
 
-Research tool that finds strong Solana memecoin traders via [fomo.family](https://fomo.family), tracks their swaps on-chain (Helius), scores them with Claude, and keeps a local SQLite watchlist (`active / watch / dropped`).
+Finds the [fomo.family](https://fomo.family) traders worth watching on Robinhood Chain, follows
+their fills on-chain, and asks Claude which of them are actually good. The result is one
+self-contained HTML page: a signal feed, a token analyzer, and a scored roster.
 
-**Read-only. It never signs or sends transactions.**
-
-Architecture rule: fomo is only a *discovery* source (wallet addresses + PnL). Tracking and analytics are on-chain and work without fomo.
-
-Chains: the new-token trigger watches `DEX_CHAINS` (default `solana,base,robinhood`). On-chain wallet tracking via Helius is **Solana only** for now; EVM wallets are stored but skipped by `track` until an EVM transaction source is added.
-
-### Data sources
-
-**New tokens** (`TOKEN_SOURCES`), merged and deduped per chain+address:
-
-| Source | What it sees | Cost / limits |
-|---|---|---|
-| `codex` | one GraphQL `filterTokens` across all chains with server-side mcap / liquidity / age filters, plus sniper / bundler / top-10 holder percentages | needs `CODEX_API_KEY`; Almost Free plan: $1 one-time, 10k requests/month, 5 rps |
-| `geckoterminal` | trending / top-volume pools per chain, no boost needed (`GECKO_FEEDS`) | free, ~30 rpm |
-| `dexscreener` | only tokens that bought a DexScreener profile/boost | free, 60 rpm |
-
-**Wallet trades** (`TRACK_SOURCES`), first source that supports the wallet's chain wins:
-
-| Source | Chains | Notes |
-|---|---|---|
-| `trenches` | robinhood | [robinhoodtrenches.com](https://robinhoodtrenches.com), free and keyless. One tape request covers every wallet in a pass |
-| `codex` | solana, base, robinhood | returns USD per trade; 1+ request per wallet per pass |
-| `helius` | solana | needs `HELIUS_API_KEY`; free tier is 1M credits/month and an Enhanced Transactions call costs 100 credits |
-
-**Third-party indexer**: `robinhoodtrenches.com` publishes a keyless JSON API over ~108 curated fomo.family
-traders on Robinhood Chain. `fomo-agent discover --trenches` imports them with their execution wallets
-already resolved — the mapping fomo's own API hides behind Cloudflare — plus realized PnL, win rate and
-hold times that feed straight into the scoring context. `fomo-agent trenches` shows its health and a
-live peek. It is unofficial: every call fails soft and the loop runs without it.
-
-**Trader discovery**: `discover --mint <mint> --makers` pulls the wallets currently buying a token and stores those above `DISCOVER_MIN_BUY_USD` as candidates. This works without fomo, and `new-tokens` runs it automatically on the biggest fresh tokens.
-
-### Codex request budget
-
-The Almost Free plan allows 10,000 requests/month and every feature above spends from it. `fomo-agent init` prints a projection for your current config and warns when it exceeds the cap. The shipped intervals land around 9.5k/month.
-
-### Scoring without an Anthropic API key
-
-`SCORER=auto` uses the API when `ANTHROPIC_API_KEY` is set, and otherwise switches to a manual loop you drive from a Claude chat:
+**Read-only. It never signs or sends a transaction, and it holds no keys that could.**
 
 ```bash
-fomo-agent score --export pending_scores.json   # contexts + schema + instructions
-# hand that file to Claude, get a JSON array back, save it as scored.json
-fomo-agent score --import scored.json --model-label "manual:claude-opus-5"
+pip install -e .
+cp .env.example .env          # nothing is required to start; see "Keys" below
+fomo-agent init               # create the database, print the request budget
+fomo-agent discover --trenches   # import a starter roster, wallets already resolved
+fomo-agent track                 # pull their fills off the chain
+fomo-agent score --export pending.json   # score in a chat, or set ANTHROPIC_API_KEY
+fomo-agent page --out radar.html
 ```
 
-Imported scores go through the same pydantic validation and land in the same tables as API scores. See `docs/example_scores.json` for the expected shape.
+## What it actually knows
 
-## Status
+Three things took a while to learn and are the reason this repo exists.
 
-Detailed state, blockers and prioritized work list: [docs/STATUS.md](docs/STATUS.md).
+**1. A fomo profile address is not a wallet.** Every address fomo's API returns is an internal
+account with zero on-chain history. The wallet that executes the trades is separate and the API
+never links them. `pipeline/resolve.py` infers it: take ~12 of a trader's swaps, ask who else
+traded that token in the same 90-second window, and weight each window by how quiet it was — being
+one of three makers is evidence, being one of a hundred is not. Measured 41 of 42 correct against
+an independently sourced roster.
 
-| Phase | State |
-|---|---|
-| 0. fomo recon (`scripts/capture_fomo_endpoints.py`, `docs/fomo-endpoints.md`) | script ready, capture **not done** |
-| 1. skeleton + discovery | done (fomo adapter stubbed until phase 0) |
-| 2. DexScreener trigger + Helius tracking | done, needs `HELIUS_API_KEY` to run |
-| 3. Claude scoring | done, needs `ANTHROPIC_API_KEY` |
-| 4. report + `run` loop | basic version done |
-| 5. SKILL.md + GitHub | minimal SKILL.md |
+**2. The leaderboard's PnL is real money, and it includes open bags.** A wallet showing $2.8M on a
+$5.2k on-chain outlay is not a glitch: the position ran and was never sold, so the profit is real
+and unrealized at once. Negative on-chain cash flow is what *accumulating* looks like, not what
+losing looks like. fomo's figure is the primary scoring signal here; on-chain flow is the sanity
+check, and the scoring prompt says so explicitly.
 
-## Install
+**3. On Robinhood Chain, a relayer submits every trade.** The trader's wallet is never the
+transaction's `from`. Each fill routes through one contract, and the wallet's only leg is the token
+arriving from it (a buy) or leaving to it (a sell). Filtering on that counterparty is what
+separates real fills from the airdrops that make up most of a wallet's log traffic — and it is why
+`eth_getLogs` is enough to track the whole roster for free.
+
+## Data sources
+
+**Wallet fills** (`TRACK_SOURCES`), first source that supports the wallet's chain wins:
+
+| Source | Chains | Cost |
+|---|---|---|
+| `rpc` | robinhood | free, keyless. Two `eth_getLogs` calls cover the entire roster |
+| `trenches` | robinhood | free, keyless, but only the ~108 wallets [robinhoodtrenches.com](https://robinhoodtrenches.com) curates |
+| `codex` | solana, base, robinhood | `CODEX_API_KEY`; ~1 request per wallet per pass |
+| `helius` | solana | `HELIUS_API_KEY`; 100 credits per Enhanced Transactions call |
+
+`rpc` is the default and the reason the Codex budget is no longer the binding constraint.
+`eth_getLogs` accepts a *list* of values for a topic position, so one request asks for every ERC-20
+Transfer whose receiver is any of 300 wallets and a second asks the other direction; receipts for
+the fills that come back are batched 40 to a round trip. A full pass over 302 wallets costs about
+30 free requests. Against the trenches tape over the same window, 209 of 209 fills agreed on side
+and token with a median dollar error of 0.00%.
+
+**New tokens** (`TOKEN_SOURCES`), merged and deduped per chain and address:
+
+| Source | What it sees | Cost |
+|---|---|---|
+| `codex` | one `filterTokens` across all chains with server-side mcap / liquidity / age filters | `CODEX_API_KEY`; $1 one-time, 10k requests/month |
+| `geckoterminal` | trending and top-volume pools per chain (`GECKO_FEEDS`) | free, ~30 rpm |
+| `dexscreener` | tokens that bought a profile or boost, and name/price lookups 30 at a time | free, 60 rpm |
+
+**fomo.family itself** is collected in a browser — see below. It supplies the leaderboard, the
+30-day PnL that drives scoring, and per-token open positions.
+
+### Quote assets are not signals
+
+USDG is Robinhood Chain's dollar stablecoin and every trade passes through it. Sources that book a
+swap from the pool's side file "sold token X for USDG" as a *USDG purchase*, which is enough to put
+the stablecoin at the top of a signal feed with more buyers than any real token. `sources/rpc.py`
+lists the quote assets and the page excludes them everywhere. Worth knowing before trusting any
+feed built on raw DEX trade data, this one included.
+
+## Scoring without an API key
+
+Scoring runs either way:
 
 ```bash
-python -m venv .venv
-.venv/Scripts/pip install -e ".[capture,dev]"
-.venv/Scripts/playwright install chromium
-copy .env.example .env   # fill keys
+fomo-agent score                          # needs ANTHROPIC_API_KEY
+fomo-agent score --export pending.json    # ...or paste the file into any Claude chat
+fomo-agent score --import scored.json     # and load the answer back
 ```
+
+The export carries the same context and instructions the API path sends, so the two produce
+comparable verdicts. `docs/example_scores.json` shows the expected shape.
+
+## The page
+
+`fomo-agent page` writes one standalone HTML file — no server, no build step, no runtime
+dependency beyond a webfont — with three views:
+
+- **Signals** — tokens that two or more traders scoring 60+ bought inside the window, ranked by how
+  many agree, next to a live tape of every fill by a trusted wallet.
+- **Tokens** — everything the cohort still holds, ranked by unrealised profit, with what it cost
+  them and the multiple that implies.
+- **Traders** — the scored roster: a verdict, the reasoning, the figures behind it, and each
+  trader's largest open bags.
 
 ## Commands
 
-```bash
-fomo-agent init                                  # create db, show config
-fomo-agent new-tokens --dry-run                  # what DexScreener returns right now
+```
+fomo-agent init                                  # create db, print the Codex projection
 fomo-agent new-tokens                            # store fresh tokens, trigger holder discovery
-fomo-agent discover --add <wallet> [--chain base] # manual candidate (no fomo needed)
-fomo-agent discover --leaderboard                # fomo leaderboard 24h/7d/30d  (phase 0 required)
+fomo-agent enrich-tokens                         # resolve names and liquidity for bare addresses
+fomo-agent discover --trenches                   # import the trenches roster (free, resolved)
+fomo-agent discover --add <wallet> [--chain base]
+fomo-agent discover --leaderboard                # fomo leaderboard 24h/7d/30d (browser collection)
 fomo-agent discover --mint <mint> --makers       # buyers of a token -> candidates (Codex)
-fomo-agent discover --mint <mint>                # fomo top-PnL holders          (phase 0 required)
-fomo-agent track [--address <wallet>] [--show]   # pull swaps (Codex or Helius)
+fomo-agent resolve [--handle <name>]             # infer execution wallets
+fomo-agent track [--address <wallet>] [--show]
 fomo-agent score [--address <wallet>] [--deep] [--force] [--show-context]
-fomo-agent score --export pending.json / --import scored.json   # in-chat scoring
 fomo-agent report [--hours 24] [--out report.md]
-fomo-agent page --out radar.html            # scored watchlist as a standalone HTML page
+fomo-agent page --out radar.html [--hours 48]
 fomo-agent run [--once]                          # polling loop
 fomo-agent receive                               # local endpoint for the browser extension
-fomo-agent trenches [--window 7d] [--tape 10]    # third-party indexer health + peek
-fomo-agent fomo-import <file>                    # load a browser export
+fomo-agent trenches [--window 7d] [--tape 10]
+fomo-agent fomo-import <file>
 ```
 
 Or `python -m fomo_agent.cli ...` from the repo.
 
+## Keys
+
+Everything in `.env`, nothing in code. All of it is optional — the parts that need a missing key
+disable themselves and the rest keeps running.
+
+| Variable | Unlocks |
+|---|---|
+| *(none)* | `rpc` tracking, trenches discovery, dexscreener and geckoterminal |
+| `CODEX_API_KEY` | Solana and Base tracking, token discovery, wallet resolution |
+| `ANTHROPIC_API_KEY` | scoring without the export/import loop |
+| `HELIUS_API_KEY` | Solana tracking |
+
+Every source fails soft: one API being down never stops the loop.
+
 ## Getting fomo data
 
-fomo's API cannot be called from a server: Cloudflare rejects every non-browser client at the edge
-with `430 {"error":"unauthorized"}`, including the exact cURL Chrome generates with a fresh token.
-Its Privy bearer also expires hourly. So fomo data is collected *in* a browser, two ways:
+fomo's API cannot be called from a server — Cloudflare rejects every non-browser client at the edge
+with `430 {"error":"unauthorized"}`, including the exact cURL Chrome generates with a fresh token,
+and its Privy bearer expires hourly. So fomo data is collected *in* a browser:
 
 - **Automatic** — load `extension/` as an unpacked Chrome extension and run `fomo-agent receive`.
   It collects on a schedule from your logged-in tab and posts straight into the database.
@@ -107,17 +150,37 @@ Its Privy bearer also expires hourly. So fomo data is collected *in* a browser, 
 - **Manual** — paste `scripts/fomo_export.js` into the DevTools console, then
   `fomo-agent fomo-import <downloaded file>`.
 
-Both produce the same payload and go through the same parsers. For Robinhood Chain you may not need
-either: `discover --trenches` gets the same handle-to-wallet mapping for free.
+Both produce the same payload and go through the same parsers.
 
-## Getting `FOMO_SESSION` (legacy)
+## Layout
 
-Run the phase 0 capture script, log in, browse; the script prints which cookie/header carries the session (values masked). Paste it into `.env`. Then document endpoints in `docs/fomo-endpoints.md` and fill the TODOs in `fomo_agent/sources/fomo.py`.
+```
+fomo_agent/
+  sources/     one module per external API, each with pure parse_* functions
+  pipeline/    discover -> resolve -> track -> score -> site
+  db.py        sqlite, versioned migrations, no ORM
+  config.py    every threshold and interval, read from .env
+extension/     Chrome MV3 extension that collects fomo from a logged-in tab
+tests/         offline: every source is exercised through a stored fixture
+docs/STATUS.md current state and the work list
+```
+
+## Tests
+
+```bash
+pytest -q
+```
+
+No network. Every parser has a fixture captured from the real response it must handle; adding a
+source means adding one of each.
 
 ## Disclaimer
 
-fomo.family has no public API. This uses whatever the web app calls internally, which can change or break at any time, and may violate their terms — your account could be banned. Use at your own risk. Nothing here is financial advice.
+fomo.family has no public API. This reads what the web app calls internally, which can change or
+break at any time and may violate their terms — your account could be banned. Robinhood Chain's
+public RPC is used within its ordinary rate limits. Nothing here is financial advice, and nothing
+here places a trade.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
