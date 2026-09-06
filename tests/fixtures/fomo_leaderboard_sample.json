@@ -1,0 +1,162 @@
+{
+ "success": true,
+ "message": "30D Leaderboard found",
+ "responseObject": {
+  "leaderboard": [
+   {
+    "id": "36adb85a-c0fd-5fa8-916d-8fdc32fe4237",
+    "address": "FJDy9FDRy6bwGEUKuAC98bUtN8MkpE2pT7Dj7HE3Z7Q1",
+    "evmAddress": "0x2ac082e252143c89c6e3bcb972e49855f9f6711c",
+    "createdAt": "2026-05-18T12:45:58.832Z",
+    "displayName": "Unipcs",
+    "userHandle": "unipcs",
+    "following": 34,
+    "followers": 488102,
+    "activated": false,
+    "verified": false,
+    "isReferred": true,
+    "isRestricted": false,
+    "swapCount": 392,
+    "numTrades": 2653,
+    "totalVolume": 2373150.103118,
+    "private": false,
+    "pnl30d": 16881439.25668856,
+    "clan": {
+     "id": "715a68a6-657e-4424-8c65-68ad3af899b1",
+     "name": "Fantom Troupe"
+    },
+    "totalHoldings": 129,
+    "topHoldings": [
+     {
+      "imageUrl": "https://token-media.defined.fi/4663_0x39dbed3a2bd333467115de45665cc57f813c4571_thumb_af38c5d84ec2.png",
+      "tokenAddress": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+      "networkId": 4663,
+      "humanAmount": 10957901.416319031,
+      "price": 0.719413066615,
+      "value": 7883257.461578927,
+      "pnl": 7815546.744421343
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/56_0xfe189e97832da1573e4e4ff034f4ffc3a15c7777_thumb_92b322a5aa4e.png",
+      "tokenAddress": "0xfe189e97832da1573e4e4ff034f4ffc3a15c7777",
+      "networkId": 56,
+      "humanAmount": 24956921.018885747,
+      "price": 0.180980886328,
+      "value": 4516725.686015835,
+      "pnl": 3551668.6468241
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/1399811149_Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk_thumb_c8981520d740.png",
+      "tokenAddress": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
+      "networkId": 1399811149,
+      "humanAmount": 15905133.02578,
+      "price": 0.261230257637,
+      "value": 4154901.9980752664,
+      "pnl": 3317204.0986600984
+     }
+    ]
+   },
+   {
+    "id": "6e51b3ef-54bc-5062-894b-3f06986ac242",
+    "address": "43nktK56Bfk3yJK9iqr3Kzyt9npgEB6sPYKAeoYMxeug",
+    "evmAddress": "0xb48ae67b008443eaa5b5f20b7e9da4fb39f8e167",
+    "createdAt": "2025-11-10T00:15:45.484Z",
+    "displayName": "DumbCrayonEater",
+    "userHandle": "DumbCrayonEater",
+    "following": 39,
+    "followers": 466386,
+    "activated": false,
+    "verified": false,
+    "isReferred": false,
+    "isRestricted": false,
+    "swapCount": 971,
+    "numTrades": 2313,
+    "totalVolume": 1023753.207634,
+    "private": false,
+    "pnl30d": 8179109.255423562,
+    "clan": null,
+    "totalHoldings": 82,
+    "topHoldings": [
+     {
+      "imageUrl": "https://token-media.defined.fi/4663_0x2e8c31162b855a2ffa90f6f8634643ad6f111e18_thumb_390d89c531f0.png",
+      "tokenAddress": "0x2e8c31162b855a2ffa90f6f8634643ad6f111e18",
+      "networkId": 4663,
+      "humanAmount": 29322551.565300036,
+      "price": 0.251199652813,
+      "value": 7365814.772794658,
+      "pnl": 7344608.439445659
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/1399811149_9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump_thumb_1489ea350df9.png",
+      "tokenAddress": "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump",
+      "networkId": 1399811149,
+      "humanAmount": 10000.198225,
+      "price": 0.250301990738,
+      "value": 2503.0695234921145,
+      "pnl": 843354.2722363218
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/56_0xb0c2ab5af4028461ace3f6e1c33a4ee1404e7777_thumb_5cc569654ffc.png",
+      "tokenAddress": "0xb0c2ab5af4028461ace3f6e1c33a4ee1404e7777",
+      "networkId": 56,
+      "humanAmount": 14769699.134828899,
+      "price": 0.0246816703503,
+      "value": 364540.845218958,
+      "pnl": 338239.442903958
+     }
+    ]
+   },
+   {
+    "id": "00903129-2c44-5803-9b25-cb0bfdfd6878",
+    "address": "CDY1JBoi2fKPPsHabyANmp6RP9Lkz8TcrkACsX3rHkka",
+    "evmAddress": "0xa14b38a3dfd05c089bae5d60e9d42af3924e5da0",
+    "createdAt": "2026-03-18T08:14:07.169Z",
+    "displayName": "Salem",
+    "userHandle": "Salem1299534",
+    "following": 142,
+    "followers": 192691,
+    "activated": false,
+    "verified": false,
+    "isReferred": false,
+    "isRestricted": false,
+    "swapCount": 676,
+    "numTrades": 1175,
+    "totalVolume": 2377428.476703,
+    "private": false,
+    "pnl30d": 6076694.075436702,
+    "clan": null,
+    "totalHoldings": 13,
+    "topHoldings": [
+     {
+      "imageUrl": "https://token-media.defined.fi/4663_0x2e8c31162b855a2ffa90f6f8634643ad6f111e18_thumb_390d89c531f0.png",
+      "tokenAddress": "0x2e8c31162b855a2ffa90f6f8634643ad6f111e18",
+      "networkId": 4663,
+      "humanAmount": 22184874.08104861,
+      "price": 0.251199652813,
+      "value": 5572832.666859534,
+      "pnl": 6012666.586926658
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/8453_0x9d0e8f5b25384c7310cb8c6ae32c8fbeb645d083_thumb_46e7ed502358.png",
+      "tokenAddress": "0x9d0e8f5b25384c7310cb8c6ae32c8fbeb645d083",
+      "networkId": 8453,
+      "humanAmount": 3655369.0026367186,
+      "price": 0.150784870949,
+      "value": 551174.3433335525,
+      "pnl": -115402.51168675738
+     },
+     {
+      "imageUrl": "https://token-media.defined.fi/8453_0xb20000000000000000000029440a9564b59129b1_thumb_7c22c9053c31.png",
+      "tokenAddress": "0xb20000000000000000000029440a9564b59129b1",
+      "networkId": 8453,
+      "humanAmount": 28280419.25129194,
+      "price": 0.00376361581122,
+      "value": 106436.63304209283,
+      "pnl": 102034.26819340284
+     }
+    ]
+   }
+  ]
+ },
+ "statusCode": 200
+}

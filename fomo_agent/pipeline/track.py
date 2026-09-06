@@ -1,0 +1,134 @@
+"""On-chain tracking: pull swaps for tracked wallets.
+
+Sources are tried in the order given by TRACK_SOURCES; the first one that supports the
+wallet's chain wins:
+
+  trenches- Robinhood Chain only, free and keyless: one tape request covers every wallet in a
+            pass, so it costs nothing from the Codex budget.
+  codex   - every chain we watch (solana/base/robinhood), returns USD per trade.
+            Costs >=1 request per wallet per pass out of 10k/month, so keep
+            TRACK_MAX_WALLETS_PER_PASS and the loop interval sane.
+  helius  - Solana only, needs HELIUS_API_KEY. Free tier is 1M credits/month and an
+            Enhanced Transactions call costs 100 credits, i.e. ~10k calls/month.
+
+A wallet whose chain no source supports is counted in `unsupported` and left alone.
+"""
+from __future__ import annotations
+
+import logging
+import sqlite3
+from typing import Protocol
+
+from .. import db
+from ..config import settings
+from ..models import Trade
+
+log = logging.getLogger(__name__)
+TRACKED = ("candidate", "tracking", "active", "watch")
+
+
+class Tracker(Protocol):
+    def supports(self, chain: str) -> bool: ...
+    def get_trades(self, address: str, chain: str = "solana", since_ts: int | None = None) -> list[Trade]: ...
+
+
+class HeliusTracker:
+    """Adapter so the Solana-only Helius client fits the Tracker protocol."""
+
+    def __init__(self, client=None):
+        from ..sources.helius import HeliusClient
+
+        self.client = client or HeliusClient()
+
+    def supports(self, chain: str) -> bool:
+        return chain == "solana"
+
+    def get_trades(self, address: str, chain: str = "solana", since_ts: int | None = None) -> list[Trade]:
+        return self.client.get_swaps(address, since_ts=since_ts)
+
+
+def build_trackers(names: tuple[str, ...] | None = None) -> list[Tracker]:
+    """Instantiate the configured sources, skipping any that cannot start (missing key)."""
+    out: list[Tracker] = []
+    for name in names or settings.track_sources:
+        try:
+            if name == "trenches":
+                from ..sources.trenches import Trenches
+
+                out.append(Trenches())
+            elif name == "codex":
+                from ..sources.codex import Codex
+
+                out.append(Codex())
+            elif name == "helius":
+                out.append(HeliusTracker())
+            else:
+                log.warning("unknown track source %r", name)
+        except Exception as e:  # noqa: BLE001 - a missing key must not break the others
+            log.info("track source %s unavailable: %s", name, e)
+    if not out:
+        raise RuntimeError(
+            "no wallet-trade source available. Set CODEX_API_KEY (dashboard.codex.io, $1) "
+            "or HELIUS_API_KEY (free tier at helius.dev), then check TRACK_SOURCES."
+        )
+    return out
+
+
+def pick_tracker(trackers: list[Tracker], chain: str, address: str | None = None) -> Tracker | None:
+    """First source that handles this chain — and, when it only indexes a fixed roster, this wallet."""
+    for t in trackers:
+        if not t.supports(chain):
+            continue
+        covers = getattr(t, "covers", None)
+        if address and covers and not covers(address):
+            continue
+        return t
+    return None
+
+
+def track_wallet(conn: sqlite3.Connection, tracker: Tracker, address: str, chain: str = "solana",
+                 *, backfill_days: int | None = None) -> int:
+    """Collect new trades since the last stored one (or the lookback window). Returns inserted count."""
+    since = db.last_trade_ts(conn, address)
+    if since is None:
+        since = db.now() - (backfill_days or settings.track_lookback_days) * 86400
+    trades = tracker.get_trades(address, chain, since_ts=since)
+    inserted = 0
+    with db.tx(conn):
+        for t in trades:
+            inserted += db.insert_trade(conn, **t.model_dump())
+        conn.execute("UPDATE traders SET last_tracked_ts=? WHERE address=?", (db.now(), address))
+        row = db.get_trader(conn, address)
+        if row and row["status"] == "candidate":
+            db.set_status(conn, address, "tracking")
+    return inserted
+
+
+def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, limit: int | None = None) -> dict:
+    trackers = trackers or build_trackers()
+    rows = db.traders_by_status(conn, *TRACKED)
+    # least-recently-tracked first, so a large candidate pool rotates fairly under the request budget
+    rows.sort(key=lambda r: r["last_tracked_ts"] or 0)
+    rows = rows[: (limit or settings.track_max_wallets_per_pass)]
+    stats = {"wallets": 0, "unsupported": 0, "trades": 0, "errors": 0, "by_source": {}}
+    for r in rows:
+        chain = r["chain"] or "solana"
+        tracker = pick_tracker(trackers, chain, r["address"])
+        if tracker is None:
+            stats["unsupported"] += 1
+            continue
+        name = type(tracker).__name__
+        try:
+            n = track_wallet(conn, tracker, r["address"], chain)
+            stats["wallets"] += 1
+            stats["trades"] += n
+            stats["by_source"][name] = stats["by_source"].get(name, 0) + 1
+        except Exception as e:  # noqa: BLE001 - one bad wallet must not stop the loop
+            stats["errors"] += 1
+            log.warning("track %s (%s) failed: %s", r["address"][:8], chain, e)
+    for t in trackers:
+        used = getattr(t, "requests", None) or getattr(getattr(t, "limiter", None), "total", None)
+        if used:
+            stats.setdefault("requests", {})[type(t).__name__] = used
+    log.info("track: %s", stats)
+    return stats

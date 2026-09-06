@@ -1,0 +1,431 @@
+"""CLI: discover / new-tokens / track / score / report / run. Read-only research tool; never trades."""
+from __future__ import annotations
+
+import logging
+import time
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+from . import db
+from .config import settings
+
+app = typer.Typer(help="fomo-agent: discover, track and score Solana traders (research only).", no_args_is_help=True)
+
+
+def _setup(verbose: bool) -> None:
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def _run(kind: str, fn, *args, **kw) -> dict | None:
+    """Wrap a step in a `runs` row. Errors are recorded, not raised."""
+    conn = db.connect()
+    rid = db.run_start(conn, kind)
+    try:
+        stats = fn(conn, *args, **kw)
+        db.run_finish(conn, rid, stats)
+        return stats
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(kind).error("%s failed: %s", kind, e)
+        db.run_finish(conn, rid, error=repr(e)[:500])
+        return None
+    finally:
+        conn.close()
+
+
+@app.callback()
+def main(verbose: bool = typer.Option(False, "-v", "--verbose")) -> None:
+    _setup(verbose)
+
+
+@app.command()
+def init() -> None:
+    """Create the sqlite database and print config."""
+    conn = db.connect()
+    conn.close()
+    typer.echo(f"db: {settings.db_path.resolve()}")
+    typer.echo(f"helius key: {'set' if settings.helius_api_key else 'MISSING'}")
+    typer.echo(f"anthropic key: {'set' if settings.anthropic_api_key else 'MISSING'}")
+    typer.echo(f"codex key: {'set' if settings.codex_api_key else 'not set (codex source skipped)'}")
+    typer.echo(f"track sources: {','.join(settings.track_sources)}")
+    typer.echo(f"scorer: {settings.scorer} (SCORER={settings.scorer_mode})")
+    conn = db.connect()
+    users, resolved = conn.execute(
+        "SELECT COUNT(*), COUNT(resolved_at) FROM fomo_users"
+    ).fetchone()
+    conn.close()
+    typer.echo(f"fomo: browser export only (Cloudflare blocks server calls) — "
+               f"{users} users known, {resolved} with execution wallets. "
+               f"Refresh: scripts/fomo_export.js -> cli fomo-import")
+    typer.echo(f"new-token threshold: mcap>={settings.new_token_min_mcap_usd:,.0f} USD, age<={settings.new_token_max_age_hours}h, chains={','.join(settings.dex_chains)}, sources={','.join(settings.token_sources)}")
+    if settings.codex_api_key:
+        b = codex_budget(conn_counts=chain_counts())
+        typer.echo(
+            f"codex budget: ~{b['total']:,}/month of {settings.codex_monthly_request_cap:,} "
+            f"(tokens {b['tokens']:,} + discovery ~{b['discovery']:,} + "
+            f"tracking {b['tracking']:,} for {b.get('codex_wallets', 0)} wallets Codex must cover)"
+            + ("  OVER BUDGET - raise the intervals" if b["total"] > settings.codex_monthly_request_cap else "")
+        )
+
+
+def chain_counts() -> dict[str, int]:
+    conn = db.connect()
+    try:
+        return {r[0] or "solana": r[1] for r in conn.execute(
+            "SELECT chain, COUNT(*) FROM traders WHERE status IN ('candidate','tracking','active','watch') GROUP BY chain")}
+    finally:
+        conn.close()
+
+
+def codex_budget(new_tokens_per_day: int = 20, conn_counts: dict[str, int] | None = None) -> dict:
+    """Rough monthly Codex request projection for the current config.
+
+    Wallets on a chain served by a free source earlier in TRACK_SOURCES (today: trenches on
+    Robinhood Chain) never reach Codex, so they are excluded from the tracking line.
+    """
+    from .pipeline.track import build_trackers, pick_tracker
+
+    per_day = 86400
+    tokens = round(per_day / max(settings.codex_min_interval_s, 1) * 30)
+    discovery = round(min(new_tokens_per_day, settings.discover_tokens_per_pass * per_day / max(settings.new_tokens_interval, 1)) * 30)
+
+    counts = conn_counts or {}
+    on_codex = sum(counts.values())
+    if counts:
+        try:
+            trackers = build_trackers()
+            on_codex = sum(n for chain, n in counts.items()
+                           if type(pick_tracker(trackers, chain)).__name__ == "Codex")
+        except Exception:  # noqa: BLE001 - projection must never break `init`
+            pass
+    wallets_per_pass = min(settings.track_max_wallets_per_pass, on_codex) if counts else settings.track_max_wallets_per_pass
+    tracking = round(per_day / max(settings.track_interval, 1) * wallets_per_pass * 30)
+    return {"tokens": tokens, "discovery": discovery, "tracking": tracking,
+            "codex_wallets": on_codex, "total": tokens + discovery + tracking}
+
+
+@app.command()
+def discover(
+    leaderboard: bool = typer.Option(False, "--leaderboard", help="pull fomo leaderboard 24h/7d/30d"),
+    mint: Optional[str] = typer.Option(None, "--mint", help="pull top-PnL holders of a token from fomo"),
+    add: Optional[str] = typer.Option(None, "--add", help="manually add a wallet address (no fomo needed)"),
+    handle: Optional[str] = typer.Option(None, "--handle"),
+    chain: Optional[str] = typer.Option(None, "--chain", help="solana | base | robinhood | evm (guessed if omitted)"),
+    makers: bool = typer.Option(False, "--makers", help="with --mint: pull recent buyers from Codex instead of fomo holders"),
+    trenches: bool = typer.Option(False, "--trenches", help="import fomo traders from robinhoodtrenches.com (free, no session)"),
+    window: Optional[str] = typer.Option(None, "--window", help="with --trenches: 1h|24h|7d|30d|all"),
+) -> None:
+    """Discover candidate traders."""
+    from .pipeline import discover as d
+
+    if add:
+        conn = db.connect()
+        created = d.add_manual(conn, add, handle, chain)
+        conn.close()
+        typer.echo(f"{'added' if created else 'already known'}: {add}")
+    if trenches:
+        typer.echo(_run("discover_trenches", d.discover_trenches, None, window))
+    if leaderboard:
+        typer.echo(_run("discover_leaderboard", d.discover_leaderboard))
+    if mint:
+        if makers:
+            typer.echo(_run("discover_makers", d.discover_makers, mint, chain or "solana"))
+        else:
+            from .sources.fomo import NETWORKS
+
+            net = next((n for n, c in NETWORKS.items() if c == (chain or "solana")), 1399811149)
+            typer.echo(_run("discover_holders", d.discover_holders, mint, None, net))
+    if not (add or leaderboard or mint or trenches):
+        typer.echo("nothing to do: use --trenches, --leaderboard, --mint [--makers] or --add")
+
+
+@app.command("fomo-check")
+def fomo_check() -> None:
+    """Verify FOMO_SESSION against the live API and show what the leaderboard returns."""
+    from .sources.fomo import FomoClient, FomoError
+
+    try:
+        client = FomoClient()
+    except FomoError as e:
+        typer.echo(f"not configured: {e}")
+        raise typer.Exit(1)
+    try:
+        rows = client.leaderboard("7d", limit=5)
+    except FomoError as e:
+        typer.echo(f"FAILED: {e}")
+        raise typer.Exit(1)
+    typer.echo(f"OK, {len(rows)} leaderboard rows (7d). Top:")
+    for r in rows:
+        typer.echo(f"  {str(r.fomo_handle):20s} pnl7d={r.pnl_7d} trades={r.trades_cnt} vol={r.volume_usd}")
+    if rows:
+        addrs = client.execution_addresses(rows[0].fomo_user_id)
+        typer.echo(f"execution wallets of {rows[0].fomo_handle}: {addrs or 'none found in recent swaps'}")
+        typer.echo(f"(profile address {rows[0].profile_address} is NOT what trades on-chain)")
+    typer.echo(f"requests used: {client.requests}")
+
+
+@app.command("trenches")
+def trenches_status(
+    window: str = typer.Option("24h", "--window", help="1h|24h|7d|30d|all"),
+    tape: int = typer.Option(0, "--tape", help="also print the N latest fills"),
+    closed: int = typer.Option(0, "--closed", help="also print the N latest closed positions"),
+) -> None:
+    """Health and a peek at robinhoodtrenches.com (fomo traders on Robinhood Chain)."""
+    from datetime import datetime, timezone
+
+    from .sources.trenches import Trenches
+
+    c = Trenches()
+    s = c.status()
+    typer.echo(f"chain={s.get('chain')} ({s.get('chain_id')}) wallets={s.get('wallets')} "
+               f"trades={s.get('trades')} lag={s.get('lag_seconds')}s source={s.get('source')}")
+    o = c.overview(window)
+    typer.echo(f"{window}: {o.get('fills')} fills, {o.get('active_traders')} active traders, "
+               f"{o.get('tokens')} tokens, volume ${o.get('volume', 0):,.0f}, realized ${o.get('realized_pnl', 0):,.0f}")
+    top = sorted(c.traders(window), key=lambda t: -(t.get("realized_pnl") or 0))[:10]
+    typer.echo(f"\ntop realized PnL ({window}):")
+    for t in top:
+        typer.echo(f"  {str(t.get('handle')):20s} pnl={t.get('realized_pnl'):>12,.0f} "
+                   f"win={t.get('win_rate')} fills={t.get('fills')} vol={t.get('volume'):>12,.0f} {t.get('address')}")
+    for f in c.tape(tape)[:tape] if tape else []:
+        when = datetime.fromtimestamp(f["ts"], tz=timezone.utc).strftime("%H:%M:%S")
+        first = " FIRST" if f.get("new_position") else ""
+        typer.echo(f"  {when} {f['side']:4s} {str(f.get('symbol')):12s} ${f.get('usd', 0):>10,.0f} {f.get('handle')}{first}")
+    for p in c.closed(window, closed)[:closed] if closed else []:
+        typer.echo(f"  closed {str(p.get('symbol')):12s} pnl={p.get('pnl_usd'):>10,.0f} "
+                   f"({p.get('pnl_pct'):.0f}%) hold={p.get('hold_seconds', 0) / 3600:.1f}h {p.get('handle')}")
+
+
+@app.command()
+def receive(
+    host: Optional[str] = typer.Option(None, "--host"),
+    port: Optional[int] = typer.Option(None, "--port"),
+) -> None:
+    """Run the local endpoint the browser extension posts fomo collections to."""
+    from .receiver import serve
+
+    serve(host, port)
+
+
+@app.command("fomo-import")
+def fomo_import(path: Path = typer.Argument(..., help="file produced by scripts/fomo_export.js")) -> None:
+    """Load leaderboard / holders / execution wallets exported from your browser."""
+    from .pipeline.discover import import_browser_export
+
+    typer.echo(_run("fomo_import", import_browser_export, path))
+
+
+@app.command("resolve")
+def resolve_cmd(
+    limit: Optional[int] = typer.Option(None, "--limit", help="how many fomo users to work on"),
+    chain: str = typer.Option("robinhood", "--chain"),
+    handle: Optional[str] = typer.Option(None, "--handle", help="resolve just this trader and print the ranking"),
+) -> None:
+    """Infer the real on-chain wallet of fomo traders from the tokens and times they traded."""
+    from .pipeline.resolve import rank_candidates, resolve_user, resolve_pending, user_windows
+    from .sources.codex import Codex
+
+    if handle:
+        conn = db.connect()
+        u = conn.execute("SELECT * FROM fomo_users WHERE handle=?", (handle,)).fetchone()
+        if u is None:
+            typer.echo(f"no fomo user with handle {handle!r} — import a browser export first")
+            raise typer.Exit(1)
+        windows = user_windows(conn, u["user_id"], chain, settings.resolve_windows)
+        typer.echo(f"{handle}: {len(windows)} usable windows on {chain}")
+        address, info = resolve_user(conn, Codex(), u["user_id"], chain)
+        typer.echo(f"resolved: {address or 'no confident match'}  {info}")
+        conn.close()
+        return
+    typer.echo(_run("resolve", resolve_pending, None, chain, limit))
+
+
+@app.command("fomo-resolve")
+def fomo_resolve(limit: Optional[int] = typer.Option(None, "--limit")) -> None:
+    """Look up execution wallets for leaderboard entries collected earlier."""
+    from .pipeline.discover import resolve_execution_wallets
+    from .sources.fomo import FomoClient
+
+    conn = db.connect()
+    typer.echo(resolve_execution_wallets(conn, FomoClient(), limit))
+    conn.close()
+
+
+@app.command("new-tokens")
+def new_tokens(
+    dry_run: bool = typer.Option(False, "--dry-run", help="only print what DexScreener returns"),
+) -> None:
+    """Poll DexScreener + GeckoTerminal for fresh high-mcap tokens (triggers holder discovery if fomo works)."""
+    from .pipeline import new_tokens as nt
+    from .pipeline.discover import safe_fomo
+
+    if dry_run:
+        for t in nt.fetch_new_tokens():
+            age = (db.now() - t.created_at) / 3600 if t.created_at else None
+            typer.echo(f"{t.source:13s} {t.chain:9s} {t.symbol or '?':10s} {t.mint}  mcap={t.mcap_usd or 0:>12,.0f}  liq={t.liquidity_usd or 0:>10,.0f}  age={age and f'{age:.1f}h'}")
+        return
+    typer.echo(_run("new_tokens", nt.poll_new_tokens, None, safe_fomo()))
+
+
+@app.command("enrich-tokens")
+def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
+    """Give names, prices and liquidity to tokens we only know as addresses (DexScreener, free)."""
+    from .pipeline.new_tokens import enrich_tokens
+
+    typer.echo(_run("enrich_tokens", enrich_tokens, None, limit))
+
+
+@app.command()
+def track(
+    address: Optional[str] = typer.Option(None, "--address", help="track only this wallet"),
+    chain: Optional[str] = typer.Option(None, "--chain", help="chain of --address (guessed if omitted)"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="max wallets this pass"),
+    show: bool = typer.Option(False, "--show", help="print the collected trades"),
+) -> None:
+    """Collect swaps for tracked wallets (sources from TRACK_SOURCES)."""
+    from .pipeline import track as tr
+    from .pipeline.discover import add_manual, guess_chain
+
+    if address:
+        conn = db.connect()
+        row = db.get_trader(conn, address)
+        if row is None:
+            add_manual(conn, address, chain=chain)
+            row = db.get_trader(conn, address)
+        chain = chain or row["chain"] or guess_chain(address)
+        tracker = tr.pick_tracker(tr.build_trackers(), chain, address)
+        if tracker is None:
+            typer.echo(f"no configured source supports chain {chain!r} (TRACK_SOURCES={','.join(settings.track_sources)})")
+            raise typer.Exit(1)
+        n = tr.track_wallet(conn, tracker, address, chain)
+        typer.echo(f"{address} [{chain}] via {type(tracker).__name__}: {n} new trades")
+        if show:
+            for t in conn.execute(
+                "SELECT ts, side, mint, token_amount, sol_amount, usd_value FROM trades WHERE address=? ORDER BY ts DESC LIMIT 15",
+                (address,),
+            ):
+                typer.echo(f"  {t['ts']} {t['side']:4s} {t['mint'][:16]:16s} amt={t['token_amount']} sol={t['sol_amount']} usd={t['usd_value']}")
+        conn.close()
+        return
+    typer.echo(_run("track", tr.track_all, None, limit))
+
+
+@app.command()
+def score(
+    address: Optional[str] = typer.Option(None, "--address"),
+    deep: bool = typer.Option(False, "--deep", help="Sonnet review of top-N active"),
+    force: bool = typer.Option(False, "--force", help="ignore rescore schedule"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+    show_context: bool = typer.Option(False, "--show-context", help="print the context JSON instead of calling Claude"),
+    export: Optional[Path] = typer.Option(None, "--export", help="write pending contexts to a file for in-chat scoring"),
+    import_: Optional[Path] = typer.Option(None, "--import", help="import scores produced in chat"),
+    model_label: str = typer.Option("manual", "--model-label", help="label stored with imported scores"),
+    digest: int = typer.Option(0, "--digest", help="with --export: also print N wallets as a compact table"),
+    offset: int = typer.Option(0, "--offset", help="with --digest: skip the first N wallets"),
+) -> None:
+    """Score traders with Claude. Uses the API, or the export/import flow when SCORER=manual."""
+    import json
+
+    from .pipeline import score as sc
+
+    if export:
+        conn = db.connect()
+        typer.echo(sc.export_contexts(conn, export, force=force, limit=limit))
+        if digest:
+            payload = json.loads(export.read_text(encoding="utf-8"))
+            for line in sc.digest_lines(payload)[: (offset + digest) if digest else None][offset:]:
+                typer.echo(line)
+        conn.close()
+        return
+    if import_:
+        conn = db.connect()
+        typer.echo(sc.import_results(conn, import_, model_label))
+        conn.close()
+        return
+    if address:
+        conn = db.connect()
+        if show_context:
+            typer.echo(json.dumps(sc.build_context(conn, address), indent=1))
+            return
+        res, cost = sc.score_trader(conn, address, settings.deep_model if deep else None)
+        conn.close()
+        typer.echo(res.model_dump_json(indent=1) if res else "needs_review")
+        typer.echo(f"cost: ${cost:.4f}")
+        return
+    typer.echo(_run("score", sc.score_all, deep=deep, force=force, limit=limit))
+
+
+@app.command()
+def page(
+    out: Path = typer.Option(Path("radar.html"), "--out"),
+    chain: Optional[str] = typer.Option(None, "--chain", help="only this chain, e.g. robinhood"),
+    hours: int = typer.Option(48, "--hours", help="signal window"),
+) -> None:
+    """Render signals, tokens and traders as one standalone HTML page."""
+    from .pipeline.site import build
+
+    conn = db.connect()
+    typer.echo(build(conn, out, chain, hours))
+    conn.close()
+
+
+@app.command()
+def report(
+    hours: int = typer.Option(24, "--hours"),
+    out: Optional[Path] = typer.Option(None, "--out", help="write markdown to file"),
+) -> None:
+    """Markdown summary of the current state."""
+    from .pipeline.report import build_report
+
+    conn = db.connect()
+    md = build_report(conn, hours)
+    conn.close()
+    if out:
+        out.write_text(md, encoding="utf-8")
+        typer.echo(f"written: {out}")
+    else:
+        typer.echo(md)
+
+
+@app.command()
+def run(once: bool = typer.Option(False, "--once", help="single pass of every step, then exit")) -> None:
+    """Polling loop: discover / new-tokens / track / score / report on their intervals."""
+    from .pipeline import discover as d
+    from .pipeline import new_tokens as nt
+    from .pipeline import score as sc
+    from .pipeline import track as tr
+    from .pipeline.discover import safe_fomo
+    from .pipeline.report import build_report
+
+    fomo = safe_fomo()
+
+    def do_report(conn):
+        md = build_report(conn)
+        Path("report.md").write_text(md, encoding="utf-8")
+        return {"bytes": len(md)}
+
+    steps = [
+        ("discover_trenches", settings.discover_interval,
+         lambda c: d.discover_trenches(c) if "trenches" in settings.track_sources else {"skipped": "trenches disabled"}),
+        ("discover_leaderboard", settings.discover_interval, lambda c: d.discover_leaderboard(c, fomo) if fomo else {"skipped": "fomo not configured"}),
+        ("new_tokens", settings.new_tokens_interval, lambda c: nt.poll_new_tokens(c, None, fomo)),
+        ("track", settings.track_interval, lambda c: tr.track_all(c)),
+        ("score", settings.track_interval * 10, lambda c: sc.score_all(c)),
+        ("report", settings.report_interval, do_report),
+    ]
+    last: dict[str, float] = {k: 0.0 for k, _, _ in steps}
+    while True:
+        now = time.monotonic()
+        for kind, interval, fn in steps:
+            if now - last[kind] >= interval:
+                last[kind] = now
+                _run(kind, fn)
+        if once:
+            break
+        time.sleep(5)
+
+
+if __name__ == "__main__":
+    app()

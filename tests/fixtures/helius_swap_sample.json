@@ -1,0 +1,79 @@
+[
+  {
+    "signature": "SIG_BUY_1",
+    "timestamp": 1756900000,
+    "type": "SWAP",
+    "source": "JUPITER",
+    "feePayer": "WALLET_A",
+    "nativeTransfers": [],
+    "tokenTransfers": [],
+    "events": {
+      "swap": {
+        "nativeInput": {"account": "WALLET_A", "amount": "1500000000"},
+        "nativeOutput": null,
+        "tokenInputs": [],
+        "tokenOutputs": [
+          {"userAccount": "WALLET_A", "tokenAccount": "TA1", "mint": "MINT_X",
+           "rawTokenAmount": {"tokenAmount": "123456000000", "decimals": 6}}
+        ],
+        "tokenFees": [], "nativeFees": [], "innerSwaps": []
+      }
+    }
+  },
+  {
+    "signature": "SIG_SELL_1",
+    "timestamp": 1756903600,
+    "type": "SWAP",
+    "source": "RAYDIUM",
+    "feePayer": "WALLET_A",
+    "nativeTransfers": [],
+    "tokenTransfers": [],
+    "events": {
+      "swap": {
+        "nativeInput": null,
+        "nativeOutput": {"account": "WALLET_A", "amount": "2200000000"},
+        "tokenInputs": [
+          {"userAccount": "WALLET_A", "tokenAccount": "TA1", "mint": "MINT_X",
+           "rawTokenAmount": {"tokenAmount": "123456000000", "decimals": 6}}
+        ],
+        "tokenOutputs": [],
+        "tokenFees": [], "nativeFees": [], "innerSwaps": []
+      }
+    }
+  },
+  {
+    "signature": "SIG_FALLBACK_BUY",
+    "timestamp": 1756907200,
+    "type": "SWAP",
+    "source": "PUMP_FUN",
+    "feePayer": "WALLET_A",
+    "nativeTransfers": [
+      {"fromUserAccount": "WALLET_A", "toUserAccount": "POOL", "amount": 500000000}
+    ],
+    "tokenTransfers": [
+      {"fromUserAccount": "POOL", "toUserAccount": "WALLET_A", "mint": "MINT_Y", "tokenAmount": 9999.5}
+    ],
+    "events": {}
+  },
+  {
+    "signature": "SIG_OTHER_WALLET",
+    "timestamp": 1756907300,
+    "type": "SWAP",
+    "feePayer": "WALLET_B",
+    "nativeTransfers": [{"fromUserAccount": "WALLET_B", "toUserAccount": "POOL", "amount": 100000000}],
+    "tokenTransfers": [{"fromUserAccount": "POOL", "toUserAccount": "WALLET_B", "mint": "MINT_Y", "tokenAmount": 1}],
+    "events": {}
+  },
+  {
+    "signature": "SIG_TOKEN_TO_TOKEN",
+    "timestamp": 1756907400,
+    "type": "SWAP",
+    "feePayer": "WALLET_A",
+    "nativeTransfers": [],
+    "tokenTransfers": [
+      {"fromUserAccount": "WALLET_A", "toUserAccount": "POOL", "mint": "MINT_X", "tokenAmount": 5},
+      {"fromUserAccount": "POOL", "toUserAccount": "WALLET_A", "mint": "MINT_Y", "tokenAmount": 7}
+    ],
+    "events": {}
+  }
+]

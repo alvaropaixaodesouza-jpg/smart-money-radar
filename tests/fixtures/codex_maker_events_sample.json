@@ -1,0 +1,57 @@
+{
+  "data": {
+    "getTokenEventsForMaker": {
+      "cursor": "eyJkeW5hbW9DdXJzb3IiOiJ4In0=",
+      "items": [
+        {
+          "networkId": 1399811149, "eventType": "Swap", "eventDisplayType": "Sell",
+          "timestamp": 1788514339,
+          "transactionHash": "42Pb3JmxxFLmZcTyDmpfdAU1WcfHTWGoC3VXo16ZejXqV8Q3oJEYo7ypA1nKKVW78w9E3spYFkK5k6xmxSZvK9Jf",
+          "maker": "Eh5RHDhjyiuXSMRsAXFvXvbV5i1waBtKjg1vM5KrYcgX",
+          "token0Address": "bKU4TGmXxaMmcjL2htnSKfRT9Voig9KmPvo8Scupump",
+          "token1Address": "So11111111111111111111111111111111111111112",
+          "quoteToken": "token0",
+          "liquidityToken": "So11111111111111111111111111111111111111112",
+          "token0SwapValueUsd": "0.73620326844689948911",
+          "token1SwapValueUsd": "104.18568365798265908",
+          "data": {"amount0": "438616993", "amount1": "-3099382300",
+                   "amountNonLiquidityToken": "438.616993",
+                   "priceUsd": "0.73620326844689948911",
+                   "priceUsdTotal": "322.91126384295083408666444623"}
+        },
+        {
+          "networkId": 1399811149, "eventType": "Swap", "eventDisplayType": "Buy",
+          "timestamp": 1788514300,
+          "transactionHash": "SIG_BUY_CODEX",
+          "maker": "Eh5RHDhjyiuXSMRsAXFvXvbV5i1waBtKjg1vM5KrYcgX",
+          "token0Address": "cWBXT8pMsqDS5CcRzuCLZ21Eu4wFrewcoMxdoyapump",
+          "token1Address": "So11111111111111111111111111111111111111112",
+          "quoteToken": "token0",
+          "liquidityToken": "So11111111111111111111111111111111111111112",
+          "data": {"amount0": "-4713942626", "amount1": "3627927324",
+                   "amountNonLiquidityToken": "4713.942626",
+                   "priceUsd": "0.080135", "priceUsdTotal": "377.75288"}
+        },
+        {
+          "networkId": 4663, "eventType": "Swap", "eventDisplayType": "Buy",
+          "timestamp": 1788500000,
+          "transactionHash": "0xEVMBUY",
+          "maker": "0xAbCdef0000000000000000000000000000000001",
+          "token0Address": "0x385F4F8AE47651CE5F58F5265395A669F8281E18",
+          "token1Address": "0x4200000000000000000000000000000000000006",
+          "liquidityToken": "0x4200000000000000000000000000000000000006",
+          "data": {"amount0": "-1000000000000000000", "amount1": "500000000000000000",
+                   "amountNonLiquidityToken": "1.0", "priceUsdTotal": "1500.5"}
+        },
+        {
+          "networkId": 1399811149, "eventType": "Swap", "eventDisplayType": "Buy",
+          "timestamp": 1788400000, "transactionHash": "SIG_NO_LIQTOKEN",
+          "maker": "Eh5RHDhjyiuXSMRsAXFvXvbV5i1waBtKjg1vM5KrYcgX",
+          "token0Address": "AAAAmintAAAA", "token1Address": "BBBBmintBBBB",
+          "liquidityToken": null,
+          "data": {"amount0": "-1", "amount1": "1", "amountNonLiquidityToken": "1", "priceUsdTotal": "10"}
+        }
+      ]
+    }
+  }
+}

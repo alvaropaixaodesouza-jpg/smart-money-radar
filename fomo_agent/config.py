@@ -1,0 +1,148 @@
+"""All thresholds and settings live here. Nothing is hardcoded elsewhere."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def _int(name: str, default: int) -> int:
+    v = _env(name)
+    return int(v) if v else default
+
+
+def _float(name: str, default: float) -> float:
+    v = _env(name)
+    return float(v) if v else default
+
+
+@dataclass
+class Settings:
+    # keys
+    helius_api_key: str = field(default_factory=lambda: _env("HELIUS_API_KEY"))
+    anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
+    codex_api_key: str = field(default_factory=lambda: _env("CODEX_API_KEY"))
+    fomo_session: str = field(default_factory=lambda: _env("FOMO_SESSION"))
+    fomo_auth_kind: str = field(default_factory=lambda: _env("FOMO_AUTH_KIND", "cookie"))
+    # fomo endpoints are filled ONLY from docs/fomo-endpoints.md (phase 0). Empty = adapter disabled.
+    fomo_base_url: str = field(default_factory=lambda: _env("FOMO_BASE_URL", "https://prod-api.fomo.family"))
+    fomo_user_agent: str = field(default_factory=lambda: _env(
+        "FOMO_USER_AGENT",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    ))
+    # the web app sends this on every call and the API filters by it
+    fomo_supported_chains: str = field(default_factory=lambda: _env("FOMO_SUPPORTED_CHAINS", "1399811149,4663,8453,56"))
+    # resolve execution wallets for at most N leaderboard entries per run (1 request each)
+    fomo_resolve_limit: int = field(default_factory=lambda: _int("FOMO_RESOLVE_LIMIT", 25))
+    # on-chain wallet resolution: fomo hides the real wallet, so we infer it from token events.
+    # Each window costs one Codex request, so windows x users is the budget line to watch.
+    resolve_windows: int = field(default_factory=lambda: _int("RESOLVE_WINDOWS", 12))
+    resolve_window_s: int = field(default_factory=lambda: _int("RESOLVE_WINDOW_S", 90))
+    resolve_min_hits: int = field(default_factory=lambda: _int("RESOLVE_MIN_HITS", 3))
+    resolve_min_ratio: float = field(default_factory=lambda: _float("RESOLVE_MIN_RATIO", 1.4))
+    resolve_users_per_pass: int = field(default_factory=lambda: _int("RESOLVE_USERS_PER_PASS", 20))
+
+    # robinhoodtrenches.com: third-party public API over fomo traders on Robinhood Chain
+    trenches_base_url: str = field(default_factory=lambda: _env("TRENCHES_BASE_URL", "https://robinhoodtrenches.com"))
+    trenches_user_agent: str = field(default_factory=lambda: _env(
+        "TRENCHES_USER_AGENT", "fomo-agent/0.1 (read-only research; https://github.com/)"))
+    trenches_min_interval_s: float = field(default_factory=lambda: _float("TRENCHES_MIN_INTERVAL_S", 900))
+    trenches_include_stocks: bool = field(
+        default_factory=lambda: _env("TRENCHES_INCLUDE_STOCKS", "false").lower() in ("1", "true", "yes"))
+    trenches_window: str = field(default_factory=lambda: _env("TRENCHES_WINDOW", "7d"))
+
+    # local endpoint the browser extension posts fomo collections to (loopback only)
+    receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
+    receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))
+    receiver_token: str = field(default_factory=lambda: _env("RECEIVER_TOKEN"))
+
+    # storage
+    db_path: Path = field(default_factory=lambda: Path(_env("DB_PATH", "fomo_agent.db")))
+
+    # thresholds
+    new_token_min_mcap_usd: float = field(default_factory=lambda: _float("NEW_TOKEN_MIN_MCAP_USD", 500_000))
+    new_token_max_age_hours: float = field(default_factory=lambda: _float("NEW_TOKEN_MAX_AGE_HOURS", 24))
+    # sanity cap: a <24h token "worth" more than this is a spoofed supply/price, not a market
+    new_token_max_mcap_usd: float = field(default_factory=lambda: _float("NEW_TOKEN_MAX_MCAP_USD", 1_000_000_000))
+    # DexScreener chainIds to watch for fresh tokens. On-chain tracking (Helius) works only for solana.
+    dex_chains: tuple[str, ...] = field(
+        default_factory=lambda: tuple(c.strip() for c in _env("DEX_CHAINS", "robinhood").split(",") if c.strip())
+    )
+    # new-token sources: dexscreener (profiles/boosts feeds) and/or geckoterminal (trending/new/top pools, no boost needed)
+    token_sources: tuple[str, ...] = field(
+        default_factory=lambda: tuple(c.strip() for c in _env("TOKEN_SOURCES", "dexscreener,geckoterminal,codex").split(",") if c.strip())
+    )
+    gecko_feeds: tuple[str, ...] = field(
+        default_factory=lambda: tuple(c.strip() for c in _env("GECKO_FEEDS", "trending_1h,trending_6h,top_volume").split(",") if c.strip())
+    )
+    gecko_max_req_per_min: int = field(default_factory=lambda: _int("GECKO_MAX_REQ_PER_MIN", 20))
+    # codex: 10k requests/month on the $1 plan -> one filterTokens per 300s = ~8.6k/month
+    codex_min_interval_s: float = field(default_factory=lambda: _float("CODEX_MIN_INTERVAL_S", 900))
+    # server-side potentialScam=false filter. Observed 2026-09-04: drops spoofed-supply tokens but ALSO real
+    # high-cap launches (MEME on robinhood), so it is off by default.
+    codex_exclude_potential_scam: bool = field(default_factory=lambda: _env("CODEX_EXCLUDE_POTENTIAL_SCAM", "false").lower() in ("1", "true", "yes"))
+    gecko_min_interval_s: float = field(default_factory=lambda: _float("GECKO_MIN_INTERVAL_S", 2.0))
+    new_token_min_liquidity_usd: float = field(default_factory=lambda: _float("NEW_TOKEN_MIN_LIQUIDITY_USD", 10_000))
+    holders_top_n: int = field(default_factory=lambda: _int("HOLDERS_TOP_N", 30))
+    # codex-based discovery: how many fresh tokens per pass get their buyers pulled (1 request each)
+    discover_tokens_per_pass: int = field(default_factory=lambda: _int("DISCOVER_TOKENS_PER_PASS", 3))
+    discover_min_buy_usd: float = field(default_factory=lambda: _float("DISCOVER_MIN_BUY_USD", 500))
+    leaderboard_limit: int = field(default_factory=lambda: _int("LEADERBOARD_LIMIT", 100))
+    leaderboard_periods: tuple[str, ...] = ("24h", "7d", "30d")
+
+    # intervals (seconds)
+    discover_interval: int = field(default_factory=lambda: _int("DISCOVER_INTERVAL", 3600))
+    new_tokens_interval: int = field(default_factory=lambda: _int("NEW_TOKENS_INTERVAL", 900))
+    track_interval: int = field(default_factory=lambda: _int("TRACK_INTERVAL", 10800))
+    report_interval: int = field(default_factory=lambda: _int("REPORT_INTERVAL", 86400))
+
+    # rate limits
+    fomo_rps: float = field(default_factory=lambda: _float("FOMO_RPS", 1.0))
+    helius_max_req_per_min: int = field(default_factory=lambda: _int("HELIUS_MAX_REQ_PER_MIN", 50))
+    # wallet-trade sources, tried in order per wallet; first one supporting the chain wins.
+    # codex: all chains + USD per trade, costs 1 request per wallet per pass (10k/month budget!)
+    # helius: solana only, needs HELIUS_API_KEY (free tier = 1M credits = ~10k enhanced calls/month)
+    track_sources: tuple[str, ...] = field(
+        default_factory=lambda: tuple(c.strip() for c in _env("TRACK_SOURCES", "trenches,codex,helius").split(",") if c.strip())
+    )
+    track_max_wallets_per_pass: int = field(default_factory=lambda: _int("TRACK_MAX_WALLETS_PER_PASS", 25))
+    codex_track_page_limit: int = field(default_factory=lambda: _int("CODEX_TRACK_PAGE_LIMIT", 200))
+    codex_track_max_pages: int = field(default_factory=lambda: _int("CODEX_TRACK_MAX_PAGES", 3))
+    helius_tx_page_limit: int = 100
+    track_lookback_days: int = field(default_factory=lambda: _int("TRACK_LOOKBACK_DAYS", 30))
+
+    # scoring
+    score_model: str = field(default_factory=lambda: _env("SCORE_MODEL", "claude-haiku-4-5"))
+    deep_model: str = field(default_factory=lambda: _env("DEEP_MODEL", "claude-sonnet-5"))
+    rescore_after_hours: dict[str, float] = field(
+        default_factory=lambda: {"active": 24, "watch": 72, "dropped": 14 * 24, "tracking": 0, "candidate": 0}
+    )
+    deep_top_n: int = 20
+    # "api"    - call the Anthropic API (needs ANTHROPIC_API_KEY)
+    # "manual" - export contexts to a file, score them inside a Claude chat, import back
+    # "auto"   - api when a key is present, otherwise manual
+    codex_monthly_request_cap: int = field(default_factory=lambda: _int("CODEX_MONTHLY_REQUEST_CAP", 10_000))
+    scorer_mode: str = field(default_factory=lambda: _env("SCORER", "auto").lower())
+    manual_scores_path: str = field(default_factory=lambda: _env("MANUAL_SCORES_PATH", "pending_scores.json"))
+
+    @property
+    def scorer(self) -> str:
+        """Resolved scoring backend: 'api' or 'manual'."""
+        if self.scorer_mode in ("api", "manual"):
+            return self.scorer_mode
+        return "api" if self.anthropic_api_key else "manual"
+
+    # optional
+    telegram_bot_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
+    telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))
+
+
+settings = Settings()

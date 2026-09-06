@@ -1,0 +1,11 @@
+[
+  {
+    "address": "Eh5RHDhjyiuXSMRsAXFvXvbV5i1waBtKjg1vM5KrYcgX",
+    "score": 15,
+    "status": "dropped",
+    "style": ["scalper"],
+    "red_flags": ["bot", "wash"],
+    "summary": "600 swaps in one week across only 6 tokens, with a near-uniform ~3.8 SOL clip and a two-minute median hold, several trades landing in the same second. That is an automated cycler, not a discretionary trader with an edge. Realized SOL out (1514) exceeds SOL back in (1065), and it never buys within 10 minutes of a launch, so there is no early-entry signal worth copying.",
+    "confidence": 0.85
+  }
+]

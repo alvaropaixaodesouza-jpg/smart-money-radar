@@ -1,0 +1,21 @@
+{
+  "data": {
+    "filterTokens": {
+      "results": [
+        {
+          "marketCap": "110836271.2", "circulatingMarketCap": null, "liquidity": "3612199.5",
+          "createdAt": 1788495031, "volume24": "9000000", "holders": 5400,
+          "top10HoldersPercent": 31.2, "sniperHeldPercentage": 4.1, "bundlerHeldPercentage": 0.7,
+          "pair": {"address": "0xPOOL"}, "exchanges": [{"name": "Uniswap V4"}],
+          "token": {"address": "0x385F4F8AE47651CE5F58F5265395A669F8281E18", "symbol": "MEME", "name": "A Meme Coin", "networkId": 4663}
+        },
+        {
+          "marketCap": "720000", "liquidity": "170000", "createdAt": 1788511000, "holders": 120,
+          "pair": {"address": "SOLPAIR"}, "exchanges": [{"name": "Raydium"}],
+          "token": {"address": "4rkNS2PrCovZSynZFyzXMXmT1y9dtcovp7pc7hj481aG", "symbol": "GOOGL", "networkId": 1399811149}
+        },
+        {"marketCap": "1", "token": {}}
+      ]
+    }
+  }
+}
