@@ -1,11 +1,29 @@
 [
   {
+    "address": "0x0a6ebed0155edb4b21d92ad02897a626cd90119e",
+    "score": 92,
+    "status": "active",
+    "style": ["swing", "holder"],
+    "red_flags": [],
+    "summary": "19.5M for the month across 106 tokens, and the book behind it is not one lucky ticket: PONS at 134x on a 68k entry sits next to MarsCoin at 4.7x on 965k and USELESS at 4.1x on 830k. 167 buys against 71 sells with 46 entries inside ten minutes of a launch, so the negative realized flow is accumulation, not loss.",
+    "confidence": 0.85
+  },
+  {
+    "address": "0x52c754cbaa03a8cda2b3d125ec441f9d754da037",
+    "score": 62,
+    "status": "watch",
+    "style": ["sniper", "holder"],
+    "red_flags": ["one-hit"],
+    "summary": "1.67M, and effectively all of it is PONS at 1117x on a 1,367-dollar entry. The other two bags are at 0.4x and 0.6x, and 8.9k of buying has produced 614 dollars of selling. A remarkable ticket; nothing else in the book supports it.",
+    "confidence": 0.45
+  },
+  {
     "address": "Eh5RHDhjyiuXSMRsAXFvXvbV5i1waBtKjg1vM5KrYcgX",
-    "score": 15,
+    "score": 40,
     "status": "dropped",
     "style": ["scalper"],
-    "red_flags": ["bot", "wash"],
-    "summary": "600 swaps in one week across only 6 tokens, with a near-uniform ~3.8 SOL clip and a two-minute median hold, several trades landing in the same second. That is an automated cycler, not a discretionary trader with an edge. Realized SOL out (1514) exceeds SOL back in (1065), and it never buys within 10 minutes of a launch, so there is no early-entry signal worth copying.",
-    "confidence": 0.85
+    "red_flags": ["bot"],
+    "summary": "600 trades across six tokens at a two-minute median hold, buys and sells nearly matched. Enormous frequency with almost no breadth is automated market-making, not a trader with a thesis anyone could copy.",
+    "confidence": 0.7
   }
 ]
