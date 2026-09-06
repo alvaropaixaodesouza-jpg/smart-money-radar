@@ -101,6 +101,11 @@ dependency beyond a webfont — with three views:
 - **Traders** — the scored roster: a verdict, the reasoning, the figures behind it, and each
   trader's largest open bags.
 
+`fomo-agent token <address>` and `fomo-agent trader <handle>` answer the same two questions in the
+terminal. Both lean on one measure: **conviction**, the sum of each holder's (score/100)². It says
+*whose* money is in a name rather than how many wallets are in it, because anyone can open a wallet
+and one trader scoring 85 is worth more than ten scoring 40.
+
 ## Commands
 
 ```
@@ -114,6 +119,8 @@ fomo-agent discover --mint <mint> --makers       # buyers of a token -> candidat
 fomo-agent resolve [--handle <name>]             # infer execution wallets
 fomo-agent track [--address <wallet>] [--show]
 fomo-agent score [--address <wallet>] [--deep] [--force] [--show-context]
+fomo-agent token <address> [--hours 48]          # whose money is in this token
+fomo-agent trader <handle-or-address>            # one trader in full
 fomo-agent report [--hours 24] [--out report.md]
 fomo-agent page --out radar.html [--hours 48]
 fomo-agent run [--once]                          # polling loop
