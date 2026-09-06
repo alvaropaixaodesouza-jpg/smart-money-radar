@@ -18,3 +18,5 @@ radar.html
 *scored*.json
 fomo.family.har
 curl.txt
+*.db-wal
+*.db-shm
