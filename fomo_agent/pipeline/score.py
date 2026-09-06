@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import db
+from ..sources.rpc import QUOTE_TOKENS
 from ..config import settings
 from ..models import ScoreResult
 
@@ -28,6 +29,9 @@ How to weigh the evidence:
   paper and nothing realized. Do not discount it for being unrealized.
 - On-chain flow (usd_bought vs usd_sold) is the sanity check, not the verdict. A trader who is
   accumulating shows negative flow while being deeply profitable; that is normal, not a red flag.
+- `open_positions` is the book behind that number: what they hold, what it cost, and the multiple.
+  A large PnL resting on one position is thinner evidence than the same PnL across several, and a
+  high multiple on a real cost basis is the clearest proof of an early entry there is.
 - Trade counts, unique tokens, hold times and early entries describe the *style*.
 - Genuine red flags: minute-scale holds with uniform sizes (bot), round-tripping with no result
   (wash), a single position explaining everything (one-hit).
@@ -97,6 +101,24 @@ def build_context(conn: sqlite3.Connection, address: str) -> dict[str, Any]:
             "median_hold_min": round(statistics.median(holds) / 60) if holds else None,
             "early_buys_10min": early,
         }
+    # The open book, straight from fomo. This is the most direct evidence there is: what a trader
+    # is holding, what it cost, and how far in front they are. A cost of null means fomo counts
+    # profit already withdrawn from the position, so the entry price cannot be recovered.
+    if t and t["fomo_user_id"]:
+        quotes = ",".join(f"'{q}'" for q in QUOTE_TOKENS)
+        rows = conn.execute(
+            "SELECT COALESCE(tk.symbol, substr(p.token, 1, 8)) sym, p.unrealized_pnl pnl, "
+            "  p.cost_basis cost FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
+            f"WHERE p.user_id = ? AND p.token NOT IN ({quotes}) "
+            "ORDER BY p.unrealized_pnl DESC LIMIT 5", (t["fomo_user_id"],),
+        ).fetchall()
+        ctx["open_positions"] = [{
+            "symbol": r["sym"], "pnl_usd": round(r["pnl"]) if r["pnl"] is not None else None,
+            "cost_usd": round(r["cost"]) if r["cost"] else None,
+            "multiple": round((r["cost"] + r["pnl"]) / r["cost"], 1)
+            if r["cost"] and r["cost"] > 0 and r["pnl"] is not None else None,
+        } for r in rows]
+
     recent = conn.execute(
         "SELECT side, mint, sol_amount, ts FROM trades WHERE address=? ORDER BY ts DESC LIMIT 10", (address,)
     ).fetchall()
@@ -150,7 +172,8 @@ EXPORT_INSTRUCTIONS = (
     '"summary": "2-3 sentences", "confidence": 0-1}. '
     "Weigh fomo PnL first: it is USD profit INCLUDING open positions, which is where memecoin results sit. "
     "On-chain buy/sell flow is only a sanity check — an accumulating trader shows negative flow while being "
-    "profitable. Rules: score>=70 -> active (large PnL with a repeatable pattern); 40-69 -> watch (promising, "
+    "profitable. `open_positions` shows the book behind the number: several winners beat one, and a high "
+    "multiple on a real cost basis is the clearest evidence of an early entry. Rules: score>=70 -> active (large PnL with a repeatable pattern); 40-69 -> watch (promising, "
     "thin, or resting on one unresolved position); <40 -> dropped (no PnL and no edge, bot-like, wash). "
     "Few trades = low confidence."
 )
@@ -185,10 +208,19 @@ def digest_lines(payload: dict) -> list[str]:
     # only our own on-chain history, so rank on what every row actually has.
     # fomo's own PnL leads: it includes open positions, and in memecoins that is where the result is.
     # On-chain flow stays as the sanity check underneath it.
+    def best_multiple(w):
+        """The strongest open position, which is what a large fomo figure usually rests on."""
+        ms = [p.get("multiple") for p in (w.get("open_positions") or []) if p.get("multiple")]
+        return max(ms) if ms else None
+
+    def top_bag(w):
+        ps = w.get("open_positions") or []
+        return ps[0]["symbol"] if ps and ps[0].get("symbol") else "-"
+
     wallets = sorted(payload["wallets"], key=lambda w: -(fomo_pnl(w) or net30(w)))
     out = [f"{'#':>4} {'handle':<18}{'fomoPnL':>12}{'realized':>11}{'30d':>5}{'buy':>5}{'sel':>5}{'tok':>5}"
            f"{'usdBuy':>11}{'usdSell':>11}{'net':>11}{'hold':>7}{'e10m':>5}{'7d':>5}"
-           f"{'win%':>6}{'bags':>5}  address"]
+           f"{'win%':>6}{'bags':>5}{'bestX':>7} {'topBag':<10} address"]
     for i, w in enumerate(wallets, 1):
         s = w.get("indexer_stats") or {}
         d30, d7 = w.get("last_30d") or {}, w.get("last_7d") or {}
@@ -202,7 +234,8 @@ def digest_lines(payload: dict) -> list[str]:
             f"{num(d30.get('median_hold_min')):>7}{num(d30.get('early_buys_10min')):>5}"
             f"{num(d7.get('trades')):>5}"
             f"{(f'{wr*100:.0f}' if isinstance(wr, (int, float)) else '-'):>6}"
-            f"{num(s.get('open_bags')):>5}  {w['address']}")
+            f"{num(s.get('open_bags')):>5}"
+            f"{(f'{best_multiple(w):.1f}' if best_multiple(w) else '-'):>7} {top_bag(w)[:9]:<10} {w['address']}")
     return out
 
 
