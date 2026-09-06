@@ -171,9 +171,12 @@ fomo executes through a per-user execution wallet on each chain. The only way to
 
 Consequences, implemented in the pipeline:
 - leaderboard and holder rows are stored in a `fomo_users` table keyed by fomo UUID;
-- a second call per user resolves execution wallets, and only then is a trackable `traders` row created,
-  one per chain (`pipeline/discover.py::resolve_execution_wallets`, `FOMO_RESOLVE_LIMIT` per run);
-- on-chain tracking always uses the execution wallet, never the profile address.
+- the addresses fomo reports per user turned out to be internal too — verified in session 6, they have
+  zero on-chain events — so `pipeline/discover.py::resolve_execution_wallets` only annotates
+  `fomo_users` and never creates a `traders` row;
+- the wallet that actually trades is inferred from token events by `pipeline/resolve.py`, which needs
+  no fomo call at all (see `docs/robinhood-chain.md` for how the fills are read);
+- on-chain tracking always uses that inferred wallet, never the profile address.
 
 ## Rate limit
 

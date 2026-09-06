@@ -163,6 +163,7 @@ fomo_agent/
 extension/     Chrome MV3 extension that collects fomo from a logged-in tab
 tests/         offline: every source is exercised through a stored fixture
 docs/STATUS.md current state and the work list
+docs/robinhood-chain.md what chain 4663 actually looks like, measured
 ```
 
 ## Tests
