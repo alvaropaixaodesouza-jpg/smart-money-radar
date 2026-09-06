@@ -139,6 +139,12 @@ class Settings:
     track_lookback_days: int = field(default_factory=lambda: _int("TRACK_LOOKBACK_DAYS", 30))
 
     # scoring
+    # a wallet is treated as an automated cycler only when all three hold at once: high frequency,
+    # almost no breadth, and a hold time too short for any thesis
+    bot_min_trades_7d: int = field(default_factory=lambda: _int("BOT_MIN_TRADES_7D", 200))
+    bot_max_tokens: int = field(default_factory=lambda: _int("BOT_MAX_TOKENS", 10))
+    bot_max_hold_min: float = field(default_factory=lambda: _float("BOT_MAX_HOLD_MIN", 5))
+    bot_score: int = field(default_factory=lambda: _int("BOT_SCORE", 25))
     score_model: str = field(default_factory=lambda: _env("SCORE_MODEL", "claude-haiku-4-5"))
     deep_model: str = field(default_factory=lambda: _env("DEEP_MODEL", "claude-sonnet-5"))
     rescore_after_hours: dict[str, float] = field(

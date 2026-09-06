@@ -99,3 +99,51 @@ def test_reports_render_without_scores_or_prices(conn):
                         side="buy", usd_value=None, ts=db.now(), source="rpc")
     assert format_token(analyze_token(conn, TOKEN))
     assert format_trader(analyze_trader(conn, "fresh"))
+
+
+# ---------------------------------------------------------------- bot heuristic
+
+def ctx(trades, tokens, hold):
+    return {"last_7d": {"trades": trades, "unique_tokens": tokens, "median_hold_min": hold}}
+
+
+def test_bot_heuristic_needs_all_three_conditions():
+    """Frequency alone is not a bot — the best early-entry traders here are also very fast."""
+    from fomo_agent.pipeline.score import looks_automated
+
+    # 600 trades confined to six tokens at a two-minute hold: inventory cycling
+    assert looks_automated(ctx(600, 6, 2))
+    # the same frequency spread over 100 tokens is a person hunting launches
+    assert looks_automated(ctx(600, 100, 2)) is None
+    # narrow and fast, but not frequent enough to be automated
+    assert looks_automated(ctx(40, 4, 1)) is None
+    # narrow and frequent, but held long enough for a thesis
+    assert looks_automated(ctx(600, 6, 240)) is None
+    # a half-filled context must never trip it
+    assert looks_automated({}) is None
+    assert looks_automated(ctx(600, 6, None)) is None
+    assert looks_automated(ctx(600, 0, 1)) is None
+
+
+def test_drop_automated_takes_the_bot_out_of_the_queue(conn):
+    from fomo_agent import db as _db
+    from fomo_agent.pipeline.score import drop_automated
+
+    bot = "0x" + "f" * 40
+    with _db.tx(conn):
+        _db.upsert_trader(conn, bot, chain="robinhood", status="tracking")
+        # 110 round trips over two tokens, each held a minute: high frequency, no breadth
+        now = _db.now()
+        for i in range(110):
+            mint = TOKEN if i % 2 else "0x" + "e" * 40
+            _db.insert_trade(conn, sig=f"0xbotb{i}", address=bot, chain="robinhood", mint=mint,
+                             side="buy", usd_value=10.0, ts=now - 3600 - i * 600, source="rpc")
+            _db.insert_trade(conn, sig=f"0xbots{i}", address=bot, chain="robinhood", mint=mint,
+                             side="sell", usd_value=10.0, ts=now - 3540 - i * 600, source="rpc")
+    rows = conn.execute("SELECT * FROM traders WHERE address IN (?, ?)", (bot, ACE)).fetchall()
+    keep, dropped = drop_automated(conn, rows)
+
+    assert dropped == 1 and [r["address"] for r in keep] == [ACE]
+    row = _db.get_trader(conn, bot)
+    assert row["status"] == "dropped" and row["ai_model"] == "heuristic:bot"
+    assert "automated" in row["ai_summary"]

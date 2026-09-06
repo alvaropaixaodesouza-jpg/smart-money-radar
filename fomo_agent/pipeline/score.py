@@ -239,6 +239,42 @@ def digest_lines(payload: dict) -> list[str]:
     return out
 
 
+def looks_automated(ctx: dict[str, Any]) -> str | None:
+    """Reject market-making bots before they cost a scoring call. Returns the reason, or None.
+
+    Frequency alone does not identify a bot — the best early-entry traders here fire hundreds of
+    trades a week at sub-minute holds. What separates them is *breadth*: a person spreading 259
+    trades over 100 tokens is hunting, while 600 trades confined to six tokens at a two-minute hold
+    is a wallet cycling inventory. All three conditions have to hold.
+    """
+    d = ctx.get("last_7d") or {}
+    trades, tokens, hold = d.get("trades") or 0, d.get("unique_tokens") or 0, d.get("median_hold_min")
+    if trades >= settings.bot_min_trades_7d and 0 < tokens <= settings.bot_max_tokens             and hold is not None and hold <= settings.bot_max_hold_min:
+        return (f"{trades} trades in {tokens} tokens at a {hold:.0f}-minute median hold: "
+                "automated inventory cycling, not a trader to follow")
+    return None
+
+
+def drop_automated(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> tuple[list[sqlite3.Row], int]:
+    """Mark the obvious bots dropped and take them out of the scoring queue."""
+    keep, dropped = [], 0
+    for r in rows:
+        reason = looks_automated(build_context(conn, r["address"]))
+        if reason is None:
+            keep.append(r)
+            continue
+        dropped += 1
+        with db.tx(conn):
+            db.set_status(conn, r["address"], "dropped")
+            conn.execute(
+                "UPDATE traders SET score=?, tags=?, ai_summary=?, ai_model=?, ai_scored_at=? WHERE address=?",
+                (settings.bot_score, json.dumps({"style": ["scalper"], "red_flags": ["bot"]}),
+                 reason, "heuristic:bot", db.now(), r["address"]),
+            )
+        log.info("bot heuristic dropped %s: %s", r["address"][:10], reason)
+    return keep, dropped
+
+
 def pending_for_scoring(conn: sqlite3.Connection, *, force: bool = False, limit: int | None = None) -> list[sqlite3.Row]:
     # `needs_review` is where a wallet lands when scoring failed or the model refused to commit.
     # Leaving it out of this list is what makes the status a dead end instead of a retry queue.
@@ -249,6 +285,7 @@ def pending_for_scoring(conn: sqlite3.Connection, *, force: bool = False, limit:
 
 def export_contexts(conn: sqlite3.Connection, path: Path, *, force: bool = False, limit: int | None = None) -> dict:
     rows = pending_for_scoring(conn, force=force, limit=limit)
+    rows, bots = drop_automated(conn, rows)
     payload = {
         "instructions": EXPORT_INSTRUCTIONS,
         "schema": ScoreResult.model_json_schema(),
@@ -256,7 +293,7 @@ def export_contexts(conn: sqlite3.Connection, path: Path, *, force: bool = False
         "wallets": [build_context(conn, r["address"]) for r in rows],
     }
     Path(path).write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
-    return {"exported": len(rows), "path": str(path)}
+    return {"exported": len(rows), "bots_dropped": bots, "path": str(path)}
 
 
 def import_results(conn: sqlite3.Connection, path: Path, model: str = "manual") -> dict:
@@ -333,7 +370,9 @@ def score_all(conn: sqlite3.Connection, *, deep: bool = False, force: bool = Fal
         model = settings.score_model
     if limit:
         rows = rows[:limit]
-    stats = {"scored": 0, "needs_review": 0, "cost_usd": 0.0, "model": model, "by_status": {}}
+    rows, bots = (rows, 0) if deep else drop_automated(conn, rows)
+    stats = {"scored": 0, "needs_review": 0, "bots_dropped": bots, "cost_usd": 0.0,
+             "model": model, "by_status": {}}
     for r in rows:
         res, cost = score_trader(conn, r["address"], model)
         stats["cost_usd"] += cost
