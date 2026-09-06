@@ -66,16 +66,21 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
                 "cost": r["cost_basis"],
             })
 
+    # Collapse each buyer's fills into one row before aggregating, so a trader who bought five
+    # times counts once toward the headcount and once toward conviction.
     signals = [dict(r) for r in conn.execute(
-        "SELECT tr.mint, COALESCE(tk.symbol, substr(tr.mint,1,8)) sym, tk.liquidity_usd liq, "
-        "  COUNT(DISTINCT tr.address) buyers, SUM(tr.usd_value) usd, "
-        "  MIN(tr.ts) first_ts, MAX(tr.ts) last_ts, AVG(t.score) avg_score, "
-        "  GROUP_CONCAT(DISTINCT t.fomo_handle) who "
-        "FROM trades tr JOIN traders t ON t.address = tr.address "
-        "LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        f"WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        "SELECT mint, sym, liq, COUNT(*) buyers, SUM(usd) usd, MIN(first_ts) first_ts, "
+        "  AVG(score) avg_score, SUM((score / 100.0) * (score / 100.0)) conviction, "
+        "  GROUP_CONCAT(handle) who FROM ("
+        "  SELECT tr.mint mint, COALESCE(tk.symbol, substr(tr.mint,1,8)) sym, "
+        "    tk.liquidity_usd liq, t.score score, t.fomo_handle handle, "
+        "    SUM(tr.usd_value) usd, MIN(tr.ts) first_ts "
+        "  FROM trades tr JOIN traders t ON t.address = tr.address "
+        "  LEFT JOIN tokens tk ON tk.mint = tr.mint "
+        f"  WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
         + NOT_QUOTE.format(col="tr.mint") +
-        " GROUP BY tr.mint HAVING buyers >= 2 ORDER BY buyers DESC, usd DESC LIMIT 40",
+        "  GROUP BY tr.mint, tr.address"
+        ") GROUP BY mint HAVING buyers >= 2 ORDER BY conviction DESC, usd DESC LIMIT 40",
         [since, TRUSTED_SCORE, *params],
     )]
 
@@ -387,11 +392,13 @@ footer b{color:var(--muted); font-weight:500}
 
 <section class="panel" id="p-signals" role="tabpanel" aria-labelledby="tab-signals">
   <p class="note">A signal is a token that <b>two or more traders scoring 60+</b> bought inside the
-  last __HOURS__ hours. Nothing here is advice — it is a record of who moved first.</p>
+  last __HOURS__ hours, ranked by <b>conviction</b> — each buyer counted as the square of their
+  score, so five of the best wallets outrank fifteen mediocre ones. Nothing here is advice; it is a
+  record of who moved first.</p>
   <div class="cols">
     <div>
       <h2>Converging buys</h2>
-      <p class="sub">Last __HOURS__h &middot; ranked by how many trusted wallets agree</p>
+      <p class="sub">Last __HOURS__h &middot; ranked by the quality of the wallets that agree</p>
       <ul class="sig">__SIGNALS__</ul>
     </div>
     <div>
@@ -483,7 +490,7 @@ q.addEventListener('input', apply);
 def render_signals(rows: list[dict], now: int) -> str:
     if not rows:
         return '<li class="empty">No token has two trusted buyers in this window yet.</li>'
-    top = max(r["buyers"] for r in rows)
+    top = max(r["conviction"] or 0 for r in rows) or 1
     out = []
     for i, r in enumerate(rows, 1):
         amt, _ = signed(r["usd"])
