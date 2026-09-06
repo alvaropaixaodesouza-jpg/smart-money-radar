@@ -23,7 +23,7 @@ from collections import defaultdict
 from .. import db
 from ..config import settings
 from ..models import norm_addr
-from ..sources.codex import NETWORK_IDS, TOKEN_EVENTS_QUERY, Codex, CodexError
+from ..sources.codex import NETWORK_IDS, TOKEN_EVENTS_QUERY, Codex
 
 log = logging.getLogger(__name__)
 
