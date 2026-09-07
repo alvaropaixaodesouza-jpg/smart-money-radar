@@ -88,6 +88,13 @@ class Settings:
     # never tell the same chat about the same token twice inside this window
     telegram_realert_hours: int = field(default_factory=lambda: _int("TELEGRAM_REALERT_HOURS", 12))
 
+    # public HTTP API the site and any third-party client read from
+    api_host: str = field(default_factory=lambda: _env("API_HOST", "127.0.0.1"))
+    api_port: int = field(default_factory=lambda: _int("API_PORT", 8000))
+    api_rate_per_min: int = field(default_factory=lambda: _int("API_RATE_PER_MIN", 120))
+    api_cors_origins: tuple[str, ...] = field(default_factory=lambda: tuple(
+        o.strip() for o in _env("API_CORS_ORIGINS", "").split(",") if o.strip()))
+
     # local endpoint the browser extension posts fomo collections to (loopback only)
     receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
     receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))

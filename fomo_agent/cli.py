@@ -402,6 +402,19 @@ def trader(
     typer.echo(format_trader(a))
 
 
+@app.command("serve")
+def serve_cmd(
+    host: Optional[str] = typer.Option(None, "--host"),
+    port: Optional[int] = typer.Option(None, "--port"),
+    reload: bool = typer.Option(False, "--reload", help="restart on code changes (development)"),
+) -> None:
+    """Run the HTTP API the site and any third-party client read from."""
+    from .api import serve
+
+    typer.echo(f"api on http://{host or settings.api_host}:{port or settings.api_port}/docs")
+    serve(host, port, reload)
+
+
 @app.command("bot")
 def bot_cmd(
     once: bool = typer.Option(False, "--once", help="one poll and one broadcast, then exit"),
