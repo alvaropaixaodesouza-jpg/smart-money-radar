@@ -1,0 +1,24 @@
+[Unit]
+Description=FOMO Robinhood Radar - endpoint the browser extension posts fomo data to
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli receive
+Restart=always
+RestartSec=5
+# Loopback only. It is reachable from the outside world through exactly one thing: an SSH
+# tunnel, which needs the deploy key. The shared token is the second lock behind that.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target
