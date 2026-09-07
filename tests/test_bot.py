@@ -95,7 +95,7 @@ def test_signal_message_carries_the_names_not_just_a_count(conn):
 
 def test_help_is_the_answer_to_start_and_to_nothing(conn):
     for text in ("/start", "/help", "", "   "):
-        assert "FOMO RADAR" in bot.handle_text(conn, text, 1, None)
+        assert "FOMO ROBINHOOD RADAR" in bot.handle_text(conn, text, 1, None)
 
 
 def test_a_bare_handle_returns_the_verdict(conn):

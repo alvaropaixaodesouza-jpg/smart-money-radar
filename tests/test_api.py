@@ -150,5 +150,5 @@ def test_rate_limit_returns_429_rather_than_dying(client, monkeypatch):
 
 def test_openapi_describes_the_product(client):
     spec = client.get("/openapi.json").json()
-    assert spec["info"]["title"] == "FOMO Radar"
+    assert spec["info"]["title"] == "FOMO Robinhood Radar"
     assert "/api/signals" in spec["paths"] and "/api/token/{mint}" in spec["paths"]

@@ -11,8 +11,8 @@ const res = q ? await search(q) : null;
 if (res?.kind === 'trader') return Astro.redirect(`/trader/${res.handle ?? res.address}`, 302);
 if (res?.kind === 'token' && !miss) return Astro.redirect(`/token/${res.address}`, 302);
 ---
-<Base title={q ? `${q} — search | FOMO Radar` : 'Search | FOMO Radar'}
-      description="Look up a Robinhood Chain token or a fomo.family trader." noindex={true}>
+<Base title={q ? `${q} — search | FOMO Robinhood Radar` : 'Search | FOMO Robinhood Radar'}
+      description="Look up any Robinhood Chain token or fomo.family trader and see whose money is in it." noindex={true}>
   <div class="pagehead"><h1>Search</h1></div>
   <p class="subhead">a token address, or a trader handle</p>
 

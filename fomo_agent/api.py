@@ -83,9 +83,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FOMO Radar",
+    title="FOMO Robinhood Radar",
     version="0.1.0",
-    summary="Which fomo.family traders actually know what they are doing.",
+    summary="Which fomo.family traders on Robinhood Chain actually know what they are doing.",
     description=(
         "Read-only research over Robinhood Chain. Every trader here was resolved from a fomo "
         "profile to a real on-chain wallet, tracked, and judged by Claude. Nothing on this API "

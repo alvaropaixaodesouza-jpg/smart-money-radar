@@ -15,7 +15,7 @@ const desc = t.is_quote
     ? `${t.holders.length} tracked wallets hold ${name}, ${t.trusted_holders} of them scoring 60+, on ${usd(t.cohort_cost)} of cost basis.`
     : `No wallet we track holds or has traded ${name}.`;
 ---
-<Base title={`${name} — who holds it | FOMO Radar`} description={desc}>
+<Base title={`${name} — who holds it on Robinhood Chain | FOMO Robinhood Radar`} description={desc}>
   <div class="pagehead">
     <h1 style="font-size:clamp(28px,5vw,44px)">${name}</h1>
     {t.is_quote && <span class="badge drop">quote asset</span>}

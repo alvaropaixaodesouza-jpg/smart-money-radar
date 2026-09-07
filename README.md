@@ -1,19 +1,21 @@
-# fomo-agent
+# FOMO Robinhood Radar
 
-Finds the [fomo.family](https://fomo.family) traders worth watching on Robinhood Chain, follows
-their fills on-chain, and asks Claude which of them are actually good. The result is one
-self-contained HTML page: a signal feed, a token analyzer, and a scored roster.
+Finds the [fomo.family](https://fomo.family) traders worth watching **on Robinhood Chain**, follows
+their fills on-chain, and asks Claude which of them actually know what they are doing. The result is
+a live site, a Telegram bot and an HTTP API over one database: a signal feed, a token analyzer, a
+trader analyzer, and a leaderboard ranked by judgement rather than by headline PnL.
 
 **Read-only. It never signs or sends a transaction, and it holds no keys that could.**
 
 ```bash
 pip install -e .
 cp .env.example .env          # nothing is required to start; see "Keys" below
-fomo-agent init               # create the database, print the request budget
-fomo-agent discover --trenches   # import a starter roster, wallets already resolved
-fomo-agent track                 # pull their fills off the chain
-fomo-agent score --export pending.json   # score in a chat, or set ANTHROPIC_API_KEY
-fomo-agent page --out radar.html
+fomo-radar init               # create the database, print the request budget
+fomo-radar discover --trenches   # import a starter roster, wallets already resolved
+fomo-radar track                 # pull their fills off the chain
+fomo-radar score --export pending.json   # score in a chat, or set ANTHROPIC_API_KEY
+fomo-radar serve                 # the HTTP API
+fomo-radar bot                   # the Telegram bot
 ```
 
 ## What it actually knows
@@ -81,9 +83,9 @@ feed built on raw DEX trade data, this one included.
 Scoring runs either way:
 
 ```bash
-fomo-agent score                          # needs ANTHROPIC_API_KEY
-fomo-agent score --export pending.json    # ...or paste the file into any Claude chat
-fomo-agent score --import scored.json     # and load the answer back
+fomo-radar score                          # needs ANTHROPIC_API_KEY
+fomo-radar score --export pending.json    # ...or paste the file into any Claude chat
+fomo-radar score --import scored.json     # and load the answer back
 ```
 
 The export carries the same context and instructions the API path sends, so the two produce
@@ -91,7 +93,7 @@ comparable verdicts. `docs/example_scores.json` shows the expected shape.
 
 ## The page
 
-`fomo-agent page` writes one standalone HTML file — no server, no build step, no runtime
+`fomo-radar page` writes one standalone HTML file — no server, no build step, no runtime
 dependency beyond a webfont — with three views:
 
 - **Signals** — tokens that two or more traders scoring 60+ bought inside the window, ranked by how
@@ -101,7 +103,7 @@ dependency beyond a webfont — with three views:
 - **Traders** — the scored roster: a verdict, the reasoning, the figures behind it, and each
   trader's largest open bags.
 
-`fomo-agent token <address>` and `fomo-agent trader <handle>` answer the same two questions in the
+`fomo-radar token <address>` and `fomo-radar trader <handle>` answer the same two questions in the
 terminal. Both lean on one measure: **conviction**, the sum of each holder's (score/100)². It says
 *whose* money is in a name rather than how many wallets are in it, because anyone can open a wallet
 and one trader scoring 85 is worth more than ten scoring 40.
@@ -109,27 +111,28 @@ and one trader scoring 85 is worth more than ten scoring 40.
 ## Commands
 
 ```
-fomo-agent init                                  # create db, print the Codex projection
-fomo-agent new-tokens                            # store fresh tokens, trigger holder discovery
-fomo-agent enrich-tokens                         # resolve names and liquidity for bare addresses
-fomo-agent discover --trenches                   # import the trenches roster (free, resolved)
-fomo-agent discover --add <wallet> [--chain base]
-fomo-agent discover --leaderboard                # fomo leaderboard 24h/7d/30d (browser collection)
-fomo-agent discover --mint <mint> --makers       # buyers of a token -> candidates (Codex)
-fomo-agent resolve [--handle <name>]             # infer execution wallets
-fomo-agent track [--address <wallet>] [--show]
-fomo-agent score [--address <wallet>] [--deep] [--force] [--show-context]
-fomo-agent token <address> [--hours 48]          # whose money is in this token
-fomo-agent trader <handle-or-address>            # one trader in full
-fomo-agent report [--hours 24] [--out report.md]
-fomo-agent page --out radar.html [--hours 48]
-fomo-agent run [--once]                          # polling loop
-fomo-agent receive                               # local endpoint for the browser extension
-fomo-agent trenches [--window 7d] [--tape 10]
-fomo-agent fomo-import <file>
+fomo-radar init                                  # create db, print the Codex projection
+fomo-radar new-tokens                            # store fresh tokens, trigger holder discovery
+fomo-radar enrich-tokens                         # resolve names and liquidity for bare addresses
+fomo-radar discover --trenches                   # import the trenches roster (free, resolved)
+fomo-radar discover --add <wallet> [--chain base]
+fomo-radar discover --leaderboard                # fomo leaderboard 24h/7d/30d (browser collection)
+fomo-radar discover --mint <mint> --makers       # buyers of a token -> candidates (Codex)
+fomo-radar resolve [--handle <name>]             # infer execution wallets
+fomo-radar track [--address <wallet>] [--show]
+fomo-radar score [--address <wallet>] [--deep] [--force] [--show-context]
+fomo-radar token <address> [--hours 48]          # whose money is in this token
+fomo-radar trader <handle-or-address>            # one trader in full
+fomo-radar report [--hours 24] [--out report.md]
+fomo-radar page --out radar.html [--hours 48]
+fomo-radar run [--once]                          # polling loop
+fomo-radar receive                               # local endpoint for the browser extension
+fomo-radar trenches [--window 7d] [--tape 10]
+fomo-radar fomo-import <file>
 ```
 
-Or `python -m fomo_agent.cli ...` from the repo.
+Or `python -m fomo_agent.cli ...` from the repo. (`fomo-agent` still works as an alias; the
+Python package keeps its original name so existing imports and scripts do not break.)
 
 ## Keys
 
@@ -151,11 +154,11 @@ fomo's API cannot be called from a server — Cloudflare rejects every non-brows
 with `430 {"error":"unauthorized"}`, including the exact cURL Chrome generates with a fresh token,
 and its Privy bearer expires hourly. So fomo data is collected *in* a browser:
 
-- **Automatic** — load `extension/` as an unpacked Chrome extension and run `fomo-agent receive`.
+- **Automatic** — load `extension/` as an unpacked Chrome extension and run `fomo-radar receive`.
   It collects on a schedule from your logged-in tab and posts straight into the database.
   See [extension/README.md](extension/README.md).
 - **Manual** — paste `scripts/fomo_export.js` into the DevTools console, then
-  `fomo-agent fomo-import <downloaded file>`.
+  `fomo-radar fomo-import <downloaded file>`.
 
 Both produce the same payload and go through the same parsers.
 

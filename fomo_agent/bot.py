@@ -135,7 +135,8 @@ def fmt_signals(sigs: list[dict], hours: int, now: int | None = None) -> str:
     if not sigs:
         return (f"No token has two trusted buyers in the last {hours}h.\n\n"
                 "That is information too — the cohort is sitting still.")
-    out = [f"<b>SIGNALS · {hours}h</b>", "<i>ranked by conviction, not by headcount</i>", ""]
+    out = [f"<b>SIGNALS · {hours}h · Robinhood Chain</b>",
+           "<i>ranked by conviction, not by headcount</i>", ""]
     for i, s in enumerate(sigs, 1):
         out.append(f"{i:>2}. <b>${esc(s['sym'])}</b>  conviction {s['conviction']:.1f}"
                    f"  ·  {s['buyers']} buyers, avg {s['avg_score']:.0f}")
@@ -222,8 +223,8 @@ def fmt_leaderboard(board: list[dict], status: str) -> str:
     return "\n".join(out)
 
 
-HELP = """<b>FOMO RADAR</b>
-<i>which fomo.family traders actually know what they are doing</i>
+HELP = """<b>FOMO ROBINHOOD RADAR</b>
+<i>which fomo.family traders on Robinhood Chain actually know what they are doing</i>
 
 /signals — what trusted wallets are buying now
 /top — the scored leaderboard

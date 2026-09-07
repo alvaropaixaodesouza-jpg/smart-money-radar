@@ -11,7 +11,9 @@ import typer
 from . import db
 from .config import settings
 
-app = typer.Typer(help="fomo-agent: discover, track and score Solana traders (research only).", no_args_is_help=True)
+app = typer.Typer(
+    help="FOMO Robinhood Radar: discover, track and score Robinhood Chain traders (research only).",
+    no_args_is_help=True)
 
 
 def _setup(verbose: bool) -> None:

@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fomo-agent"
+name = "fomo-robinhood-radar"
 version = "0.1.0"
-description = "Research tool: find the fomo.family traders worth watching on Robinhood Chain, track their fills on-chain, score them with Claude. Read-only, never trades."
+description = "FOMO Robinhood Radar: find the fomo.family traders worth watching on Robinhood Chain, track their fills on-chain, score them with Claude. Read-only, never trades."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
@@ -22,7 +22,8 @@ capture = ["playwright>=1.45"]
 dev = ["pytest>=8", "fastapi>=0.115", "uvicorn[standard]>=0.32", "httpx>=0.27"]
 
 [project.scripts]
-fomo-agent = "fomo_agent.cli:app"
+fomo-radar = "fomo_agent.cli:app"
+fomo-agent = "fomo_agent.cli:app"  # kept so existing scripts keep working
 
 [tool.setuptools.packages.find]
 include = ["fomo_agent*"]

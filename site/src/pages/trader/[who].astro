@@ -12,8 +12,8 @@ const s = t.stats ?? {};
 const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%` : '—';
 ---
 <Base
-  title={`${name} — score ${t.score}, ${verdictLabel(t.status)} | FOMO Radar`}
-  description={t.summary ?? `${name}: verdict, open positions and recent fills on Robinhood Chain.`}
+  title={`${name} — Robinhood Chain trader, score ${t.score} | FOMO Robinhood Radar`}
+  description={t.summary ?? `${name}: the verdict, open positions and recent fills for this Robinhood Chain wallet.`}
 >
   <div class="profile">
     <div class={`score ${verdictClass(t.status)}`} style="font-size:44px">
