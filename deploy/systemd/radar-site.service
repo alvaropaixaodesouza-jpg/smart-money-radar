@@ -1,0 +1,25 @@
+[Unit]
+Description=FOMO Robinhood Radar - Astro site
+After=network-online.target radar-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app/site
+Environment=HOST=127.0.0.1
+Environment=PORT=4321
+Environment=API_BASE=http://127.0.0.1:8000
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node ./dist/server/entry.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target

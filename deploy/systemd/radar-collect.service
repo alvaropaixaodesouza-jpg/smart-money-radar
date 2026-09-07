@@ -1,0 +1,17 @@
+[Unit]
+Description=FOMO Robinhood Radar - one collection pass
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# order matters: resolve new wallets, then track them, then name what they traded
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli resolve --limit 20
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli track --limit 400
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli enrich-tokens --limit 300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

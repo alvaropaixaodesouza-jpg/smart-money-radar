@@ -20,3 +20,7 @@ fomo.family.har
 curl.txt
 *.db-wal
 *.db-shm
+
+# deploy key and any local server notes
+*.pem
+id_*

@@ -1,0 +1,22 @@
+[Unit]
+Description=FOMO Robinhood Radar - Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli bot
+Restart=always
+RestartSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=FOMO Robinhood Radar - nightly database backup
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar
+# sqlite's own backup, so the copy is consistent even while the API is reading
+ExecStart=/usr/bin/sqlite3 /opt/fomoradar/fomo_agent.db ".backup /opt/fomoradar/backups/fomo_agent.db"
+ExecStartPost=/bin/sh -c 'gzip -f /opt/fomoradar/backups/fomo_agent.db && mv /opt/fomoradar/backups/fomo_agent.db.gz /opt/fomoradar/backups/db-$(date +%%Y%%m%%d).gz'
+ExecStartPost=/bin/sh -c 'ls -1t /opt/fomoradar/backups/db-*.gz | tail -n +15 | xargs -r rm -f'
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

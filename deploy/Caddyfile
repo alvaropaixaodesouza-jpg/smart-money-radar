@@ -1,0 +1,41 @@
+# FOMO Robinhood Radar
+#
+# No domain yet, so this answers on the bare IP over plain HTTP. When a domain points here,
+# replace the `:80` line with the hostname and Caddy fetches a certificate on its own —
+# nothing else in this file has to change.
+
+:80 {
+	encode zstd gzip
+
+	# the API and its generated documentation
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /docs* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /redoc* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /openapi.json {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# everything else is the server-rendered site
+	handle {
+		reverse_proxy 127.0.0.1:4321
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+
+	# Access logs go to journald, which the packaged unit already has write access to and
+	# which rotates them for free. `journalctl -u caddy` reads them back.
+	log {
+		format json
+	}
+}

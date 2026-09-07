@@ -1,0 +1,23 @@
+[Unit]
+Description=FOMO Robinhood Radar - HTTP API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli serve
+Restart=always
+RestartSec=5
+# the service reads one sqlite file and talks to public HTTP endpoints; nothing else
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target
