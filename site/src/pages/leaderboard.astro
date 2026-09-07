@@ -1,14 +1,23 @@
 ---
 import Base from '../layouts/Base.astro';
 import Search from '../components/Search.astro';
-import { getLeaderboard, getStats, usd, verdictClass, verdictLabel } from '../lib/api';
+import Panel from '../components/Panel.astro';
+import Ident from '../components/Ident.astro';
+import { getLeaderboard, getStats, get, usd, verdictClass, verdictLabel } from '../lib/api';
 
 const valid = ['active', 'watch', 'dropped', 'all'];
 const raw = Astro.url.searchParams.get('status') ?? 'active';
 const status = valid.includes(raw) ? raw : 'active';
 
-const [stats, board] = await Promise.all([getStats(), getLeaderboard(status, 120)]);
+const [stats, board, dist] = await Promise.all([
+  getStats(),
+  getLeaderboard(status, 120),
+  get<{ buckets: number[]; total: number; peak: number }>('/api/distribution'),
+]);
 const traders = board?.traders ?? [];
+
+// Where each band sits on the 0–100 scale, so the histogram explains the filter above it.
+const bandOf = (i: number) => (i >= 7 ? 'follow' : i >= 4 ? 'watch' : 'drop');
 
 const blurb: Record<string, string> = {
   active: 'A large figure with a repeatable pattern behind it — several winners at a real cost basis, not one unpriceable bag.',
@@ -32,7 +41,26 @@ const blurb: Record<string, string> = {
     <div><dt>Scored</dt><dd>{stats?.scored ?? '—'}</dd></div>
   </div>
 
-  <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px">
+  {dist && (
+    <Panel title="Score distribution" meta={`${dist.total} wallets · 10-point buckets`}>
+      <div class="hist">
+        {dist.buckets.map((n, i) => (
+          <div class={`col ${bandOf(i)}`} title={`${i * 10}–${i * 10 + 9}: ${n} wallets`}>
+            <span class="n">{n || ''}</span>
+            <i style={`height:${n ? Math.max((n / dist.peak) * 100, 3) : 1}%`}></i>
+            <span class="x">{i * 10}</span>
+          </div>
+        ))}
+      </div>
+      <p class="histnote">
+        The mass sits between 60 and 90 because a wallet has to reach the fomo leaderboard before we
+        ever look at it. The tail below 50 is what that filter misses: bots, one-hit tickets and
+        books that lose more than they win.
+      </p>
+    </Panel>
+  )}
+
+  <div style="display:flex;gap:9px;flex-wrap:wrap;margin:25px 0 16px">
     {valid.map((v) => (
       <a class={`btn${v === status ? ' primary' : ''}`} href={`/leaderboard?status=${v}`}>
         {v === 'active' ? 'follow' : v === 'dropped' ? 'drop' : v}
@@ -55,6 +83,7 @@ const blurb: Record<string, string> = {
           </div>
           <div>
             <div class="top">
+              <Ident seed={t.address} size={18} />
               <a class="handle" href={`/trader/${t.handle ?? t.address}`}>{t.handle ?? t.address.slice(0, 10)}</a>
               {t.style.slice(0, 3).map((s) => <span class="badge tag">{s}</span>)}
               {t.red_flags.map((f) => <span class="badge flag">{f}</span>)}
@@ -71,4 +100,19 @@ const blurb: Record<string, string> = {
       ))}
     </ol>
   )}
+
+  <style>
+    .hist { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+    .col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 4px; }
+    .col i { width: 100%; background: #606060; min-height: 1px; }
+    .col.follow i { background: #00ff85; }
+    .col.watch i { background: #fcff76; }
+    .col.drop i { background: #ff003d; }
+    .col .n, .col .x {
+      font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 9.5px;
+      color: #949494; letter-spacing: 0.04em;
+    }
+    .col .x { color: #606060; }
+    .histnote { font-size: 13px; color: #949494; margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #606060; }
+  </style>
 </Base>

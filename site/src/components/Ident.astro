@@ -1,0 +1,42 @@
+---
+/**
+ * A wireframe glyph derived from an address — the same wallet always draws the same mark.
+ *
+ * Not decoration: a row of near-identical hex strings is unreadable, and a shape is recognised far
+ * faster than a prefix. Mirrored down the middle so it reads as a mark rather than as noise, and
+ * one cell takes the accent so each glyph has a point of focus.
+ */
+interface Props { seed: string; size?: number; accent?: string }
+const { seed, size = 22, accent = '#00ff85' } = Astro.props;
+
+// FNV-1a: tiny, stable, and good enough to spread addresses across the grid
+let h = 0x811c9dc5;
+for (let i = 0; i < seed.length; i++) {
+  h ^= seed.charCodeAt(i);
+  h = Math.imul(h, 0x01000193) >>> 0;
+}
+const bits = [...Array(15)].map((_, i) => ((h >>> i) & 1) === 1);
+const hot = h % 15;
+
+// 5 columns x 5 rows, left three columns generated and mirrored onto the right two
+const cells: { x: number; y: number; on: boolean; hot: boolean }[] = [];
+for (let col = 0; col < 3; col++) {
+  for (let row = 0; row < 5; row++) {
+    const idx = col * 5 + row;
+    const on = bits[idx];
+    for (const c of col === 2 ? [2] : [col, 4 - col]) {
+      cells.push({ x: c, y: row, on, hot: idx === hot });
+    }
+  }
+}
+---
+<svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true" class="ident">
+  <rect x="0.5" y="0.5" width="19" height="19" stroke="#606060" />
+  {cells.filter((c) => c.on).map((c) => (
+    <rect x={2 + c.x * 3.2} y={2 + c.y * 3.2} width="3.2" height="3.2"
+          fill={c.hot ? accent : '#949494'} />
+  ))}
+</svg>
+<style>
+  .ident { flex: 0 0 auto; display: block; }
+</style>

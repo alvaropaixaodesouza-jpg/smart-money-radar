@@ -54,3 +54,25 @@ def test_a_position_keeps_a_real_cost(conn):
         db.upsert_fomo_position(conn, trade_id="p2", user_id="u1", token=MINT,
                                 unrealized_pnl=100.0, cost_basis=25.0)
     assert conn.execute("SELECT cost_basis FROM fomo_positions WHERE trade_id='p2'").fetchone()[0] == 25.0
+
+
+def test_a_connection_survives_being_closed_on_another_thread(tmp_path):
+    """FastAPI may run a handler on one worker thread and its teardown on another."""
+    import threading
+
+    conn = db.connect(tmp_path / "threads.db")
+    conn.execute("SELECT COUNT(*) FROM traders").fetchone()
+
+    error: list[Exception] = []
+
+    def close_elsewhere():
+        try:
+            conn.execute("SELECT COUNT(*) FROM trades").fetchone()
+            conn.close()
+        except Exception as e:  # noqa: BLE001 - the point of the test is that this does not happen
+            error.append(e)
+
+    t = threading.Thread(target=close_elsewhere)
+    t.start()
+    t.join()
+    assert error == [], f"connection refused a cross-thread close: {error}"

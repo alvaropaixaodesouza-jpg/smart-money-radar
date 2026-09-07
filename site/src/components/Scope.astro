@@ -1,0 +1,142 @@
+---
+/**
+ * The radar scope — the product's name, drawn from its own data.
+ *
+ * A real scope shows bearing and range, so this does too: the angle around the dial is *when* the
+ * first trusted wallet entered (newest at the top, sweeping clockwise into the past), and the
+ * distance from the centre is conviction inverted — the strongest signals sit locked at the middle,
+ * the weak ones drift out toward the rim. Dot size is how many wallets agree.
+ *
+ * It reads at a glance in a way the ranked list cannot: a cluster near the centre at the top means
+ * several strong names were bought in the last hour, and that is the whole point of the page.
+ */
+import type { Signal } from '../lib/api';
+
+interface Props { signals: Signal[]; hours?: number; size?: number }
+const { signals, hours = 24, size = 380 } = Astro.props;
+
+const C = 200, MAX_R = 168, RINGS = [42, 84, 126, 168];
+const now = Math.floor(Date.now() / 1000);
+const windowSec = hours * 3600;
+const peak = Math.max(...signals.map((s) => s.conviction), 1);
+
+// Most of a window's first buys land in the same hour, so bearing alone stacks the returns on
+// top of each other. A deterministic spread from the address keeps them apart without inventing
+// a time that is not real — the ring they sit on still carries the meaning.
+function spread(seed: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return ((h % 1000) / 1000 - 0.5) * 26;
+}
+
+const plotted = signals.slice(0, 24).map((s) => {
+  // bearing: straight up is just now, sweeping clockwise into the past
+  const age = Math.min(Math.max((now - s.first_ts) / windowSec, 0), 1);
+  const deg = -90 + age * 300 + spread(s.mint);
+  const rad = (deg * Math.PI) / 180;
+  // range: strongest conviction closest to the centre
+  const r = 26 + (1 - Math.min(s.conviction / peak, 1)) * (MAX_R - 34);
+  const x = C + r * Math.cos(rad);
+  return {
+    ...s,
+    x,
+    y: C + r * Math.sin(rad),
+    dot: Math.min(3 + Math.sqrt(s.buyers) * 1.5, 9),
+    strong: s.conviction >= peak * 0.45,
+    left: x < C,
+  };
+});
+
+// Label only what can be read. Three names on a 400px dial is the honest limit; the rest are
+// numbered in the list directly below, which is where anyone reading closely will look anyway.
+const labelled = plotted.slice(0, 3);
+---
+<figure class="scope" style={`--scope-size:${size}px`}>
+  <svg viewBox="0 0 400 400" role="img"
+       aria-label={`Radar scope: ${signals.length} tokens, distance from centre is conviction, angle is time since the first trusted buy.`}>
+    <defs>
+      <clipPath id="scope-clip"><circle cx={C} cy={C} r={MAX_R} /></clipPath>
+    </defs>
+
+    <!-- range rings -->
+    {RINGS.map((r, i) => (
+      <circle cx={C} cy={C} r={r} fill="none"
+              stroke={i === RINGS.length - 1 ? '#ffffff' : '#606060'} stroke-width="1" />
+    ))}
+
+    <!-- bearing spokes every 45 degrees -->
+    {[0, 45, 90, 135].map((a) => {
+      const rad = (a * Math.PI) / 180;
+      return <line x1={C - MAX_R * Math.cos(rad)} y1={C - MAX_R * Math.sin(rad)}
+                   x2={C + MAX_R * Math.cos(rad)} y2={C + MAX_R * Math.sin(rad)}
+                   stroke="#606060" stroke-width="1" />;
+    })}
+
+    <!-- the sweep, anchored at the centre -->
+    <g class="sweep" style={`transform-origin:${C}px ${C}px`}>
+      <line x1={C} y1={C} x2={C} y2={C - MAX_R} stroke="#fcff76" stroke-width="1" />
+      <circle cx={C} cy={C - MAX_R} r="2" fill="#fcff76" />
+    </g>
+
+    <!-- returns -->
+    {plotted.map((p) => (
+      <g class="blip">
+        {p.strong && <circle cx={p.x} cy={p.y} r={p.dot + 5} fill="none" stroke="#00ff85" stroke-width="1" opacity="0.35" />}
+        <circle cx={p.x} cy={p.y} r={p.dot} fill={p.strong ? '#00ff85' : '#ff8a00'} />
+      </g>
+    ))}
+
+    <!-- the three strongest get named, anchored away from the dial's centre -->
+    {labelled.map((p) => (
+      <text x={p.left ? p.x - p.dot - 6 : p.x + p.dot + 6} y={p.y + 4}
+            text-anchor={p.left ? 'end' : 'start'} fill="#ffffff"
+            font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.05em">
+        {p.sym}
+      </text>
+    ))}
+
+    <circle cx={C} cy={C} r="2" fill="#ffffff" />
+
+    <!-- range legend, read from the rim inward -->
+    <text x={C + 4} y={C - MAX_R + 13} fill="#606060" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.12em">NOW</text>
+    <text x={C + 4} y={C - 30} fill="#606060" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.12em">STRONG</text>
+  </svg>
+
+  <figcaption>
+    <span class="k">bearing</span> time since the first trusted buy · <span class="k">range</span>
+    conviction, strongest at the centre · <span class="k">size</span> wallets agreeing
+  </figcaption>
+</figure>
+
+<style>
+  .scope {
+    margin: 0;
+    border: 1px solid #ffffff;
+    padding: 15px 15px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .scope svg { width: 100%; height: auto; max-width: var(--scope-size); align-self: center; display: block; }
+  .scope figcaption {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: #606060;
+    line-height: 1.6;
+    border-top: 1px solid #606060;
+    padding-top: 10px;
+  }
+  .scope figcaption .k {
+    color: #949494;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .sweep { animation: sweep 8s linear infinite; }
+  @keyframes sweep { to { transform: rotate(360deg); } }
+  .blip { animation: pulse 3s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .sweep, .blip { animation: none; }
+  }
+  @keyframes pulse { 50% { opacity: 0.55; } }
+</style>

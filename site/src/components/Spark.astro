@@ -1,0 +1,28 @@
+---
+/**
+ * Fills per hour as a bar strip. Bars rather than a line: the data is counts per bucket, and a
+ * smooth line would imply a continuity that hourly counts do not have.
+ */
+interface Props { series: number[]; label?: string; height?: number }
+const { series, label = '', height = 28 } = Astro.props;
+const peak = Math.max(...series, 1);
+const recent = series.length - 6; // the last six hours read as live
+---
+<div class="spark" style={`--h:${height}px`}>
+  <div class="bars" role="img" aria-label={`${label}: ${series.length} hourly buckets, peak ${peak}`}>
+    {series.map((v, i) => (
+      <i style={`height:${Math.max((v / peak) * 100, v > 0 ? 6 : 2)}%`} class={i >= recent ? 'hot' : ''} />
+    ))}
+  </div>
+  {label && <span class="lbl">{label}</span>}
+</div>
+<style>
+  .spark { display: flex; flex-direction: column; gap: 5px; }
+  .bars { display: flex; align-items: flex-end; gap: 1px; height: var(--h); }
+  .bars i { flex: 1; background: #606060; min-height: 1px; }
+  .bars i.hot { background: #00ff85; }
+  .lbl {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #606060;
+  }
+</style>

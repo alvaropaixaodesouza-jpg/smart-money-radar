@@ -43,8 +43,14 @@ class Telegram:
         self.token = token or settings.telegram_bot_token
         if not self.token:
             raise TelegramError("TELEGRAM_BOT_TOKEN is not set (talk to @BotFather, see .env.example)")
-        # the read timeout has to outlast a long poll, or every idle poll looks like a failure
-        self.http = client or httpx.Client(timeout=settings.telegram_poll_timeout + 15)
+        # api.telegram.org is blocked by some ISPs, Russian ones included: DNS resolves, the TCP
+        # connection then times out. A proxy fixes it locally; on a server outside that jurisdiction
+        # none is needed, which is the real reason the bot belongs on the server.
+        # The read timeout has to outlast a long poll, or every idle poll looks like a failure.
+        self.http = client or httpx.Client(
+            timeout=settings.telegram_poll_timeout + 15,
+            proxy=settings.telegram_proxy or None,
+        )
         self.requests = 0
 
     def call(self, method: str, **params) -> object:
@@ -52,6 +58,8 @@ class Telegram:
         r = self.http.post(API.format(token=self.token, method=method), json=params)
         if r.status_code == 409:
             raise TelegramError("another copy of this bot is already polling — stop it first")
+        if r.status_code == 401:
+            raise TelegramError("TELEGRAM_BOT_TOKEN rejected — check it, or /revoke a new one")
         r.raise_for_status()
         body = r.json()
         if not body.get("ok"):

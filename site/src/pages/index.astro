@@ -2,41 +2,103 @@
 import Base from '../layouts/Base.astro';
 import Meter from '../components/Meter.astro';
 import Search from '../components/Search.astro';
-import { getSignals, getStats, usd, ago } from '../lib/api';
+import Scope from '../components/Scope.astro';
+import Spark from '../components/Spark.astro';
+import Panel from '../components/Panel.astro';
+import Ident from '../components/Ident.astro';
+import { getSignals, getStats, get, usd, ago, type Signal } from '../lib/api';
 
 const hours = Number(Astro.url.searchParams.get('hours') ?? 24);
-const [stats, feed] = await Promise.all([getStats(), getSignals(hours, 40)]);
-const signals = feed?.signals ?? [];
+const [stats, feed, pulse] = await Promise.all([
+  getStats(),
+  getSignals(hours, 40),
+  get<{ hours: number; series: number[]; total: number; peak: number }>('/api/activity?hours=48'),
+]);
+const signals: Signal[] = feed?.signals ?? [];
 const top = signals.length ? Math.max(...signals.map((s) => s.conviction)) : 1;
 const down = !stats;
+const lead = signals[0];
 ---
 <Base
   title="FOMO Radar — what the profitable wallets are buying"
   description="Tokens two or more trusted fomo.family wallets bought in the last day, ranked by whose money moved rather than how many wallets did."
   section="signals"
 >
-  <div class="pagehead">
-    <h1>Signals</h1>
-    {!down && <span class="badge follow">live</span>}
-  </div>
-  <p class="subhead">
-    tokens two or more wallets scoring 60+ bought in the last {hours}h · ranked by conviction, not by headcount
-  </p>
+  <!-- ── hero ───────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="grid" aria-hidden="true"></div>
+    <div class="hero-copy">
+      <p class="eyebrow">
+        <span class="led" aria-hidden="true"></span>
+        Robinhood Chain · 4663 · {down ? 'service down' : `updated ${ago(stats.updated_ts)} ago`}
+      </p>
+      <h1>Whose<br />money<br />moved</h1>
+      <p class="thesis">
+        Anyone can open a wallet, so counting them tells you nothing. These are the tokens that
+        wallets with a <strong>track record we scored</strong> are buying — ranked by whose money
+        it is, not by how much of it there is.
+      </p>
+      <div class="hero-actions">
+        <Search />
+      </div>
+    </div>
 
-  {down ? (
-    <p class="empty">The data service is not answering. Nothing here is stale — it is simply absent.</p>
-  ) : (
-    <dl class="strip">
-      <div><dt>Traders</dt><dd>{stats.scored}</dd></div>
-      <div><dt>Follow</dt><dd class="g">{stats.active}</dd></div>
-      <div><dt>Watch</dt><dd class="y">{stats.watch}</dd></div>
-      <div><dt>Fills</dt><dd>{stats.fills.toLocaleString('en-US')}</dd></div>
-      <div><dt>Open PnL</dt><dd class="g">{usd(stats.open_pnl)}</dd></div>
-      <div><dt>Updated</dt><dd style="font-size:15px">{ago(stats.updated_ts)} ago</dd></div>
-    </dl>
+    {signals.length > 0 && <Scope signals={signals} hours={hours} />}
+  </section>
+
+  <!-- ── instrument strip ───────────────────────────────────── -->
+  {!down && (
+    <div class="rack">
+      <dl class="strip">
+        <div><dt>Traders</dt><dd>{stats.scored}</dd></div>
+        <div><dt>Follow</dt><dd class="g">{stats.active}</dd></div>
+        <div><dt>Watch</dt><dd class="y">{stats.watch}</dd></div>
+        <div><dt>Drop</dt><dd class="c">{stats.dropped}</dd></div>
+        <div><dt>Fills</dt><dd>{stats.fills.toLocaleString('en-US')}</dd></div>
+        <div><dt>Open PnL</dt><dd class="g">{usd(stats.open_pnl)}</dd></div>
+      </dl>
+      {pulse && (
+        <div class="pulse">
+          <Spark series={pulse.series} label={`fills per hour · 48h · peak ${pulse.peak}`} height={34} />
+        </div>
+      )}
+    </div>
   )}
 
-  <div style="margin-bottom:25px"><Search /></div>
+  {down && <p class="empty">The data service is not answering. Nothing here is stale — it is simply absent.</p>}
+
+  <!-- ── the lead ───────────────────────────────────────────── -->
+  {lead && (
+    <Panel title="Strongest return" meta={`first entry ${ago(lead.first_ts)} ago`}>
+      <div class="lead">
+        <div class="lead-mark">
+          <Ident seed={lead.mint} size={40} />
+          <span class="cv">{lead.conviction.toFixed(1)}</span>
+          <small>conviction</small>
+        </div>
+        <div>
+          <a class="lead-tk" href={`/token/${lead.mint}`}>${lead.sym}</a>
+          <p class="lead-copy">
+            <strong>{lead.buyers} wallets</strong> scoring 60+ bought it, averaging
+            <strong> {lead.avg_score.toFixed(0)}</strong>, for {usd(lead.usd)} between them.
+            {lead.liq && ` Liquidity ${usd(lead.liq)}.`}
+          </p>
+          <p class="lead-who">
+            {lead.who.slice(0, 6).map((h, n) => (
+              <>{n > 0 && ' · '}<a href={`/trader/${h}`}>{h}</a> {lead.scores[n]}</>
+            ))}
+            {lead.who.length > 6 && ` +${lead.who.length - 6}`}
+          </p>
+        </div>
+      </div>
+    </Panel>
+  )}
+
+  <!-- ── the feed ───────────────────────────────────────────── -->
+  <div class="feedhead">
+    <h2>Signals</h2>
+    <span class="feedmeta">last {hours}h · {signals.length} tokens · two or more wallets scoring 60+</span>
+  </div>
 
   {signals.length === 0 && !down && (
     <p class="empty">
@@ -48,15 +110,15 @@ const down = !stats;
     {signals.map((s, i) => (
       <li>
         <span class="rank">{String(i + 1).padStart(2, '0')}</span>
-        <a class="tk" href={`/token/${s.mint}`}>{s.sym}</a>
+        <span class="tkwrap">
+          <Ident seed={s.mint} size={18} />
+          <a class="tk" href={`/token/${s.mint}`}>{s.sym}</a>
+        </span>
         <span class="cv">{s.conviction.toFixed(1)}</span>
         <Meter value={s.conviction} max={Math.max(top, 1)} />
         <p class="who">
           {s.who.slice(0, 5).map((h, n) => (
-            <>
-              {n > 0 && ' · '}
-              <a href={`/trader/${h}`}>{h}</a> {s.scores[n]}
-            </>
+            <>{n > 0 && ' · '}<a href={`/trader/${h}`}>{h}</a> {s.scores[n]}</>
           ))}
           {s.who.length > 5 && ` +${s.who.length - 5}`}
           {' · '}{s.buyers} buyers · avg {s.avg_score.toFixed(0)} · {usd(s.usd)} · first {ago(s.first_ts)} ago
@@ -66,10 +128,116 @@ const down = !stats;
   </ol>
 
   {signals.length > 0 && (
-    <p class="note" style="margin-top:25px">
-      <b>Conviction</b> is the sum of each buyer's (score/100)². It answers <b>whose</b> money moved
-      rather than how many wallets did, because anyone can open a wallet — five of the best
-      outweigh fifteen mediocre ones.
-    </p>
+    <div class="cols" style="margin-top:25px">
+      <p class="note">
+        <b>Conviction</b> is the sum of each buyer's (score/100)². It answers <b>whose</b> money
+        moved rather than how many wallets did — five of the best outweigh fifteen mediocre ones.
+      </p>
+      <p class="note">
+        <b>Nothing here is advice.</b> A score is an opinion about whether a result looks
+        repeatable, formed from an open book and a trading record. It is not a prediction.
+      </p>
+    </div>
   )}
 </Base>
+
+<style>
+  /* ── hero ─────────────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 440px);
+    gap: 30px;
+    align-items: center;
+    border: 1px solid #ffffff;
+    padding: 34px 30px;
+    margin-bottom: 25px;
+    overflow: hidden;
+  }
+  /* the instrument grid: 1px lines only, no gradient, no wash */
+  .hero .grid {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.16;
+    background-image:
+      linear-gradient(#606060 1px, transparent 1px),
+      linear-gradient(90deg, #606060 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .hero-copy { position: relative; }
+
+  .eyebrow {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #949494; margin: 0 0 20px; max-width: none;
+  }
+  .led {
+    width: 7px; height: 7px; border-radius: 9999px; background: #00ff85;
+    animation: blink 2.4s ease-in-out infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .led { animation: none; } }
+
+  /* the display moment the system asks for: extreme tracking, schematic label, not prose */
+  .hero h1 {
+    font-size: clamp(46px, 8.5vw, 92px);
+    line-height: 0.92;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    font-weight: 300;
+    margin: 0 0 20px;
+  }
+  .thesis { font-size: 15px; color: #949494; max-width: 46ch; margin: 0 0 22px; }
+  .thesis strong { color: #ffffff; font-weight: 500; }
+  .hero-actions { position: relative; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; padding: 25px 18px; }
+  }
+
+  /* ── instrument rack ──────────────────────────────────────── */
+  .rack {
+    display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr);
+    gap: 25px; align-items: end; margin-bottom: 25px;
+  }
+  .rack .strip { margin-bottom: 0; }
+  .pulse { border: 1px solid #606060; padding: 12px 13px 10px; }
+  @media (max-width: 820px) { .rack { grid-template-columns: 1fr; } }
+
+  /* ── lead panel ───────────────────────────────────────────── */
+  .lead { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; }
+  .lead-mark { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .lead-mark .cv {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 30px; color: #ff8a00;
+    line-height: 1;
+  }
+  .lead-mark small {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 9px;
+    letter-spacing: 0.12em; text-transform: uppercase; color: #606060;
+  }
+  .lead-tk {
+    font-weight: 700; font-size: 28px; letter-spacing: 0.04em; color: #ffffff;
+    display: inline-block; margin-bottom: 8px;
+  }
+  .lead-tk:hover { color: #00ff85; text-decoration: none; }
+  .lead-copy { font-size: 15px; color: #949494; margin: 0 0 10px; }
+  .lead-copy strong { color: #ffffff; font-weight: 500; }
+  .lead-who {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+    color: #606060; margin: 0; max-width: none;
+  }
+  .lead-who a { color: #949494; }
+  @media (max-width: 620px) { .lead { grid-template-columns: 1fr; } }
+
+  /* ── feed heading ─────────────────────────────────────────── */
+  .feedhead {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    border-top: 1px solid #ffffff; padding-top: 12px; margin: 25px 0 14px;
+  }
+  .feedhead h2 { font-size: 25px; }
+  .feedmeta {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px;
+    letter-spacing: 0.06em; color: #606060; margin-left: auto;
+  }
+
+  .tkwrap { display: flex; align-items: center; gap: 9px; }
+</style>

@@ -1,0 +1,42 @@
+---
+/**
+ * A framed section with corner brackets — the system's "Section Frame", built from 1px lines only.
+ * The brackets are the HUD tell: they say "this is an instrument panel", not "this is a card".
+ */
+interface Props { title?: string; meta?: string; flush?: boolean }
+const { title = '', meta = '', flush = false } = Astro.props;
+---
+<section class={`panel${flush ? ' flush' : ''}`}>
+  <span class="br tl" /><span class="br tr" /><span class="br bl" /><span class="br br2" />
+  {(title || meta) && (
+    <header>
+      {title && <h3>{title}</h3>}
+      {meta && <span class="meta">{meta}</span>}
+    </header>
+  )}
+  <div class="body"><slot /></div>
+</section>
+<style>
+  .panel { position: relative; border: 1px solid #606060; padding: 15px; }
+  .panel .body { position: relative; }
+  .panel.flush { padding: 0; border: 0; }
+  .panel > header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 14px; padding-bottom: 9px; border-bottom: 1px solid #606060;
+  }
+  .panel h3 {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 400; font-size: 11px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: #fcff76; margin: 0;
+  }
+  .panel .meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px;
+    letter-spacing: 0.06em; color: #606060; margin-left: auto;
+  }
+  /* corner brackets: two 1px lines each, drawn over the frame */
+  .br { position: absolute; width: 9px; height: 9px; pointer-events: none; }
+  .tl { top: -1px; left: -1px; border-top: 1px solid #ffffff; border-left: 1px solid #ffffff; }
+  .tr { top: -1px; right: -1px; border-top: 1px solid #ffffff; border-right: 1px solid #ffffff; }
+  .bl { bottom: -1px; left: -1px; border-bottom: 1px solid #ffffff; border-left: 1px solid #ffffff; }
+  .br2 { bottom: -1px; right: -1px; border-bottom: 1px solid #ffffff; border-right: 1px solid #ffffff; }
+  .panel.flush .br { display: none; }
+</style>

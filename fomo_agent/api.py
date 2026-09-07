@@ -178,6 +178,35 @@ def stats(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
     }
 
 
+@app.get("/api/activity", tags=["meta"])
+def activity(
+    hours: int = Query(48, ge=6, le=336),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    """Fills per hour by trusted wallets — the pulse the masthead draws as a sparkline.
+
+    Empty hours are returned as zeros rather than skipped, otherwise a quiet night reads as a
+    gap in the chart instead of as quiet.
+    """
+    since = db.now() - hours * 3600
+    rows = dict(conn.execute(
+        "SELECT CAST((tr.ts - ?) / 3600 AS INTEGER) bucket, COUNT(*) n "
+        "FROM trades tr JOIN traders t ON t.address = tr.address "
+        "WHERE tr.ts >= ? AND t.score >= ?" + analyze.NOT_QUOTE.format(col="tr.mint") +
+        " GROUP BY bucket", (since, since, analyze.TRUSTED)).fetchall())
+    series = [rows.get(i, 0) for i in range(hours)]
+    return {"hours": hours, "series": series, "total": sum(series), "peak": max(series or [0])}
+
+
+@app.get("/api/distribution", tags=["meta"])
+def distribution(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    """How the roster's scores are shaped — ten buckets of ten points each."""
+    buckets = [0] * 10
+    for (score,) in conn.execute("SELECT score FROM traders WHERE score IS NOT NULL"):
+        buckets[min(int(score) // 10, 9)] += 1
+    return {"buckets": buckets, "total": sum(buckets), "peak": max(buckets)}
+
+
 @app.get("/api/signals", tags=["signals"])
 def signals(
     hours: int = Query(24, ge=1, le=720),
@@ -285,5 +314,9 @@ def search(
 def serve(host: str | None = None, port: int | None = None, reload: bool = False) -> None:
     import uvicorn
 
+    # The reloader must watch the package and nothing else. Pointed at the working directory it
+    # also watches fomo_agent.db-wal, which sqlite rewrites on every read — the service then
+    # restarts in a loop and drops requests mid-flight, which looks exactly like flaky data.
     uvicorn.run("fomo_agent.api:app", host=host or settings.api_host,
-                port=port or settings.api_port, reload=reload)
+                port=port or settings.api_port, reload=reload,
+                reload_dirs=["fomo_agent"] if reload else None)

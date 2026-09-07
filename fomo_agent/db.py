@@ -137,7 +137,13 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     p = Path(path) if path else settings.db_path
     # WAL lets a long read run beside a write; the busy timeout covers the moment two writers
     # meet, which happens whenever a collection loop and a one-off command overlap.
-    conn = sqlite3.connect(p, timeout=30)
+    #
+    # check_same_thread is off because the API hands each request its own connection, and a web
+    # framework is free to run the handler on one worker thread and the teardown that closes it on
+    # another. sqlite's guard sees that as illegal and raises mid-request. Turning it off is safe
+    # here precisely because no connection is ever shared between two units of work — every caller
+    # opens its own and closes it.
+    conn = sqlite3.connect(p, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
