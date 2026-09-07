@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import db
+from . import analyze
 
 STATUS_ORDER = {"active": 0, "watch": 1, "dropped": 2, "needs_review": 3}
 TRUSTED_SCORE = 60
@@ -66,23 +67,7 @@ def collect(conn: sqlite3.Connection, chain: str | None = None, hours: int = 48)
                 "cost": r["cost_basis"],
             })
 
-    # Collapse each buyer's fills into one row before aggregating, so a trader who bought five
-    # times counts once toward the headcount and once toward conviction.
-    signals = [dict(r) for r in conn.execute(
-        "SELECT mint, sym, liq, COUNT(*) buyers, SUM(usd) usd, MIN(first_ts) first_ts, "
-        "  AVG(score) avg_score, SUM((score / 100.0) * (score / 100.0)) conviction, "
-        "  GROUP_CONCAT(handle) who FROM ("
-        "  SELECT tr.mint mint, COALESCE(tk.symbol, substr(tr.mint,1,8)) sym, "
-        "    tk.liquidity_usd liq, t.score score, t.fomo_handle handle, "
-        "    SUM(tr.usd_value) usd, MIN(tr.ts) first_ts "
-        "  FROM trades tr JOIN traders t ON t.address = tr.address "
-        "  LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        f"  WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
-        + NOT_QUOTE.format(col="tr.mint") +
-        "  GROUP BY tr.mint, tr.address"
-        ") GROUP BY mint HAVING buyers >= 2 ORDER BY conviction DESC, usd DESC LIMIT 40",
-        [since, TRUSTED_SCORE, *params],
-    )]
+    signals = analyze.signals(conn, chain, hours)
 
     tape = [dict(r) for r in conn.execute(
         "SELECT tr.ts, tr.side, tr.usd_value usd, tr.mint, t.fomo_handle handle, t.score, "

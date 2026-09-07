@@ -402,6 +402,31 @@ def trader(
     typer.echo(format_trader(a))
 
 
+@app.command("bot")
+def bot_cmd(
+    once: bool = typer.Option(False, "--once", help="one poll and one broadcast, then exit"),
+    check: bool = typer.Option(False, "--check", help="verify the token and print the bot identity"),
+) -> None:
+    """Run the Telegram bot: answers questions and pushes signals as they happen."""
+    from .bot import Telegram, broadcast, run
+
+    tg = Telegram()
+    if check:
+        me = tg.me()
+        typer.echo(f"@{me.get('username')} ({me.get('first_name')}) — token works")
+        conn = db.connect()
+        typer.echo(f"subscribers: {conn.execute('SELECT COUNT(*) FROM bot_subscribers WHERE active=1').fetchone()[0]}")
+        conn.close()
+        return
+    conn = db.connect()
+    try:
+        typer.echo(run(conn, tg, once=once) if once else run(conn, tg))
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        conn.close()
+
+
 @app.command()
 def report(
     hours: int = typer.Option(24, "--hours"),

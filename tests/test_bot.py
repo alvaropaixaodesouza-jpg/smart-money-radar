@@ -1,0 +1,228 @@
+"""Telegram bot: routing, formatting and the alert loop, all without a network.
+
+The transport is faked, so these cover the parts that decide what a subscriber actually receives —
+which is where a bug is expensive: a wrong threshold or a broken dedupe means either silence or
+a stream of duplicates, and both lose the subscriber.
+"""
+import json
+
+import pytest
+
+from fomo_agent import bot, db
+from fomo_agent.config import settings
+
+ACE = "0x" + "a" * 40      # scores 88
+MID = "0x" + "b" * 40      # scores 74
+DUD = "0x" + "c" * 40      # scores 30
+TOKEN = "0x" + "d" * 40
+QUIET = "0x" + "e" * 40
+
+
+class FakeTelegram:
+    """Records what would have been sent instead of sending it."""
+
+    def __init__(self, fail_for=()):
+        self.sent = []
+        self.fail_for = set(fail_for)
+
+    def send(self, chat_id, text, preview=False):
+        if str(chat_id) in self.fail_for:
+            raise RuntimeError("Forbidden: bot was blocked by the user")
+        self.sent.append((str(chat_id), text))
+        return {"message_id": len(self.sent)}
+
+    def me(self):
+        return {"username": "fomoradar_bot"}
+
+
+@pytest.fixture()
+def conn(tmp_path):
+    c = db.connect(tmp_path / "bot.db")
+    now = db.now()
+    with db.tx(c):
+        for addr, handle, uid, score, status in ((ACE, "ace", "u1", 88, "active"),
+                                                 (MID, "mid", "u2", 74, "active"),
+                                                 (DUD, "dud", "u3", 30, "dropped")):
+            db.upsert_trader(c, addr, chain="robinhood", fomo_handle=handle, fomo_user_id=uid,
+                             score=score, status=status, pnl_30d=2_000_000.0,
+                             ai_summary=f"{handle} verdict", ai_model="claude-opus-5",
+                             tags=json.dumps({"style": ["swing"], "red_flags": []}),
+                             stats_json=json.dumps({"win_rate": 0.6, "realized_pnl": 12_000.0}))
+        db.upsert_token(c, TOKEN, chain="robinhood", symbol="PONS", liquidity_usd=500_000)
+        c.execute("INSERT INTO fomo_positions(trade_id, user_id, token, chain, unrealized_pnl, "
+                  "cost_basis, seen_at) VALUES(?,?,?,?,?,?,?)",
+                  ("p1", "u1", TOKEN, "robinhood", 900_000.0, 30_000.0, now))
+        for i, (addr, mint) in enumerate(((ACE, TOKEN), (MID, TOKEN), (DUD, TOKEN), (DUD, QUIET))):
+            db.insert_trade(c, sig=f"0xsig{i}", address=addr, chain="robinhood", mint=mint,
+                            side="buy", usd_value=5_000.0, ts=now - 900, source="rpc")
+    return c
+
+
+# ---------------------------------------------------------------- formatting
+
+def test_rows_line_up():
+    out = bot.rows([("buyers", "11"), ("average score", "80")])
+    assert "<pre>" in out and "</pre>" in out
+    body = out.removeprefix("<pre>").removesuffix("</pre>").split("\n")
+    assert len({len(line) for line in body}) == 1, "every line is the same width"
+
+
+def test_who_line_names_the_wallets_and_counts_the_rest():
+    line = bot.who_line("a,b,c,d,e,f,g,h", "90,88,86,84,82,80,78,76", limit=3)
+    assert line == "a 90 · b 88 · c 86 +5"
+    assert bot.who_line(None, None) == ""
+
+
+def test_everything_user_supplied_is_escaped(conn):
+    with db.tx(conn):
+        db.upsert_trader(conn, ACE, ai_summary="<script>alert(1)</script>")
+    out = bot.handle_text(conn, "ace", 1, None)
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+def test_signal_message_carries_the_names_not_just_a_count(conn):
+    from fomo_agent.pipeline import analyze
+
+    sig = analyze.signals(conn, "robinhood", hours=24)[0]
+    msg = bot.fmt_signal(sig)
+    assert "$PONS" in msg and "conviction" in msg
+    assert "ace 88" in msg and "mid 74" in msg
+    assert "dud" not in msg, "a wallet scoring 30 is not part of the signal"
+
+
+# ---------------------------------------------------------------- routing
+
+def test_help_is_the_answer_to_start_and_to_nothing(conn):
+    for text in ("/start", "/help", "", "   "):
+        assert "FOMO RADAR" in bot.handle_text(conn, text, 1, None)
+
+
+def test_a_bare_handle_returns_the_verdict(conn):
+    out = bot.handle_text(conn, "ace", 1, None)
+    assert "<b>ace</b>" in out and "88" in out and "ace verdict" in out
+    assert "PONS" in out, "the open book comes with the verdict"
+
+
+def test_a_bare_address_returns_the_token(conn):
+    out = bot.handle_text(conn, TOKEN, 1, None)
+    assert "$PONS" in out and "conviction" in out
+    assert "holders" in out
+
+
+def test_a_wallet_address_returns_its_trader_not_a_token(conn):
+    """An address we know as a trader must not be read as a token — the trader is the better answer."""
+    assert "<b>ace</b>" in bot.handle_text(conn, ACE, 1, None)
+
+
+def test_the_deep_link_from_a_signal_message_works(conn):
+    assert "$PONS" in bot.handle_text(conn, f"/token_{TOKEN}", 1, None)
+
+
+def test_unknown_things_say_so_without_pretending(conn):
+    out = bot.handle_text(conn, "definitelynobody", 1, None)
+    assert "No trader called" in out
+    out = bot.handle_text(conn, "0x" + "9" * 40, 1, None)
+    assert "Nobody on the watchlist" in out
+
+
+def test_a_quote_asset_is_refused_with_a_reason(conn):
+    from fomo_agent.sources.rpc import USDG
+
+    out = bot.handle_text(conn, USDG, 1, None)
+    assert "quote asset" in out and "plumbing" in out
+
+
+def test_leaderboard_commands(conn):
+    assert "FOLLOW" in bot.handle_text(conn, "/top", 1, None)
+    assert "DROPPED" in bot.handle_text(conn, "/dropped", 1, None)
+    top = bot.handle_text(conn, "/top 1", 1, None)
+    assert "ace" in top and "mid" not in top, "the limit is respected"
+
+
+def test_status_counts_what_is_actually_there(conn):
+    out = bot.handle_text(conn, "/status", 1, None)
+    assert "traders" in out and "subscribers" in out
+
+
+def test_a_broken_question_does_not_kill_the_bot(conn, monkeypatch):
+    def boom(*a, **kw):
+        raise ValueError("nope")
+
+    monkeypatch.setattr(bot.analyze, "analyze_trader", boom)
+    tg = FakeTelegram()
+    assert bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}, "text": "ace"}})
+    assert "ValueError" in tg.sent[0][1]
+
+
+def test_updates_without_text_are_ignored(conn):
+    tg = FakeTelegram()
+    assert not bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}}})
+    assert not bot.handle_update(conn, tg, {"edited_message": {}})
+    assert tg.sent == []
+
+
+# ---------------------------------------------------------------- subscriptions
+
+def test_subscribe_is_idempotent_and_carries_a_threshold(conn):
+    assert bot.subscribe(conn, 7, "someone") is True
+    assert bot.subscribe(conn, 7, "someone") is False, "second time is an update, not a new sub"
+    assert len(bot.subscribers(conn)) == 1
+
+    bot.handle_text(conn, "/subscribe 9.5", 7, "someone")
+    assert bot.subscribers(conn)[0]["min_conviction"] == 9.5
+
+    bot.unsubscribe(conn, 7)
+    assert bot.subscribers(conn) == []
+
+
+def test_broadcast_respects_each_subscriber_threshold(conn, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_alert_window_h", 24)
+    bot.subscribe(conn, "low", None, min_conviction=0.5)     # gets it
+    bot.subscribe(conn, "high", None, min_conviction=99.0)   # too demanding
+    tg = FakeTelegram()
+
+    stats = bot.broadcast(conn, tg)
+    assert stats["subscribers"] == 2 and stats["sent"] == 1
+    assert tg.sent[0][0] == "low" and "$PONS" in tg.sent[0][1]
+
+
+def test_the_same_token_is_not_sent_twice(conn, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_alert_window_h", 24)
+    bot.subscribe(conn, "low", None, min_conviction=0.5)
+    tg = FakeTelegram()
+
+    assert bot.broadcast(conn, tg)["sent"] == 1
+    again = bot.broadcast(conn, tg)
+    assert again["sent"] == 0 and again["skipped"] == 1
+    assert len(tg.sent) == 1
+
+
+def test_a_blocked_chat_unsubscribes_itself(conn, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_alert_window_h", 24)
+    bot.subscribe(conn, "blocked", None, min_conviction=0.5)
+    tg = FakeTelegram(fail_for=["blocked"])
+
+    stats = bot.broadcast(conn, tg)
+    assert stats["errors"] == 1 and stats["sent"] == 0
+    assert bot.subscribers(conn) == [], "a chat that blocked us is dropped, not retried forever"
+
+
+def test_broadcast_with_no_subscribers_does_nothing(conn):
+    tg = FakeTelegram()
+    assert bot.broadcast(conn, tg) == {"subscribers": 0, "sent": 0, "skipped": 0, "errors": 0}
+    assert tg.sent == []
+
+
+def test_run_once_polls_and_broadcasts(conn, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_alert_window_h", 24)
+    bot.subscribe(conn, "low", None, min_conviction=0.5)
+
+    class Poller(FakeTelegram):
+        def updates(self, offset, timeout=None):
+            return [{"update_id": 1, "message": {"chat": {"id": 7}, "text": "/top"}}]
+
+    tg = Poller()
+    stats = bot.run(conn, tg, once=True)
+    assert stats["handled"] == 1 and stats["sent"] == 1
+    assert {c for c, _ in tg.sent} == {"7", "low"}

@@ -111,6 +111,19 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_fill ON trades(fill_key);
     """,
+    10: """
+    -- Telegram: who wants signals pushed, and what each of them has already been told, so a
+    -- token that stays hot for a day does not become a day of identical messages.
+    CREATE TABLE IF NOT EXISTS bot_subscribers(
+      chat_id TEXT PRIMARY KEY,
+      username TEXT, min_conviction REAL, subscribed_at INTEGER, active INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS bot_sent(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT, mint TEXT, ts INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_bot_sent ON bot_sent(chat_id, mint, ts);
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")

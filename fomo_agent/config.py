@@ -78,6 +78,16 @@ class Settings:
     rpc_window_blocks: int = field(default_factory=lambda: _int("RPC_WINDOW_BLOCKS", 200_000))
     rpc_min_interval_s: float = field(default_factory=lambda: _float("RPC_MIN_INTERVAL_S", 600))
 
+    # Telegram bot: long polling, so it needs no public address and no webhook
+    telegram_bot_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
+    telegram_poll_timeout: int = field(default_factory=lambda: _int("TELEGRAM_POLL_TIMEOUT", 50))
+    # conviction floor for a pushed alert. ~4.0 is four wallets scoring 80 agreeing on one token.
+    telegram_min_conviction: float = field(default_factory=lambda: _float("TELEGRAM_MIN_CONVICTION", 4.0))
+    telegram_alert_window_h: int = field(default_factory=lambda: _int("TELEGRAM_ALERT_WINDOW_H", 6))
+    telegram_alert_interval_s: int = field(default_factory=lambda: _int("TELEGRAM_ALERT_INTERVAL_S", 120))
+    # never tell the same chat about the same token twice inside this window
+    telegram_realert_hours: int = field(default_factory=lambda: _int("TELEGRAM_REALERT_HOURS", 12))
+
     # local endpoint the browser extension posts fomo collections to (loopback only)
     receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
     receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))

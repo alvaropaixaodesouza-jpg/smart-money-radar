@@ -17,11 +17,52 @@ from .. import db
 from ..sources.rpc import QUOTE_TOKENS
 
 TRUSTED = 60
+NOT_QUOTE = " AND {col} NOT IN (%s)" % ",".join("'%s'" % t for t in QUOTE_TOKENS)
 
 
 def conviction(scores: list[int]) -> float:
     """Holder quality as one number: the sum of (score/100)^2 over distinct holders."""
     return sum((s / 100) ** 2 for s in scores if s)
+
+
+def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
+            min_buyers: int = 2, limit: int = 40) -> list[dict]:
+    """Tokens that several trusted wallets bought inside the window, best conviction first.
+
+    The canonical definition of a signal — the page, the terminal and the bot all read it from
+    here, so they can never drift into disagreeing about what a signal is.
+
+    Each buyer's fills are collapsed before aggregating, so a wallet that bought five times counts
+    once toward the headcount and once toward conviction.
+    """
+    params: list = [db.now() - hours * 3600, TRUSTED]
+    if chain:
+        params.append(chain)
+    return [dict(r) for r in conn.execute(
+        "SELECT mint, sym, liq, COUNT(*) buyers, SUM(usd) usd, MIN(first_ts) first_ts, "
+        "  AVG(score) avg_score, SUM((score / 100.0) * (score / 100.0)) conviction, "
+        "  GROUP_CONCAT(handle) who, GROUP_CONCAT(score) scores FROM ("
+        "  SELECT tr.mint mint, COALESCE(tk.symbol, substr(tr.mint,1,8)) sym, "
+        "    tk.liquidity_usd liq, t.score score, t.fomo_handle handle, "
+        "    SUM(tr.usd_value) usd, MIN(tr.ts) first_ts "
+        "  FROM trades tr JOIN traders t ON t.address = tr.address "
+        "  LEFT JOIN tokens tk ON tk.mint = tr.mint "
+        f"  WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        + NOT_QUOTE.format(col="tr.mint") +
+        "  GROUP BY tr.mint, tr.address"
+        ") GROUP BY mint HAVING buyers >= ? ORDER BY conviction DESC, usd DESC LIMIT ?",
+        [*params, min_buyers, limit],
+    )]
+
+
+def leaderboard(conn: sqlite3.Connection, limit: int = 25, status: str = "active") -> list[dict]:
+    """The scored roster, best first — our own ranking by judgement rather than by headline PnL."""
+    return [dict(r) for r in conn.execute(
+        "SELECT fomo_handle handle, address, score, status, ai_summary summary, "
+        "  COALESCE(pnl_30d, pnl_7d, pnl_24h) fomo_pnl, tags "
+        "FROM traders WHERE score IS NOT NULL AND (? = 'all' OR status = ?) "
+        "ORDER BY score DESC, fomo_pnl DESC LIMIT ?", (status, status, limit),
+    )]
 
 
 def token_symbol(conn: sqlite3.Connection, mint: str) -> str:
@@ -129,7 +170,7 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
 
 # ---------------------------------------------------------------- terminal output
 
-def _usd(v) -> str:
+def usd(v) -> str:
     if v is None:
         return "-"
     a = abs(v)
@@ -146,7 +187,7 @@ def format_token(a: dict) -> str:
     if a["is_quote"]:
         out.append("\n**This is a quote asset.** Every swap passes through it, so holdings and buys "
                    "here are plumbing, not conviction.")
-    out.append(f"\nliquidity {_usd(a['liquidity_usd'])} · mcap {_usd(a['mcap_usd'])}")
+    out.append(f"\nliquidity {usd(a['liquidity_usd'])} · mcap {usd(a['mcap_usd'])}")
     out.append(f"\n## Who holds it\n")
     if not a["holders"]:
         out.append("_nobody on the watchlist_")
@@ -154,19 +195,19 @@ def format_token(a: dict) -> str:
         out.append(f"{len(a['holders'])} holders, {a['trusted_holders']} of them scoring {TRUSTED}+ · "
                    f"avg score {a['avg_score']:.0f} · conviction {a['conviction']:.2f}"
                    if a["avg_score"] else f"{len(a['holders'])} holders, none scored")
-        out.append(f"cohort cost {_usd(a['cohort_cost'])} → open PnL {_usd(a['cohort_pnl'])}")
+        out.append(f"cohort cost {usd(a['cohort_cost'])} → open PnL {usd(a['cohort_pnl'])}")
         out.append("")
         for h in a["holders"][:15]:
             out.append(f"  {str(h['score'] or '--'):>3}  {(h['handle'] or h['address'][:10]):<20} "
-                       f"{_usd(h['pnl']):>9} open   cost {_usd(h['cost'])}")
+                       f"{usd(h['pnl']):>9} open   cost {usd(h['cost'])}")
     out.append(f"\n## Flow, last {a['hours']}h\n")
     if not a["flow"]:
         out.append("_no fills recorded_")
     else:
-        out.append(f"bought {_usd(a['bought_usd'])} · sold {_usd(a['sold_usd'])} · "
+        out.append(f"bought {usd(a['bought_usd'])} · sold {usd(a['sold_usd'])} · "
                    f"{len(a['flow'])} fills by {len({f['address'] for f in a['flow']})} wallets")
         for f in a["flow"][:15]:
-            out.append(f"  {f['side']:<4} {_usd(f['usd']):>9}  {(f['handle'] or f['address'][:10]):<20} "
+            out.append(f"  {f['side']:<4} {usd(f['usd']):>9}  {(f['handle'] or f['address'][:10]):<20} "
                        f"score {f['score'] or '--'}")
     return "\n".join(out)
 
@@ -177,22 +218,22 @@ def format_trader(a: dict) -> str:
         out.append(f"\n{a['summary']}")
     if a["style"] or a["red_flags"]:
         out.append("style: " + ", ".join(a["style"]) + ("  flags: " + ", ".join(a["red_flags"]) if a["red_flags"] else ""))
-    out.append(f"\nfomo 30d {_usd(a['fomo_pnl'])} · open bags {len(a['positions'])} "
-               f"worth {_usd(a['open_pnl'])} unrealised")
+    out.append(f"\nfomo 30d {usd(a['fomo_pnl'])} · open bags {len(a['positions'])} "
+               f"worth {usd(a['open_pnl'])} unrealised")
     s = a["stats"]
     if s:
         bits = [f"{k} {v}" for k, v in (("win", f"{s['win_rate']*100:.0f}%" if s.get("win_rate") is not None else None),
                                         ("closed", s.get("closed_trades")), ("fills", s.get("fills")),
-                                        ("volume", _usd(s["volume"]) if s.get("volume") else None)) if v]
+                                        ("volume", usd(s["volume"]) if s.get("volume") else None)) if v]
         out.append(" · ".join(bits))
 
     out.append("\n## Open positions\n")
     for p in a["positions"][:12] or [None]:
-        out.append(f"  {p['sym']:<14} {_usd(p['pnl']):>9} open   cost {_usd(p['cost'])}" if p else "_none_")
+        out.append(f"  {p['sym']:<14} {usd(p['pnl']):>9} open   cost {usd(p['cost'])}" if p else "_none_")
     out.append(f"\n## Fills, last {a['hours']}h\n")
-    out.append(f"bought {_usd(a['bought_usd'])} · sold {_usd(a['sold_usd'])} · {len(a['fills'])} fills")
+    out.append(f"bought {usd(a['bought_usd'])} · sold {usd(a['sold_usd'])} · {len(a['fills'])} fills")
     for f in a["fills"][:15]:
-        out.append(f"  {f['side']:<4} {_usd(f['usd']):>9}  {f['sym']:<14} via {f['source']}")
+        out.append(f"  {f['side']:<4} {usd(f['usd']):>9}  {f['sym']:<14} via {f['source']}")
     if a["company"]:
         out.append("\n## Sits in the same names as\n")
         for c in a["company"]:
