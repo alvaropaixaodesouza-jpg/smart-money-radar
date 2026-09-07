@@ -1,0 +1,8 @@
+---
+interface Props { value?: string }
+const { value = '' } = Astro.props;
+---
+<form class="search" action="/search" method="get" role="search">
+  <input name="q" value={value} placeholder="0x385f4f8a… or unipcs" aria-label="Token address or trader handle" autocomplete="off" />
+  <button type="submit">analyse</button>
+</form>

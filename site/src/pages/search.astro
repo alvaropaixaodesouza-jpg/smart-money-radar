@@ -1,0 +1,67 @@
+---
+import Base from '../layouts/Base.astro';
+import Search from '../components/Search.astro';
+import { search, verdictClass, verdictLabel } from '../lib/api';
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim();
+const miss = Astro.url.searchParams.get('miss');
+const res = q ? await search(q) : null;
+
+// An exact hit goes straight to the page rather than showing a list of one.
+if (res?.kind === 'trader') return Astro.redirect(`/trader/${res.handle ?? res.address}`, 302);
+if (res?.kind === 'token' && !miss) return Astro.redirect(`/token/${res.address}`, 302);
+---
+<Base title={q ? `${q} — search | FOMO Radar` : 'Search | FOMO Radar'}
+      description="Look up a Robinhood Chain token or a fomo.family trader." noindex={true}>
+  <div class="pagehead"><h1>Search</h1></div>
+  <p class="subhead">a token address, or a trader handle</p>
+
+  <div style="margin-bottom:25px"><Search value={q} /></div>
+
+  {miss === 'trader' && <p class="note" style="margin-bottom:20px">
+    <b>No trader matches “{q}”.</b> Either we have not resolved that wallet yet, or the handle is spelled differently on fomo.
+  </p>}
+  {miss === 'token' && <p class="note" style="margin-bottom:20px">
+    <b>“{q}” is not a token address.</b> A Robinhood Chain address is <code>0x</code> and forty hex characters.
+  </p>}
+
+  {res?.kind === 'none' && <p class="empty">Nothing matches “{q}”.</p>}
+
+  {res?.kind === 'suggestions' && (
+    <div class="cols">
+      <section>
+        <h3 style="margin-bottom:12px">Traders</h3>
+        {(res.traders ?? []).length === 0 ? <p class="empty">None.</p> : (
+          <ol class="roster">
+            {(res.traders ?? []).map((t: any) => (
+              <li>
+                <div class={`score ${verdictClass(t.status)}`}>{t.score}<small>{verdictLabel(t.status)}</small></div>
+                <div class="top"><a class="handle" href={`/trader/${t.handle ?? t.address}`}>{t.handle ?? t.address.slice(0, 10)}</a></div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      <section>
+        <h3 style="margin-bottom:12px">Tokens</h3>
+        {(res.tokens ?? []).length === 0 ? <p class="empty">None.</p> : (
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Token</th><th>Address</th></tr></thead>
+              <tbody>
+                {(res.tokens ?? []).map((t: any) => (
+                  <tr>
+                    <td class="sym"><a href={`/token/${t.mint}`}>{t.symbol}</a></td>
+                    <td class="m">{t.mint.slice(0, 10)}…</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  )}
+
+  {!q && <p class="empty">Type an address or a handle above.</p>}
+</Base>

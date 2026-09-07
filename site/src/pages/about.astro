@@ -1,0 +1,72 @@
+---
+import Base from '../layouts/Base.astro';
+import { getStats } from '../lib/api';
+const s = await getStats();
+---
+<Base title="About — FOMO Radar" section="about"
+      description="How FOMO Radar resolves a fomo.family profile to a real wallet, tracks it for free, and judges whether the result is skill or one lucky bag.">
+  <div class="pagehead"><h1>About</h1></div>
+  <p class="subhead">what this is, how it works, and what it will not do</p>
+
+  <p style="font-size:16px;margin-bottom:25px">
+    The fomo.family leaderboard shows a number. It does not show whether skill or a single lucky
+    ticket produced it, which wallet the person actually trades from, or what they are buying now.
+    This closes all three — and runs on nothing but public endpoints.
+  </p>
+
+  <h3 style="margin:0 0 12px">Three things that took a while to learn</h3>
+  <ol class="roster" style="margin-bottom:25px">
+    <li>
+      <div class="score follow" style="font-size:22px">01</div>
+      <div>
+        <div class="top"><span class="handle">A fomo profile address is not a wallet</span></div>
+        <p>Every address the fomo API returns is an internal account with zero on-chain history.
+        The real one is inferred by intersecting who traded the same token in the same minute across
+        a dozen of a trader's swaps, weighting quiet windows higher. Measured 41 correct out of 42.</p>
+      </div>
+    </li>
+    <li>
+      <div class="score follow" style="font-size:22px">02</div>
+      <div>
+        <div class="top"><span class="handle">That PnL is real money, and it includes open bags</span></div>
+        <p>A wallet showing millions on a few thousand of on-chain outlay is not a glitch: the
+        position ran and was never sold. Negative on-chain cash flow is what accumulating looks
+        like, not what losing looks like.</p>
+      </div>
+    </li>
+    <li>
+      <div class="score follow" style="font-size:22px">03</div>
+      <div>
+        <div class="top"><span class="handle">A relayer submits every trade</span></div>
+        <p>The trader's wallet is never the transaction's sender, so searching by sender finds
+        nothing. Each fill routes through one contract, and the wallet's leg facing it gives the
+        direction. That is why tracking the whole roster costs two requests and no money.</p>
+      </div>
+    </li>
+  </ol>
+
+  <h3 style="margin:0 0 12px">Reading the numbers</h3>
+  <div class="cols" style="margin-bottom:25px">
+    <p class="note"><b>Conviction</b> is the sum of each holder's (score/100)². It says whose money
+    is in a name rather than how many wallets are, because anyone can open a wallet.</p>
+    <p class="note"><b>Mult</b> is what a position is worth against what it cost. A dash means fomo
+    reports profit already withdrawn, so the entry price cannot be recovered.</p>
+    <p class="note"><b>USDG and WETH are quote assets</b>, never positions. Feeds built on raw DEX
+    data rank the stablecoin every trade passes through as the most-bought token on the chain.</p>
+    <p class="note"><b>A score judges process, not price.</b> It is an opinion about whether a
+    result looks repeatable — not a prediction, and never a recommendation.</p>
+  </div>
+
+  {s && <dl class="strip">
+    <div><dt>Traders</dt><dd>{s.scored}</dd></div>
+    <div><dt>Fills</dt><dd>{s.fills.toLocaleString('en-US')}</dd></div>
+    <div><dt>Positions</dt><dd>{s.positions}</dd></div>
+    <div><dt>Tokens named</dt><dd>{s.tokens.toLocaleString('en-US')}</dd></div>
+    <div><dt>Cost / month</dt><dd class="g">$0</dd></div>
+  </dl>}
+
+  <p class="note">
+    <b>Read-only.</b> This never signs or sends a transaction and holds no key that could. It is
+    research, not advice, and nothing here is a recommendation to buy or sell anything.
+  </p>
+</Base>

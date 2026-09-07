@@ -1,0 +1,9 @@
+---
+// Conviction as a segmented gauge — an instrument, not a progress bar.
+interface Props { value: number; max?: number; segments?: number }
+const { value, max = 20, segments = 10 } = Astro.props;
+const lit = Math.max(0, Math.min(segments, Math.round((value / max) * segments)));
+---
+<span class="meter" role="img" aria-label={`conviction ${value.toFixed(1)} of ${max}`}>
+  {Array.from({ length: segments }, (_, i) => <i class={i < lit ? 'on' : ''} />)}
+</span>

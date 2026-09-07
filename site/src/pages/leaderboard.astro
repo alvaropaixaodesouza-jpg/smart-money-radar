@@ -1,0 +1,74 @@
+---
+import Base from '../layouts/Base.astro';
+import Search from '../components/Search.astro';
+import { getLeaderboard, getStats, usd, verdictClass, verdictLabel } from '../lib/api';
+
+const valid = ['active', 'watch', 'dropped', 'all'];
+const raw = Astro.url.searchParams.get('status') ?? 'active';
+const status = valid.includes(raw) ? raw : 'active';
+
+const [stats, board] = await Promise.all([getStats(), getLeaderboard(status, 120)]);
+const traders = board?.traders ?? [];
+
+const blurb: Record<string, string> = {
+  active: 'A large figure with a repeatable pattern behind it — several winners at a real cost basis, not one unpriceable bag.',
+  watch: 'Promising, but the evidence is thin: too few closed trades, or a result that rests on one position nobody can value.',
+  dropped: 'No edge, or a record that contradicts the headline — losses larger than wins, or automated inventory cycling.',
+  all: 'Every scored wallet, best first.',
+};
+---
+<Base
+  title="FOMO Radar — the leaderboard by judgement, not by PnL"
+  description="Every fomo.family trader we track, ranked by whether their result looks like skill or like one lucky bag. Each verdict comes with its reasoning."
+  section="leaderboard"
+>
+  <div class="pagehead"><h1>Leaderboard</h1></div>
+  <p class="subhead">ranked by judgement of the process, not by the headline figure fomo shows</p>
+
+  <div class="strip">
+    <div><dt>Follow</dt><dd class="g">{stats?.active ?? '—'}</dd></div>
+    <div><dt>Watch</dt><dd class="y">{stats?.watch ?? '—'}</dd></div>
+    <div><dt>Dropped</dt><dd class="c">{stats?.dropped ?? '—'}</dd></div>
+    <div><dt>Scored</dt><dd>{stats?.scored ?? '—'}</dd></div>
+  </div>
+
+  <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px">
+    {valid.map((v) => (
+      <a class={`btn${v === status ? ' primary' : ''}`} href={`/leaderboard?status=${v}`}>
+        {v === 'active' ? 'follow' : v === 'dropped' ? 'drop' : v}
+      </a>
+    ))}
+  </div>
+
+  <p class="note" style="margin-bottom:25px">{blurb[status]}</p>
+
+  <div style="margin-bottom:25px"><Search /></div>
+
+  {traders.length === 0 ? (
+    <p class="empty">Nothing scored in this band yet.</p>
+  ) : (
+    <ol class="roster">
+      {traders.map((t) => (
+        <li>
+          <div class={`score ${verdictClass(t.status)}`}>
+            {t.score}<small>{verdictLabel(t.status)}</small>
+          </div>
+          <div>
+            <div class="top">
+              <a class="handle" href={`/trader/${t.handle ?? t.address}`}>{t.handle ?? t.address.slice(0, 10)}</a>
+              {t.style.slice(0, 3).map((s) => <span class="badge tag">{s}</span>)}
+              {t.red_flags.map((f) => <span class="badge flag">{f}</span>)}
+            </div>
+            {t.summary && <p>{t.summary}</p>}
+          </div>
+          <div class="pnl">
+            <span class={t.fomo_pnl && t.fomo_pnl > 0 ? 'g' : t.fomo_pnl && t.fomo_pnl < 0 ? 'c' : 'm'}>
+              {usd(t.fomo_pnl)}
+            </span>
+            <small>fomo 30d</small>
+          </div>
+        </li>
+      ))}
+    </ol>
+  )}
+</Base>

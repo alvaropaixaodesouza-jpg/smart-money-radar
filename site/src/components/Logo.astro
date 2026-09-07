@@ -1,0 +1,16 @@
+---
+// The radar drawn as a wireframe: instrument frame, three range rings, the sweep, and one blip.
+// The blip is the only fill in the mark and the only colour — which is what the product does.
+interface Props { size?: number; solid?: boolean }
+const { size = 34, solid = false } = Astro.props;
+const dim = solid ? '#ffffff' : '#606060';
+const ring = solid ? '#ffffff' : '#fcff76';
+---
+<svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true" class="logo">
+  <rect x="0.5" y="0.5" width="47" height="47" stroke="#ffffff" />
+  <path d="M42 44 A38 38 0 0 0 4 6" stroke={dim} />
+  <path d="M30 44 A26 26 0 0 0 4 18" stroke={ring} />
+  <path d="M18 44 A14 14 0 0 0 4 30" stroke={dim} />
+  <path d="M4 44 L33.1 19.6" stroke="#ffffff" />
+  <circle cx="23.9" cy="27.3" r="3" fill="#00ff85" />
+</svg>

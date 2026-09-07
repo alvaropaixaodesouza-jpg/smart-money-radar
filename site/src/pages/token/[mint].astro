@@ -1,0 +1,119 @@
+---
+import Base from '../../layouts/Base.astro';
+import Meter from '../../components/Meter.astro';
+import Search from '../../components/Search.astro';
+import { getToken, usd, ago, multiple } from '../../lib/api';
+
+const { mint } = Astro.params;
+const t = mint ? await getToken(mint) : null;
+if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(mint ?? '')}&miss=token`, 302);
+
+const name = t.symbol ?? `${t.mint.slice(0, 6)}…${t.mint.slice(-4)}`;
+const desc = t.is_quote
+  ? `${name} is a quote asset on Robinhood Chain — every swap passes through it, so holdings here are plumbing rather than conviction.`
+  : t.tracked
+    ? `${t.holders.length} tracked wallets hold ${name}, ${t.trusted_holders} of them scoring 60+, on ${usd(t.cohort_cost)} of cost basis.`
+    : `No wallet we track holds or has traded ${name}.`;
+---
+<Base title={`${name} — who holds it | FOMO Radar`} description={desc}>
+  <div class="pagehead">
+    <h1 style="font-size:clamp(28px,5vw,44px)">${name}</h1>
+    {t.is_quote && <span class="badge drop">quote asset</span>}
+    {!t.is_quote && t.tracked && <span class="badge follow">conviction {t.conviction.toFixed(1)}</span>}
+    {!t.tracked && !t.is_quote && <span class="badge tag">untracked</span>}
+  </div>
+  <p class="addr" style="margin-bottom:20px">{t.mint}</p>
+
+  {t.is_quote ? (
+    <p class="note">
+      <b>{name} is a quote asset.</b> Every trade on this chain is denominated in it, so a wallet
+      holding it is holding cash, not a position. Feeds built on raw DEX data routinely rank it as
+      the most-bought token on the chain — that is an artefact of how swaps are booked, not a signal.
+    </p>
+  ) : !t.tracked ? (
+    <p class="note">
+      <b>No wallet we track is in this name.</b> That is a real answer rather than a missing one:
+      out of {' '}the traders on this list — resolved from fomo profiles to real wallets and scored —
+      none holds it and none has traded it in the window. It may still be a fine token; there is
+      simply no smart money here to read.
+    </p>
+  ) : (
+    <>
+      <dl class="strip">
+        <div><dt>Holders</dt><dd>{t.holders.length}</dd></div>
+        <div><dt>Of them 60+</dt><dd class="g">{t.trusted_holders}</dd></div>
+        <div><dt>Avg score</dt><dd>{t.avg_score ? t.avg_score.toFixed(0) : '—'}</dd></div>
+        <div><dt>Cohort cost</dt><dd>{usd(t.cohort_cost)}</dd></div>
+        <div><dt>Open PnL</dt><dd class="g">{usd(t.cohort_pnl)}</dd></div>
+        <div><dt>Mult</dt><dd class="a">{multiple(t.cohort_cost, t.cohort_pnl)}</dd></div>
+        <div><dt>Liquidity</dt><dd>{usd(t.liquidity_usd)}</dd></div>
+      </dl>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:25px">
+        <span class="mono a" style="font-size:19px">{t.conviction.toFixed(1)}</span>
+        <Meter value={t.conviction} max={32} />
+        <span class="mono m" style="font-size:11px">conviction</span>
+      </div>
+
+      <div class="cols">
+        <section>
+          <h3 style="margin-bottom:12px">Who holds it</h3>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Trader</th><th class="r">Score</th><th class="r">Cost</th><th class="r">Open PnL</th></tr></thead>
+              <tbody>
+                {t.holders.slice(0, 20).map((h) => (
+                  <tr>
+                    <td class="sym"><a href={`/trader/${h.handle ?? h.address}`}>{h.handle ?? h.address.slice(0, 10)}</a></td>
+                    <td class={`r ${h.score && h.score >= 60 ? 'g' : 'm'}`}>{h.score ?? '—'}</td>
+                    <td class="r m">{usd(h.cost)}</td>
+                    <td class={`r ${h.pnl && h.pnl > 0 ? 'g' : h.pnl && h.pnl < 0 ? 'c' : 'm'}`}>{usd(h.pnl)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <h3 style="margin-bottom:12px">Flow, last {t.hours}h</h3>
+          {t.flow.length === 0 ? (
+            <p class="empty">No fills in the window — this is a held position, not an active one.</p>
+          ) : (
+            <>
+              <dl class="strip" style="margin-bottom:14px">
+                <div><dt>Bought</dt><dd class="g">{usd(t.bought_usd)}</dd></div>
+                <div><dt>Sold</dt><dd class="c">{usd(t.sold_usd)}</dd></div>
+                <div><dt>Fills</dt><dd>{t.flow.length}</dd></div>
+              </dl>
+              <div class="scroll">
+                <table>
+                  <thead><tr><th>When</th><th>Side</th><th>Trader</th><th class="r">Size</th></tr></thead>
+                  <tbody>
+                    {t.flow.slice(0, 15).map((f) => (
+                      <tr>
+                        <td class="m">{ago(f.ts)}</td>
+                        <td class={f.side === 'buy' ? 'g' : 'c'}>{f.side}</td>
+                        <td class="sym">{f.handle ?? '—'}</td>
+                        <td class="r">{usd(f.usd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {t.first_trusted_buy && (
+            <p class="note" style="margin-top:14px">
+              First bought by a wallet scoring 60+ <b>{ago(t.first_trusted_buy)} ago</b>,
+              and {t.trusted_buyers} of them have entered since.
+            </p>
+          )}
+        </section>
+      </div>
+    </>
+  )}
+
+  <div style="margin-top:25px"><Search /></div>
+</Base>

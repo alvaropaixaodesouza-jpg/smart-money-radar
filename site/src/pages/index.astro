@@ -1,0 +1,75 @@
+---
+import Base from '../layouts/Base.astro';
+import Meter from '../components/Meter.astro';
+import Search from '../components/Search.astro';
+import { getSignals, getStats, usd, ago } from '../lib/api';
+
+const hours = Number(Astro.url.searchParams.get('hours') ?? 24);
+const [stats, feed] = await Promise.all([getStats(), getSignals(hours, 40)]);
+const signals = feed?.signals ?? [];
+const top = signals.length ? Math.max(...signals.map((s) => s.conviction)) : 1;
+const down = !stats;
+---
+<Base
+  title="FOMO Radar — what the profitable wallets are buying"
+  description="Tokens two or more trusted fomo.family wallets bought in the last day, ranked by whose money moved rather than how many wallets did."
+  section="signals"
+>
+  <div class="pagehead">
+    <h1>Signals</h1>
+    {!down && <span class="badge follow">live</span>}
+  </div>
+  <p class="subhead">
+    tokens two or more wallets scoring 60+ bought in the last {hours}h · ranked by conviction, not by headcount
+  </p>
+
+  {down ? (
+    <p class="empty">The data service is not answering. Nothing here is stale — it is simply absent.</p>
+  ) : (
+    <dl class="strip">
+      <div><dt>Traders</dt><dd>{stats.scored}</dd></div>
+      <div><dt>Follow</dt><dd class="g">{stats.active}</dd></div>
+      <div><dt>Watch</dt><dd class="y">{stats.watch}</dd></div>
+      <div><dt>Fills</dt><dd>{stats.fills.toLocaleString('en-US')}</dd></div>
+      <div><dt>Open PnL</dt><dd class="g">{usd(stats.open_pnl)}</dd></div>
+      <div><dt>Updated</dt><dd style="font-size:15px">{ago(stats.updated_ts)} ago</dd></div>
+    </dl>
+  )}
+
+  <div style="margin-bottom:25px"><Search /></div>
+
+  {signals.length === 0 && !down && (
+    <p class="empty">
+      No token has two trusted buyers in the last {hours}h. That is information too — the cohort is sitting still.
+    </p>
+  )}
+
+  <ol class="signals">
+    {signals.map((s, i) => (
+      <li>
+        <span class="rank">{String(i + 1).padStart(2, '0')}</span>
+        <a class="tk" href={`/token/${s.mint}`}>{s.sym}</a>
+        <span class="cv">{s.conviction.toFixed(1)}</span>
+        <Meter value={s.conviction} max={Math.max(top, 1)} />
+        <p class="who">
+          {s.who.slice(0, 5).map((h, n) => (
+            <>
+              {n > 0 && ' · '}
+              <a href={`/trader/${h}`}>{h}</a> {s.scores[n]}
+            </>
+          ))}
+          {s.who.length > 5 && ` +${s.who.length - 5}`}
+          {' · '}{s.buyers} buyers · avg {s.avg_score.toFixed(0)} · {usd(s.usd)} · first {ago(s.first_ts)} ago
+        </p>
+      </li>
+    ))}
+  </ol>
+
+  {signals.length > 0 && (
+    <p class="note" style="margin-top:25px">
+      <b>Conviction</b> is the sum of each buyer's (score/100)². It answers <b>whose</b> money moved
+      rather than how many wallets did, because anyone can open a wallet — five of the best
+      outweigh fifteen mediocre ones.
+    </p>
+  )}
+</Base>

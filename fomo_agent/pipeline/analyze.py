@@ -131,16 +131,20 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
         return None
     address, since = row["address"], db.now() - hours * 3600
 
+    # Quote assets are excluded from both: a wallet holding USDG is holding cash, and a WETH leg
+    # is how a swap is paid for, not a position anyone took.
     positions = [dict(r) for r in conn.execute(
         "SELECT p.token, COALESCE(tk.symbol, substr(p.token,1,10)) sym, p.unrealized_pnl pnl, "
         "  p.cost_basis cost FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
-        "WHERE p.user_id = ? ORDER BY p.unrealized_pnl DESC", (row["fomo_user_id"],),
+        "WHERE p.user_id = ?" + NOT_QUOTE.format(col="p.token") +
+        " ORDER BY p.unrealized_pnl DESC", (row["fomo_user_id"],),
     )]
     fills = [dict(r) for r in conn.execute(
         "SELECT tr.ts, tr.side, tr.usd_value usd, tr.mint, tr.source, "
         "  COALESCE(tk.symbol, substr(tr.mint,1,10)) sym FROM trades tr "
         "LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        "WHERE tr.address = ? AND tr.ts >= ? ORDER BY tr.ts DESC", (address, since),
+        "WHERE tr.address = ? AND tr.ts >= ?" + NOT_QUOTE.format(col="tr.mint") +
+        " ORDER BY tr.ts DESC", (address, since),
     )]
     # who else this trader keeps showing up next to, by shared open positions
     company = [dict(r) for r in conn.execute(

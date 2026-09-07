@@ -1,0 +1,115 @@
+---
+import Base from '../../layouts/Base.astro';
+import Search from '../../components/Search.astro';
+import { getTrader, usd, ago, multiple, verdictClass, verdictLabel } from '../../lib/api';
+
+const { who } = Astro.params;
+const t = who ? await getTrader(who) : null;
+if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(who ?? '')}&miss=trader`, 302);
+
+const name = t.handle ?? t.address.slice(0, 10);
+const s = t.stats ?? {};
+const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%` : '—';
+---
+<Base
+  title={`${name} — score ${t.score}, ${verdictLabel(t.status)} | FOMO Radar`}
+  description={t.summary ?? `${name}: verdict, open positions and recent fills on Robinhood Chain.`}
+>
+  <div class="profile">
+    <div class={`score ${verdictClass(t.status)}`} style="font-size:44px">
+      {t.score}<small>{verdictLabel(t.status)}</small>
+    </div>
+    <div>
+      <div class="pagehead" style="margin-bottom:8px">
+        <h1 style="font-size:clamp(28px,5vw,44px)">{name}</h1>
+        {t.style.map((x) => <span class="badge tag">{x}</span>)}
+        {t.red_flags.map((f) => <span class="badge flag">{f}</span>)}
+      </div>
+      {t.summary && <p class="verdict">{t.summary}</p>}
+      <p class="addr">{t.address}</p>
+    </div>
+  </div>
+
+  <dl class="strip">
+    <div><dt>fomo 30d</dt><dd class={t.fomo_pnl && t.fomo_pnl > 0 ? 'g' : 'm'}>{usd(t.fomo_pnl)}</dd></div>
+    <div><dt>Open bags</dt><dd>{t.positions.length}</dd></div>
+    <div><dt>Open PnL</dt><dd class="g">{usd(t.open_pnl)}</dd></div>
+    <div><dt>Win rate</dt><dd>{win}</dd></div>
+    <div><dt>Bought {t.hours}h</dt><dd>{usd(t.bought_usd)}</dd></div>
+    <div><dt>Sold {t.hours}h</dt><dd>{usd(t.sold_usd)}</dd></div>
+  </dl>
+
+  <div class="cols">
+    <section>
+      <h3 style="margin-bottom:12px">Open positions</h3>
+      {t.positions.length === 0 ? (
+        <p class="empty">No open positions on record.</p>
+      ) : (
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Token</th><th class="r">Cost</th><th class="r">Open PnL</th><th class="r">Mult</th></tr></thead>
+            <tbody>
+              {t.positions.slice(0, 12).map((p) => (
+                <tr>
+                  <td class="sym"><a href={`/token/${p.token}`}>{p.sym}</a></td>
+                  <td class="r m">{usd(p.cost)}</td>
+                  <td class={`r ${p.pnl && p.pnl > 0 ? 'g' : p.pnl && p.pnl < 0 ? 'c' : 'm'}`}>{usd(p.pnl)}</td>
+                  <td class="r a">{multiple(p.cost, p.pnl)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p class="note" style="margin-top:14px">
+        A dash under <b>Mult</b> means fomo reports profit already withdrawn from the position, so
+        the entry price cannot be recovered — not that the position is worthless.
+      </p>
+    </section>
+
+    <section>
+      <h3 style="margin-bottom:12px">Recent fills</h3>
+      {t.fills.length === 0 ? (
+        <p class="empty">Nothing in the last {t.hours}h.</p>
+      ) : (
+        <div class="scroll">
+          <table>
+            <thead><tr><th>When</th><th>Side</th><th>Token</th><th class="r">Size</th></tr></thead>
+            <tbody>
+              {t.fills.slice(0, 15).map((f) => (
+                <tr>
+                  <td class="m">{ago(f.ts)}</td>
+                  <td class={f.side === 'buy' ? 'g' : 'c'}>{f.side}</td>
+                  <td class="sym">{f.sym}</td>
+                  <td class="r">{usd(f.usd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {t.company.length > 0 && (
+        <>
+          <h3 style="margin:25px 0 12px">Sits in the same names as</h3>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Trader</th><th class="r">Score</th><th class="r">Shared</th></tr></thead>
+              <tbody>
+                {t.company.map((c) => (
+                  <tr>
+                    <td class="sym"><a href={`/trader/${c.handle}`}>{c.handle}</a></td>
+                    <td class="r">{c.score}</td>
+                    <td class="r m">{c.shared}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  </div>
+
+  <div style="margin-top:25px"><Search /></div>
+</Base>
