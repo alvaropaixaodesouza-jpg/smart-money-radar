@@ -23,7 +23,9 @@ echo   3. You will see the server's Chrome. Sign in to fomo.family as usual.
 echo   4. Close this window when you are done. That is what stops the remote desktop.
 echo.
 
-ssh -i "%KEY%" -L 6080:127.0.0.1:6080 %HOST% "systemctl start radar-vnc radar-novnc; echo READY; sleep 3600; systemctl stop radar-novnc radar-vnc"
+REM The trap is what guarantees the door shuts: closing this window drops the connection, the
+REM remote shell gets a hangup, and the servers stop even though the sleep never finished.
+ssh -i "%KEY%" -L 6080:127.0.0.1:6080 %HOST% "bash -c 'trap \"systemctl stop radar-novnc radar-vnc\" EXIT HUP INT TERM; systemctl start radar-vnc radar-novnc; echo READY; sleep 7200'"
 
 echo.
 echo   Closed. The remote desktop on the server is stopped.
