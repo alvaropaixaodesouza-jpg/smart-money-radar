@@ -101,3 +101,19 @@ def test_a_held_token_is_re_quoted_once_its_price_goes_stale(tmp_path):
         db.upsert_token(conn, held, price_usd=0.01, price_at=now - 600)
     assert stale_price_tokens(conn) == [], "a fresh quote is not asked for twice"
     assert [r["token"] for r in stale_price_tokens(conn, max_age_s=60)] == [held], "an old one is"
+
+
+def test_decimals_survive_between_collection_passes(tmp_path):
+    """Each pass is a new process; what the chain answered once must not be asked again."""
+    conn = db.connect(tmp_path / "dec.db")
+    a, b = ("0x" + "1" * 40), ("0x" + "2" * 40)
+    with db.tx(conn):
+        db.upsert_token(conn, a, chain="robinhood", symbol="A")
+    assert db.token_decimals(conn) == {}
+
+    with db.tx(conn):
+        assert db.save_token_decimals(conn, {a: 6, b: 18, "0xnope": None}) == 2
+    assert db.token_decimals(conn) == {a: 6, b: 18}, "a token we had never seen is stored too"
+
+    with db.tx(conn):
+        assert db.save_token_decimals(conn, {a: 6, b: 18}) == 0, "nothing new, nothing written"

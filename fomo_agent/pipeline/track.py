@@ -124,6 +124,14 @@ def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, l
                 prime([r["address"] for r in rows if t.supports(r["chain"] or "solana")])
             except Exception as e:  # noqa: BLE001 - a source that cannot prime is simply skipped
                 log.warning("prime %s failed: %s", type(t).__name__, e)
+        # a source that reads token sizes needs each token's base unit; it is a constant, so hand
+        # over what earlier passes already learned rather than let it re-ask the chain
+        load = getattr(t, "load_decimals", None)
+        if load:
+            try:
+                load(db.token_decimals(conn))
+            except Exception as e:  # noqa: BLE001 - the source can always ask the chain instead
+                log.warning("decimals cache for %s unavailable: %s", type(t).__name__, e)
     stats = {"wallets": 0, "unsupported": 0, "trades": 0, "errors": 0, "by_source": {}}
     for r in rows:
         chain = r["chain"] or "solana"
@@ -141,6 +149,13 @@ def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, l
             stats["errors"] += 1
             log.warning("track %s (%s) failed: %s", r["address"][:8], chain, e)
     for t in trackers:
+        learned = getattr(t, "known_decimals", None)
+        if learned:
+            try:
+                with db.tx(conn):
+                    db.save_token_decimals(conn, learned())
+            except Exception as e:  # noqa: BLE001 - a cache that will not persist is still a cache
+                log.warning("could not store decimals from %s: %s", type(t).__name__, e)
         used = getattr(t, "requests", None) or getattr(getattr(t, "limiter", None), "total", None)
         if used:
             stats.setdefault("requests", {})[type(t).__name__] = used

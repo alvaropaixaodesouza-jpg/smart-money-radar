@@ -194,6 +194,8 @@ class RobinhoodRPC:
         """
         want = sorted({m for m in mints if m not in self._decimals})
         if want:
+            log.debug("rpc: asking for decimals of %d new tokens", len(want))
+        if want:
             calls = [[{"to": m, "data": DECIMALS_SELECTOR}, "latest"] for m in want]
             for mint, raw in zip(want, self.batch("eth_call", calls)):
                 try:
@@ -203,6 +205,13 @@ class RobinhoodRPC:
                 # a contract answering something absurd is answering something else entirely
                 self._decimals[mint] = value if 0 <= value <= 36 else DEFAULT_DECIMALS
         return {m: self._decimals.get(m, DEFAULT_DECIMALS) for m in mints}
+
+    def load_decimals(self, known: dict[str, int]) -> None:
+        """Seed the cache from storage. Each pass is a fresh process; the answers are not."""
+        self._decimals.update({norm_addr(m): int(d) for m, d in known.items() if d is not None})
+
+    def known_decimals(self) -> dict[str, int]:
+        return dict(self._decimals)
 
     def block_number(self) -> int:
         return int(self.call("eth_blockNumber", []), 16)

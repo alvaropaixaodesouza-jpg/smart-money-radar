@@ -135,6 +135,12 @@ MIGRATIONS: dict[int, str] = {
     -- ledger scans every fill in the table for every trader page.
     CREATE INDEX IF NOT EXISTS idx_trades_wallet ON trades(address, mint);
     """,
+    12: """
+    -- How many base units make one token. It is a constant the chain will answer for free, but
+    -- every collection pass is a fresh process, so without somewhere to keep it the tracker
+    -- re-asks about the same few hundred tokens four times an hour.
+    ALTER TABLE tokens ADD COLUMN decimals INTEGER;
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -237,6 +243,21 @@ def upsert_token(conn: sqlite3.Connection, mint: str, **fields: Any) -> bool:
         sets = ",".join(f"{k}=?" for k in clean)
         conn.execute(f"UPDATE tokens SET {sets} WHERE mint=?", [*clean.values(), mint])
     return False
+
+
+def token_decimals(conn: sqlite3.Connection) -> dict[str, int]:
+    """Every token whose base unit we already know, so nobody asks the chain about it twice."""
+    return {r["mint"]: r["decimals"] for r in
+            conn.execute("SELECT mint, decimals FROM tokens WHERE decimals IS NOT NULL")}
+
+
+def save_token_decimals(conn: sqlite3.Connection, decimals: dict[str, int]) -> int:
+    """Store what a pass learned. Writes only what is new, so this is free when nothing changed."""
+    known = token_decimals(conn)
+    fresh = {m: d for m, d in decimals.items() if d is not None and known.get(m) != d}
+    for mint, value in fresh.items():
+        upsert_token(conn, mint, decimals=value)
+    return len(fresh)
 
 
 # ---------- trades ----------

@@ -140,3 +140,37 @@ def test_supports_only_its_own_chain():
     rpc = RobinhoodRPC(url="http://offline")
     assert rpc.supports("robinhood") and not rpc.supports("solana")
     assert rpc.get_trades("0xabc", "solana") == []
+
+
+def test_decimals_are_asked_once_and_can_be_handed_over(monkeypatch):
+    """A token's base unit is a constant, so it costs one call per process and none at all after."""
+    asked = []
+
+    def fake_post(self, payload):
+        asked.append([c["params"][0]["to"] for c in payload])
+        return [{"id": c["id"], "result": hex(6)} for c in payload]
+
+    monkeypatch.setattr(RobinhoodRPC, "_post", fake_post)
+    rpc = RobinhoodRPC(url="http://offline")
+    a, b = "0x" + "1" * 40, "0x" + "2" * 40
+
+    assert rpc.decimals([a, b]) == {a: 6, b: 6}
+    assert rpc.decimals([a, b]) == {a: 6, b: 6}, "the second answer comes from memory"
+    assert len(asked) == 1 and sorted(asked[0]) == [a, b]
+
+    # a later process starts empty; handing it what the last one learned costs nothing
+    fresh = RobinhoodRPC(url="http://offline")
+    fresh.load_decimals(rpc.known_decimals())
+    assert fresh.decimals([a, b]) == {a: 6, b: 6}
+    assert len(asked) == 1, "nothing was asked again"
+
+
+def test_a_token_that_will_not_answer_is_assumed_standard(monkeypatch):
+    """A contract with no decimals(), or a nonsense one, must not poison every size it appears in."""
+    replies = ["0x", None, hex(200)]
+    monkeypatch.setattr(RobinhoodRPC, "_post",
+                        lambda self, payload: [{"id": c["id"], "result": replies[i]}
+                                               for i, c in enumerate(payload)])
+    rpc = RobinhoodRPC(url="http://offline")
+    mints = ["0x" + c * 40 for c in "123"]
+    assert set(rpc.decimals(mints).values()) == {18}

@@ -108,6 +108,27 @@ terminal. Both lean on one measure: **conviction**, the sum of each holder's (sc
 *whose* money is in a name rather than how many wallets are in it, because anyone can open a wallet
 and one trader scoring 85 is worth more than ten scoring 40.
 
+## A trader's book comes from the tape
+
+fomo reports three positions per trader — the largest — and nothing at all about exits. That is a
+bag list, not a portfolio, so the book is rebuilt from the fills instead: the buys and sells of one
+token collapse into money in, money out, and how much of the entry is still held. That last figure
+is what separates a position someone closed from one they are sitting in, and it turns three
+positions into thirty, with a **realised** side ranked by what each one earned. `pipeline/analyze.py`
+holds the only definition; the site, the terminal and the bot all read it from there.
+
+Two honesty rules keep it from inventing the part it cannot see:
+
+- A wallet that sold **more** of a name than the tape ever saw it buy entered before we started
+  watching. Out-minus-in there is a windfall conjured from half a record, so those names are
+  excluded and counted rather than ranked.
+- A **win rate** counts only positions sold out entirely — a trim is a position still running — and
+  is withheld below five of them.
+
+Where fomo knows more it wins: it prices a whole position back to whenever it was opened, which is
+where the outsized numbers live, so its mark overrides ours on the names it carries. Everything
+else is marked with DexScreener's price, which arrives in the same response as the liquidity.
+
 ## Commands
 
 ```
