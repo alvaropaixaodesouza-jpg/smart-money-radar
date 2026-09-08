@@ -106,7 +106,8 @@ class Settings:
     receiver_token: str = field(default_factory=lambda: _env("RECEIVER_TOKEN"))
     # A fomo session handed over from a browser that is already signed in. Written once, read once
     # by the collector extension, then deleted - it is somebody's login, not a stored credential.
-    seed_path: Path = field(default_factory=lambda: Path(_env("SEED_PATH", "fomo-session.json")))
+    seed_path: Path = field(default_factory=lambda: Path(
+        _env("SEED_PATH") or (Path(_env("DB_PATH", "fomo_agent.db")).parent / "fomo-session.json")))
 
     # storage
     db_path: Path = field(default_factory=lambda: Path(_env("DB_PATH", "fomo_agent.db")))
