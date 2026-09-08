@@ -175,6 +175,28 @@ def fmt_fresh(feed: dict, now: int | None = None) -> str:
     return "\n".join(out)
 
 
+def fmt_launch(t: dict, now: int | None = None) -> str:
+    """One pushed launch. The lead time is the headline: it is what this feed knows and the other does not."""
+    lead = t.get("lead_minutes")
+    when = ("unknown" if lead is None
+            else "the same minute" if lead < 1
+            else f"{lead:.0f} min" if lead < 90
+            else f"{lead / 60:.1f}h")
+    out = [f"\u25c6 <b>${esc(t['sym'])}</b> \u00b7 launch \u00b7 heat {t['heat']:.2f}", ""]
+    out.append(rows([
+        ("wallets in", str(t["buyers"])),
+        ("average score", f"{t['avg_score']:.0f}" if t.get("avg_score") else "\u2014"),
+        ("first wallet in", when),
+        ("token age", f"{t['age_h']:.0f}h" if t.get("age_h") else "\u2014"),
+        ("bought", analyze.usd(t.get("usd"))),
+        ("liquidity", analyze.usd(t.get("liq"))),
+    ]))
+    out.append(who_line(t.get("who"), t.get("scores")))
+    out.append(f"\n<code>{esc(t['mint'])}</code>")
+    out.append(f"/token_{esc(t['mint'])}")
+    return "\n".join(out)
+
+
 def fmt_token(a: dict) -> str:
     name = esc(a["symbol"] or short(a["mint"]))
     if a["is_quote"]:
@@ -268,7 +290,7 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 /fresh — launches they are entering right now
 /top — the scored leaderboard
 /watch, /dropped — the other two verdicts
-/subscribe — get signals pushed as they happen
+/subscribe — get launches and signals pushed as they happen
 /unsubscribe — stop
 /status — what the database holds
 
@@ -318,28 +340,49 @@ def mark_sent(conn, chat_id, mint: str) -> None:
                      (str(chat_id), mint, db.now()))
 
 
+def due(conn) -> list[tuple[str, dict, str]]:
+    """(kind, token, message) for everything worth pushing right now, launches first.
+
+    Two feeds answer two questions and both are worth a message: a launch several good wallets
+    entered in the first minutes, and a name the cohort is piling into whenever it opened. They
+    overlap — a hot launch is usually also a signal — and the dedup below is per token rather than
+    per feed, so whichever describes it first wins and the other stays quiet.
+    """
+    chain = settings.dex_chains[0] if settings.dex_chains else None
+    hours = settings.telegram_alert_window_h
+    out = []
+    for t in analyze.fresh(conn, chain, hours=hours, limit=10)["tokens"]:
+        if t["heat"] >= settings.telegram_min_heat:
+            out.append(("launch", t, fmt_launch(t)))
+    for s in analyze.signals(conn, chain, hours=hours, limit=10):
+        out.append(("signal", s, fmt_signal(s)))
+    return out
+
+
 def broadcast(conn, tg: Telegram) -> dict:
-    """Push every signal each subscriber has not already been told about."""
-    stats = {"subscribers": 0, "sent": 0, "skipped": 0, "errors": 0}
+    """Push everything each subscriber has not already been told about."""
+    stats = {"subscribers": 0, "sent": 0, "launches": 0, "skipped": 0, "errors": 0}
     subs = subscribers(conn)
     if not subs:
         return stats
     stats["subscribers"] = len(subs)
-    sigs = analyze.signals(conn, settings.dex_chains[0] if settings.dex_chains else None,
-                           hours=settings.telegram_alert_window_h, limit=10)
+    items = due(conn)
     quiet = settings.telegram_realert_hours * 3600
     for sub in subs:
         floor = sub["min_conviction"] if sub["min_conviction"] is not None else settings.telegram_min_conviction
-        for s in sigs:
-            if (s["conviction"] or 0) < floor:
+        for kind, t, text in items:
+            # A subscriber's own floor governs the signal feed. Launches are gated by heat, which
+            # is a different scale, so their floor is the one in the config.
+            if kind == "signal" and (t["conviction"] or 0) < floor:
                 continue
-            if already_sent(conn, sub["chat_id"], s["mint"], quiet):
+            if already_sent(conn, sub["chat_id"], t["mint"], quiet):
                 stats["skipped"] += 1
                 continue
             try:
-                tg.send(sub["chat_id"], fmt_signal(s))
-                mark_sent(conn, sub["chat_id"], s["mint"])
+                tg.send(sub["chat_id"], text)
+                mark_sent(conn, sub["chat_id"], t["mint"])
                 stats["sent"] += 1
+                stats["launches"] += kind == "launch"
             except Exception as e:  # noqa: BLE001 - one blocked chat must not stop the rest
                 stats["errors"] += 1
                 log.warning("send to %s failed: %s", sub["chat_id"], e)

@@ -85,6 +85,9 @@ class Settings:
     telegram_proxy: str = field(default_factory=lambda: _env("TELEGRAM_PROXY"))
     # conviction floor for a pushed alert. ~4.0 is four wallets scoring 80 agreeing on one token.
     telegram_min_conviction: float = field(default_factory=lambda: _float("TELEGRAM_MIN_CONVICTION", 4.0))
+    # Heat floor for a pushed launch. Measured over a live day: 1.0 is 28 messages, 2.0 is six,
+    # 3.0 is three. Six a day is a feed somebody reads; thirty is one they mute.
+    telegram_min_heat: float = field(default_factory=lambda: _float("TELEGRAM_MIN_HEAT", 2.0))
     telegram_alert_window_h: int = field(default_factory=lambda: _int("TELEGRAM_ALERT_WINDOW_H", 6))
     telegram_alert_interval_s: int = field(default_factory=lambda: _int("TELEGRAM_ALERT_INTERVAL_S", 120))
     # never tell the same chat about the same token twice inside this window

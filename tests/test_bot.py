@@ -210,7 +210,8 @@ def test_a_blocked_chat_unsubscribes_itself(conn, monkeypatch):
 
 def test_broadcast_with_no_subscribers_does_nothing(conn):
     tg = FakeTelegram()
-    assert bot.broadcast(conn, tg) == {"subscribers": 0, "sent": 0, "skipped": 0, "errors": 0}
+    assert bot.broadcast(conn, tg) == {"subscribers": 0, "sent": 0, "launches": 0,
+                                       "skipped": 0, "errors": 0}
     assert tg.sent == []
 
 
@@ -248,3 +249,32 @@ def test_fresh_command_reads_the_launch_feed(conn):
 
     assert "FRESH" in handle_text(conn, "/fresh", 1, "u")
     assert "/fresh" in handle_text(conn, "/help", 1, "u")
+
+
+def test_a_hot_launch_is_pushed_once_and_not_again_by_the_other_feed(conn, monkeypatch):
+    """Two feeds describe the same token; a subscriber should hear about it once."""
+    monkeypatch.setattr(settings, "telegram_min_heat", 2.0)
+    bot.subscribe(conn, "chat", "u", min_conviction=0.1)
+
+    hot = {"mint": "0x" + "e" * 40, "sym": "HOT", "heat": 4.2, "buyers": 5, "avg_score": 80.0,
+           "lead_minutes": 6.0, "age_h": 3.0, "usd": 21_000.0, "liq": 90_000.0,
+           "who": ["ace", "mid"], "scores": [88, 74]}
+    cold = {**hot, "mint": "0x" + "f" * 40, "sym": "COLD", "heat": 0.4}
+    # the same token also qualifies as a signal, which is the normal case for a hot launch
+    same = {"mint": hot["mint"], "sym": "HOT", "conviction": 9.0, "buyers": 5, "avg_score": 80.0,
+            "first_ts": db.now() - 600, "usd": 21_000.0, "liq": 90_000.0,
+            "who": "ace,mid", "scores": "88,74"}
+    monkeypatch.setattr(bot.analyze, "fresh", lambda *a, **k: {"tokens": [hot, cold], "hours": 6})
+    monkeypatch.setattr(bot.analyze, "signals", lambda *a, **k: [same])
+
+    tg = FakeTelegram()
+    stats = bot.broadcast(conn, tg)
+    assert stats["sent"] == 1 and stats["launches"] == 1
+    assert len(tg.sent) == 1
+    text = tg.sent[0][1]
+    assert "$HOT" in text and "launch" in text and "heat 4.20" in text
+    assert "first wallet in" in text and "6 min" in text, "the lead time is the headline"
+    assert "COLD" not in text, "below the heat floor, so no message"
+
+    # the signal feed knows the same token; the dedup is per token, not per feed
+    assert bot.broadcast(conn, FakeTelegram())["sent"] == 0
