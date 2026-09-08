@@ -150,8 +150,28 @@ async function reschedule() {
   if (c.enabled) chrome.alarms.create('collect', { periodInMinutes: Math.max(1, Number(c.intervalMinutes) || 30) });
 }
 
-chrome.runtime.onInstalled.addListener(reschedule);
-chrome.runtime.onStartup.addListener(reschedule);
+/** A session waiting to be handed over should apply now, not at the next collection.
+ *
+ * Somebody has just run a batch file and is watching to see whether it worked; making them wait
+ * half an hour for the alarm is the difference between a tool that works and one that seems not
+ * to. The tab needs a moment to exist first, hence the short delay rather than an immediate call.
+ */
+async function seedOnStart() {
+  await new Promise((r) => setTimeout(r, 4000));
+  const tab = await fomoTab();
+  if (!tab) return;
+  const taken = await takeSeed(tab);
+  if (taken && taken.wrote) {
+    await setStatus({ ok: true, reason: 'seed', message: `session handed over: ${taken.wrote.local} keys` });
+    await collectNow('after-seed');
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => { reschedule(); seedOnStart(); });
+chrome.runtime.onStartup.addListener(() => { reschedule(); seedOnStart(); });
+// The service worker also starts on demand after Chrome restarts a session, where neither event
+// above fires; a seed left waiting then would sit until the next alarm.
+seedOnStart();
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'collect') collectNow('alarm'); });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
