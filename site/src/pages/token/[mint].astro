@@ -3,7 +3,7 @@ import Base from '../../layouts/Base.astro';
 import Meter from '../../components/Meter.astro';
 import Search from '../../components/Search.astro';
 import Ident from '../../components/Ident.astro';
-import { getToken, usd, ago, multiple } from '../../lib/api';
+import { getToken, usd, ago, amount, multiple } from '../../lib/api';
 
 const { mint } = Astro.params;
 const t = mint ? await getToken(mint) : null;
@@ -11,13 +11,15 @@ if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(mint ?? '')}&miss=
 
 const name = t.symbol ?? `${t.mint.slice(0, 6)}…${t.mint.slice(-4)}`;
 
-// Two different questions, and for a fresh token only one of them has an answer yet.
-// Who is *buying* comes from on-chain fills and is current within fifteen minutes. Who *holds*
-// comes from fomo's snapshot of a trader's three largest bags, so a token nobody has ridden yet
-// shows nobody holding it while a dozen trusted wallets are already accumulating.
+// Two questions, both answered from the chain and neither standing in for the other. Who is
+// *buying* comes from the fills of the last two days; who *holds* is a balance read as of the
+// last collection pass. A token can have a crowd of buyers and no holders — everyone who bought
+// it sold it again — and the page says so rather than showing one number for both.
 const buyers = t.buyers ?? [];
 const trusted = buyers.filter((b) => (b.score ?? 0) >= 60);
 const conv = t.buyer_conviction ?? 0;
+// Two different questions, so two different numbers, each labelled by the question it answers.
+const holderConviction = t.conviction ?? 0;
 const hasFlow = buyers.length > 0;
 const hasBook = t.holders.length > 0;
 
@@ -59,7 +61,7 @@ const desc = t.is_quote
         <div><dt>Fills</dt><dd>{t.flow.length}</dd></div>
         <div><dt>Liquidity</dt><dd>{usd(t.liquidity_usd)}</dd></div>
         {hasBook && <div><dt>Holders</dt><dd>{t.holders.length}</dd></div>}
-        {hasBook && <div><dt>Open PnL</dt><dd class="g">{usd(t.cohort_pnl)}</dd></div>}
+        {hasBook && <div><dt>They hold</dt><dd class="g">{usd(t.cohort_value)}</dd></div>}
       </dl>
 
       {hasFlow && (
@@ -107,40 +109,42 @@ const desc = t.is_quote
 
         <section>
           <h3 style="margin-bottom:4px">Who holds it</h3>
-          <p class="subhead">open positions, from fomo's own book</p>
+          <p class="subhead">balances read off the chain · {holderConviction.toFixed(1)} conviction among holders</p>
           {!hasBook ? (
             <p class="note">
-              <b>Nobody's book shows it yet — which is normal for a token this new.</b> Positions
-              come from fomo's snapshot of each trader's three largest bags, so a name has to grow
-              into someone's top three before it appears here. The buying on the left is on-chain
-              and needs no such qualification.
+              <b>No tracked wallet is holding any of it right now.</b> Every wallet on this list has
+              its balance read straight from the chain, so this is not a gap in the record — the
+              buying on the left either has not settled into a position yet, or was sold back out.
             </p>
           ) : (
             <>
               <div class="scroll">
                 <table>
                   <thead><tr>
-                    <th>Trader</th><th class="r">Score</th><th class="r">Cost</th>
-                    <th class="r">Open PnL</th><th class="r">Mult</th>
+                    <th>Trader</th><th class="r">Score</th><th class="r">Holds</th>
+                    <th class="r">Worth</th><th class="r">Open PnL</th>
                   </tr></thead>
                   <tbody>
                     {t.holders.slice(0, 20).map((h) => (
                       <tr>
                         <td class="sym"><a href={`/trader/${h.handle ?? h.address}`}>{h.handle ?? h.address.slice(0, 10)}</a></td>
                         <td class={`r ${(h.score ?? 0) >= 60 ? 'g' : 'm'}`}>{h.score ?? '—'}</td>
-                        <td class="r m">{usd(h.cost)}</td>
+                        <td class="r m">{amount(h.amount)}</td>
+                        <td class="r">{usd(h.value ?? (h.cost !== null && h.pnl !== null ? h.cost + h.pnl : null))}</td>
                         <td class={`r ${h.pnl && h.pnl > 0 ? 'g' : h.pnl && h.pnl < 0 ? 'c' : 'm'}`}>{usd(h.pnl)}</td>
-                        <td class="r a">{multiple(h.cost, h.pnl)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <p class="note" style="margin-top:14px">
-                The cohort put <b>{usd(t.cohort_cost)}</b> in and is sitting on
-                {' '}<b>{usd(t.cohort_pnl)}</b> — {multiple(t.cohort_cost, t.cohort_pnl)} on what
-                can be priced. A dash means fomo reports profit already withdrawn, so the entry is
-                unknowable.
+                {t.holders.length} tracked {t.holders.length === 1 ? 'wallet holds' : 'wallets hold'}
+                {' '}<b>{usd(t.cohort_value)}</b> of this token between them.
+                {t.cohort_pnl !== null && (
+                  <> Where fomo also carries the position it reports <b>{usd(t.cohort_pnl)}</b> of
+                  open profit on <b>{usd(t.cohort_cost)}</b> put in.</>
+                )} A dash under <b>Open PnL</b> means the entry predates our tape, so the size is
+                known and the profit is not.
               </p>
             </>
           )}

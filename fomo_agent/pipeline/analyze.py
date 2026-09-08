@@ -268,12 +268,27 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
     mint = mint.lower() if mint.startswith("0x") else mint
     since = db.now() - hours * 3600
 
+    # Who holds it, read off the chain. fomo publishes each trader's three largest bags, which is
+    # why this question used to have no answer for anything but a handful of names; a balance has
+    # no such limit, so every tracked wallet that owns any of this token appears here. Where fomo
+    # does carry the position, its mark is kept: it prices the entry back to whenever it was made.
     holders = [dict(r) for r in conn.execute(
-        "SELECT t.fomo_handle handle, t.address, t.score, t.status, p.unrealized_pnl pnl, "
-        "  p.cost_basis cost, p.amount "
+        "SELECT t.fomo_handle handle, t.address, t.score, t.status, h.amount amount, "
+        "  h.amount * tk.price_usd value, p.unrealized_pnl pnl, p.cost_basis cost "
+        "FROM holdings h JOIN traders t ON t.address = h.address "
+        "LEFT JOIN tokens tk ON tk.mint = h.token "
+        "LEFT JOIN fomo_positions p ON p.token = h.token AND p.user_id = t.fomo_user_id "
+        "WHERE h.token = ? AND h.amount > 0 "
+        "ORDER BY COALESCE(t.score,0) DESC, COALESCE(value, 0) DESC", (mint,),
+    )]
+    # fomo may also carry the position for a wallet whose balance we have not read yet
+    seen = {h["address"] for h in holders}
+    holders += [dict(r) for r in conn.execute(
+        "SELECT t.fomo_handle handle, t.address, t.score, t.status, p.amount amount, "
+        "  NULL value, p.unrealized_pnl pnl, p.cost_basis cost "
         "FROM fomo_positions p JOIN traders t ON t.fomo_user_id = p.user_id "
         "WHERE p.token = ? ORDER BY COALESCE(t.score,0) DESC, p.unrealized_pnl DESC", (mint,),
-    )]
+    ) if r["address"] not in seen]
     flow = [dict(r) for r in conn.execute(
         "SELECT t.fomo_handle handle, t.address, t.score, tr.side, tr.usd_value usd, tr.ts "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
@@ -318,6 +333,8 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
         "conviction": conviction(scores),
         "cohort_pnl": sum(h["pnl"] for h in holders if h["pnl"]) or None,
         "cohort_cost": sum(costs) or None,
+        # what the tracked wallets' holdings are worth at the token's current price
+        "cohort_value": sum(h["value"] for h in holders if h["value"]) or None,
         "flow": flow,
         "bought_usd": sum(f["usd"] or 0 for f in flow if f["side"] == "buy"),
         "sold_usd": sum(f["usd"] or 0 for f in flow if f["side"] == "sell"),

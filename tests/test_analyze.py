@@ -306,3 +306,20 @@ def test_the_chain_balance_outranks_what_the_tape_watched(conn):
     assert "SOLD" not in {p["sym"] for p in b["positions"]}, "the chain says it is gone"
     out = next(p for p in b["closed"] if p["sym"] == "SOLD")
     assert out["realized"] == pytest.approx(600), "and the round trip is scored"
+
+
+def test_a_token_lists_the_wallets_whose_balance_says_they_hold_it(conn):
+    """fomo publishes three bags per trader; a balance has no such limit."""
+    mint = "0x" + "9" * 40
+    now = db.now()
+    with db.tx(conn):
+        db.upsert_token(conn, mint, chain="robinhood", symbol="HOLD", price_usd=0.5, price_at=now)
+        # ace holds it and fomo does not carry the position; mid held it and sold out
+        db.save_holdings(conn, {(ACE, mint): 1_000.0, (MID, mint): 0.0})
+
+    a = analyze_token(conn, mint)
+    assert [h["handle"] for h in a["holders"]] == ["ace"], "a zero balance is not a holder"
+    assert a["holders"][0]["value"] == pytest.approx(500), "1000 tokens at 50c"
+    assert a["cohort_value"] == pytest.approx(500)
+    assert a["conviction"] == pytest.approx(0.85 ** 2), "holder conviction is real now"
+    assert a["holders"][0]["pnl"] is None, "no fomo mark, so no profit claimed"

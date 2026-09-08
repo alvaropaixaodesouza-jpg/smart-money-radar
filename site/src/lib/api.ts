@@ -44,7 +44,7 @@ export type Trader = {
 
 export type Holder = {
   handle: string | null; address: string; score: number | null; status: string;
-  pnl: number | null; cost: number | null;
+  pnl: number | null; cost: number | null; amount: number | null; value: number | null;
 };
 
 export type Buyer = {
@@ -57,7 +57,7 @@ export type Token = {
   buyers: Buyer[]; buyer_conviction: number;
   liquidity_usd: number | null; mcap_usd: number | null;
   holders: Holder[]; trusted_holders: number; avg_score: number | null; conviction: number;
-  cohort_pnl: number | null; cohort_cost: number | null;
+  cohort_pnl: number | null; cohort_cost: number | null; cohort_value: number | null;
   flow: { handle: string | null; score: number | null; side: string; usd: number | null; ts: number }[];
   bought_usd: number; sold_usd: number; first_trusted_buy: number | null;
   trusted_buyers: number; hours: number;
