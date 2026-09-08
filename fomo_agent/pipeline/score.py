@@ -275,16 +275,23 @@ def drop_automated(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> tuple[l
     return keep, dropped
 
 
-def pending_for_scoring(conn: sqlite3.Connection, *, force: bool = False, limit: int | None = None) -> list[sqlite3.Row]:
+def pending_for_scoring(conn: sqlite3.Connection, *, force: bool = False, limit: int | None = None,
+                        unscored_only: bool = False) -> list[sqlite3.Row]:
     # `needs_review` is where a wallet lands when scoring failed or the model refused to commit.
     # Leaving it out of this list is what makes the status a dead end instead of a retry queue.
     rows = db.traders_by_status(conn, "tracking", "active", "watch", "dropped", "needs_review")
+    # A wallet with no verdict at all is a hole in the product; one with a verdict two days old is
+    # a refinement. When scoring is done by hand, those two deserve different sittings.
+    if unscored_only:
+        return [r for r in rows if r["score"] is None][:limit] if limit else [
+            r for r in rows if r["score"] is None]
     rows = [r for r in rows if force or needs_rescore(r)]
     return rows[:limit] if limit else rows
 
 
-def export_contexts(conn: sqlite3.Connection, path: Path, *, force: bool = False, limit: int | None = None) -> dict:
-    rows = pending_for_scoring(conn, force=force, limit=limit)
+def export_contexts(conn: sqlite3.Connection, path: Path, *, force: bool = False,
+                    limit: int | None = None, unscored_only: bool = False) -> dict:
+    rows = pending_for_scoring(conn, force=force, limit=limit, unscored_only=unscored_only)
     rows, bots = drop_automated(conn, rows)
     payload = {
         "instructions": EXPORT_INSTRUCTIONS,

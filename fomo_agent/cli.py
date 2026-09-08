@@ -398,6 +398,7 @@ def score(
     export: Optional[Path] = typer.Option(None, "--export", help="write pending contexts to a file for in-chat scoring"),
     import_: Optional[Path] = typer.Option(None, "--import", help="import scores produced in chat"),
     model_label: str = typer.Option("manual", "--model-label", help="label stored with imported scores"),
+    unscored: bool = typer.Option(False, "--unscored", help="with --export: only wallets with no verdict yet"),
     digest: int = typer.Option(0, "--digest", help="with --export: also print N wallets as a compact table"),
     offset: int = typer.Option(0, "--offset", help="with --digest: skip the first N wallets"),
 ) -> None:
@@ -408,7 +409,8 @@ def score(
 
     if export:
         conn = db.connect()
-        typer.echo(sc.export_contexts(conn, export, force=force, limit=limit))
+        typer.echo(sc.export_contexts(conn, export, force=force, limit=limit,
+                                      unscored_only=unscored))
         if digest:
             payload = json.loads(export.read_text(encoding="utf-8"))
             for line in sc.digest_lines(payload)[: (offset + digest) if digest else None][offset:]:
