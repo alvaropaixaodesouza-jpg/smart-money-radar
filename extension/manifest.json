@@ -44,5 +44,8 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "fomo-agent collector"
+  },
+  "storage": {
+    "managed_schema": "schema.json"
   }
 }

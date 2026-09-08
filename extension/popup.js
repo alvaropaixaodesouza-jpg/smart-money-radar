@@ -5,6 +5,11 @@ const el = (id) => document.getElementById(id);
 
 async function render() {
   const c = { ...DEFAULTS, ...(await chrome.storage.local.get([...FIELDS, 'enabled', 'status', 'knownUserIds'])) };
+  // A value set by policy is the one actually in force; showing the empty local field instead
+  // would have somebody re-typing a token that is already there.
+  let managed = {};
+  try { managed = (await chrome.storage.managed.get(FIELDS)) || {}; } catch (e) { /* no policy */ }
+  FIELDS.forEach((f) => { if (managed[f] !== undefined && managed[f] !== '') c[f] = managed[f]; });
   FIELDS.forEach((f) => { el(f).value = c[f]; });
   el('enabled').checked = !!c.enabled;
   el('withPositions').checked = c.withPositions !== false;

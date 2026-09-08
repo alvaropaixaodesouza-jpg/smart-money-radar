@@ -13,7 +13,19 @@ const DEFAULTS = {
   enabled: true,
 };
 
-const cfg = async () => ({ ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) });
+// Managed values come from an enterprise policy file on the machine, which is how the server
+// install hands over the receiver token without anybody pasting it into a popup over VNC. They
+// win over whatever is in local storage, so the policy stays the single source of truth there;
+// on a laptop there is no policy and this is exactly what it was before.
+const cfg = async () => {
+  const local = await chrome.storage.local.get(Object.keys(DEFAULTS));
+  let managed = {};
+  try {
+    managed = (await chrome.storage.managed.get(Object.keys(DEFAULTS))) || {};
+  } catch (e) { /* no policy on this machine, which is the normal case */ }
+  const set = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== ''));
+  return { ...DEFAULTS, ...set(local), ...set(managed) };
+};
 
 async function setStatus(patch) {
   const prev = (await chrome.storage.local.get('status')).status || {};

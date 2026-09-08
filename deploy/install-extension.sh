@@ -54,15 +54,31 @@ chown -R radar:radar "$DEST"
 chmod 0644 "$DEST/collector.crx" "$DEST/update.xml"
 chmod 0600 "$DEST/key.pem"
 
+# The receiver token is handed over by policy rather than typed into the popup over VNC. It is
+# read from the server's own .env, never printed, and lands in a root-only file.
+TOKEN=$(sed -n 's/^RECEIVER_TOKEN=//p' /opt/fomoradar/app/.env | head -1)
+
 install -d -m 0755 /etc/opt/chrome/policies/managed
 cat > "$POLICY" <<JSON
 {
   "ExtensionInstallForcelist": ["$ID;$BASE/update.xml"],
   "ExtensionInstallSources": ["$BASE/*"],
   "ExtensionAllowedTypes": ["extension"],
-  "BlockExternalExtensions": false
+  "BlockExternalExtensions": false,
+  "3rdparty": {
+    "extensions": {
+      "$ID": {
+        "endpoint": "http://127.0.0.1:8787/ingest",
+        "token": "$TOKEN",
+        "intervalMinutes": 30,
+        "enabled": true,
+        "withPositions": true
+      }
+    }
+  }
 }
 JSON
+chmod 0600 "$POLICY"
 
 echo "==> policy written to $POLICY"
 cp /opt/fomoradar/app/deploy/systemd/radar-crx.service /etc/systemd/system/

@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "description": "Where collections are posted. Loopback only."
+    },
+    "token": {
+      "type": "string",
+      "description": "Shared secret the receiver checks. Set by policy so nobody has to paste it."
+    },
+    "intervalMinutes": { "type": "integer" },
+    "resolveTop": { "type": "integer" },
+    "withPositions": { "type": "boolean" },
+    "enabled": { "type": "boolean" }
+  }
+}
