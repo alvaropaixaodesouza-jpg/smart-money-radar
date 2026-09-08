@@ -77,6 +77,9 @@ class Settings:
         r.strip() for r in _env("RPC_ROUTERS", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f").split(",") if r.strip()))
     rpc_window_blocks: int = field(default_factory=lambda: _int("RPC_WINDOW_BLOCKS", 200_000))
     rpc_min_interval_s: float = field(default_factory=lambda: _float("RPC_MIN_INTERVAL_S", 600))
+    # A backfill walks 200k-block windows backwards and is bounded by requests rather than time,
+    # so an unattended run cannot sit on the endpoint all night. 900 covers roughly a fortnight.
+    backfill_max_requests: int = field(default_factory=lambda: _int("BACKFILL_MAX_REQUESTS", 900))
 
     # Telegram bot: long polling, so it needs no public address and no webhook
     telegram_bot_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
@@ -104,11 +107,11 @@ class Settings:
     receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
     receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))
     receiver_token: str = field(default_factory=lambda: _env("RECEIVER_TOKEN"))
-    # A fomo session handed over from a browser that is already signed in. Written once, read once
-    # by the collector extension, then deleted - it is somebody's login, not a stored credential.
     # DevTools port of the collector browser. Loopback only; it is how the server asks that
     # browser a question instead of typing at it and photographing the result.
     browser_debug_port: int = field(default_factory=lambda: _int("BROWSER_DEBUG_PORT", 9222))
+    # A fomo session handed over from a browser that is already signed in. Written once, read once
+    # by the collector extension, then deleted - it is somebody's login, not a stored credential.
     seed_path: Path = field(default_factory=lambda: Path(
         _env("SEED_PATH") or (Path(_env("DB_PATH", "fomo_agent.db")).parent / "fomo-session.json")))
 

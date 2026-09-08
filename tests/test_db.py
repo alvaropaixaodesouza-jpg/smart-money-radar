@@ -150,3 +150,25 @@ def test_holdings_are_stored_and_re_read_when_stale(tmp_path):
     with db.tx(conn):
         db.save_holdings(conn, {(wallet, token): 0.0})
     assert db.holdings_for(conn, wallet)[token][0] == 0.0, "a zero overwrites, it does not vanish"
+
+
+def test_backfill_widens_the_shallowest_histories_first(tmp_path):
+    """A repeated run should reach the wallets we know least about, not deepen the deepest."""
+    from fomo_agent.pipeline.backfill import wallets_to_backfill
+
+    conn = db.connect(tmp_path / "bf.db")
+    now = db.now()
+    deep, shallow, untouched = ("0x" + c * 40 for c in "abc")
+    with db.tx(conn):
+        for a in (deep, shallow, untouched):
+            db.upsert_trader(conn, a, chain="robinhood", status="active")
+        db.upsert_trader(conn, "0x" + "d" * 40, chain="robinhood", status="dropped")
+        db.insert_trade(conn, sig="0xd", address=deep, chain="robinhood", mint="0xm",
+                        side="buy", ts=now - 30 * 86400, source="rpc")
+        db.insert_trade(conn, sig="0xs", address=shallow, chain="robinhood", mint="0xm",
+                        side="buy", ts=now - 3600, source="rpc")
+
+    order = wallets_to_backfill(conn)
+    assert order.index(shallow) < order.index(deep), "an hour of history before a month of it"
+    assert untouched in order, "a wallet with no tape at all still needs one"
+    assert "0x" + "d" * 40 not in order, "a dropped wallet is not worth the requests"

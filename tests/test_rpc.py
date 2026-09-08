@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from fomo_agent.config import settings
 from fomo_agent.sources.rpc import (USDG, WETH, RobinhoodRPC, address_from_topic, fill_usd,
                                     parse_transfer, quote_legs, routed_fills, topic_for)
 
@@ -201,3 +202,34 @@ def test_balances_ask_the_chain_what_a_wallet_actually_holds(monkeypatch):
     assert call["to"] == held and call["data"].startswith("0x70a08231")
     assert call["data"].endswith(wallet[2:].lower()), "the address is the padded argument"
     assert rpc.balances([]) == {} and len(sent) == 2, "nothing to ask, nothing sent"
+
+
+def test_windows_walk_backwards_in_slices_the_endpoint_will_answer(monkeypatch):
+    """eth_getLogs refuses more than ~200k blocks, so depth has to be asked for in pieces."""
+    monkeypatch.setattr(settings, "rpc_window_blocks", 1000)
+
+    def fake_post(self, payload):
+        if payload["method"] == "eth_blockNumber":
+            return {"result": hex(10_000)}
+        block = int(payload["params"][0], 16)
+        return {"result": {"timestamp": hex(1_700_000_000 + block)}}   # one second per block
+
+    monkeypatch.setattr(RobinhoodRPC, "_post", fake_post)
+    rpc = RobinhoodRPC(url="http://offline")
+
+    # head is at t+10000; ask for the last 2500 seconds, i.e. 2500 blocks
+    wins = list(rpc.windows(1_700_000_000 + 10_000 - 2_500))
+    assert wins[0][1] == 10_000, "newest window first, so an interrupted run keeps what matters"
+    assert all(last - first <= 1000 for first, last in wins), "never wider than the endpoint serves"
+    assert wins[-1][0] == 7_500, "and it reaches exactly as far back as asked"
+    assert all(wins[i][0] > wins[i + 1][1] for i in range(len(wins) - 1)), "no overlap, no gap > 1"
+
+
+def test_windows_stop_at_the_chain_start(monkeypatch):
+    monkeypatch.setattr(settings, "rpc_window_blocks", 1000)
+    monkeypatch.setattr(RobinhoodRPC, "_post", lambda self, p: (
+        {"result": hex(500)} if p["method"] == "eth_blockNumber"
+        else {"result": {"timestamp": hex(1_700_000_000 + int(p["params"][0], 16))}}))
+    rpc = RobinhoodRPC(url="http://offline")
+    wins = list(rpc.windows(0))
+    assert wins[-1][0] == 0, "a chain younger than the request is walked to its own beginning"

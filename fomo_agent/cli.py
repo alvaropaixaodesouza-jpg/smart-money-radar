@@ -281,6 +281,17 @@ def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
     typer.echo(_run("enrich_tokens", enrich_tokens, None, limit))
 
 
+@app.command("backfill")
+def backfill_cmd(
+    days: int = typer.Option(30, "--days", help="how far back to walk"),
+    max_requests: int = typer.Option(None, "--max-requests", help="stop after this many RPC calls"),
+) -> None:
+    """Fill the tape from before tracking started. Free, newest window first, resumable."""
+    from .pipeline.backfill import backfill
+
+    typer.echo(_run("backfill", backfill, None, days, None, max_requests))
+
+
 @app.command("browser")
 def browser_cmd(
     seed: bool = typer.Option(False, "--seed", help="write the waiting session into the browser"),

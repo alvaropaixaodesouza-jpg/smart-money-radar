@@ -334,21 +334,20 @@ class RobinhoodRPC:
             self._wallets = wallets
             self._fetched_at = 0.0
 
-    def _load(self) -> None:
-        if not self._wallets:
-            raise RpcError("RobinhoodRPC.prime() must be called with the wallets to index")
-        if self._fills and time.monotonic() - self._fetched_at < settings.rpc_min_interval_s:
-            return
+    def scan(self, wallets: list[str], first: int, last: int) -> dict[str, list[Trade]]:
+        """Every routed fill in one block range, priced and sized, keyed by wallet.
 
-        head = self.block_number()
-        first = max(head - settings.rpc_window_blocks, 0)
-        transfers = (self.transfers(self._wallets, first, head, outgoing=True)
-                     + self.transfers(self._wallets, first, head, outgoing=False))
-        fills = routed_fills(transfers, set(self._wallets), self.routers)
+        The unit both the live pass and the backfill are made of. One range costs two `eth_getLogs`
+        however many wallets are in it, plus a batched receipt per fill for the dollar value, plus
+        one batched `decimals` call for tokens this process has not seen.
+        """
+        transfers = (self.transfers(wallets, first, last, outgoing=True)
+                     + self.transfers(wallets, first, last, outgoing=False))
+        fills = routed_fills(transfers, set(wallets), self.routers)
 
         # two probes date every log: blocks land on a fixed interval
-        head_ts, first_ts = self.block_timestamp(head), self.block_timestamp(first)
-        per_block = (head_ts - first_ts) / max(head - first, 1)
+        last_ts, first_ts = self.block_timestamp(last), self.block_timestamp(first)
+        per_block = (last_ts - first_ts) / max(last - first, 1)
 
         txs = list(fills)
         receipts = self.batch("eth_getTransactionReceipt", [[tx] for tx in txs]) if txs else []
@@ -368,13 +367,47 @@ class RobinhoodRPC:
                 sig=f"{tx}:{f['index']}", address=f["wallet"], chain=CHAIN, mint=f["mint"],
                 side=f["side"], sol_amount=legs.get(WETH), usd_value=usd,
                 token_amount=f["raw"] / 10 ** dec.get(f["mint"], DEFAULT_DECIMALS),
-                ts=int(head_ts - (head - f["block"]) * per_block), source="rpc",
+                ts=int(last_ts - (last - f["block"]) * per_block), source="rpc",
             ))
-        self._fills = dict(out)
-        self._fetched_at = time.monotonic()
-        log.info("rpc: %d wallets, blocks %d..%d (%.1fh), %d transfers, %d fills, %d priced, %d requests",
-                 len(self._wallets), first, head, (head - first) * per_block / 3600,
+        log.info("rpc scan: blocks %d..%d (%.1fh), %d transfers, %d fills, %d priced, %d requests",
+                 first, last, (last - first) * per_block / 3600,
                  len(transfers), len(txs), priced, self.requests)
+        return dict(out)
+
+    def windows(self, back_to_ts: int, head: int | None = None):
+        """Block ranges walking backwards from the head, newest first.
+
+        `eth_getLogs` answers "log query timed out" past about 200k blocks, which on a chain with
+        0.1s blocks is under six hours. Anything older than that has to be asked for in slices, and
+        going newest-first means a backfill that is interrupted has still filled the part that
+        matters most.
+        """
+        head = head if head is not None else self.block_number()
+        span = settings.rpc_window_blocks
+        # one probe pair converts the requested age into a block count
+        head_ts = self.block_timestamp(head)
+        probe = max(head - span, 0)
+        per_block = (head_ts - self.block_timestamp(probe)) / max(head - probe, 1)
+        oldest = max(head - int(max(head_ts - back_to_ts, 0) / max(per_block, 1e-9)), 0)
+
+        last = head
+        while last > oldest:
+            first = max(last - span, oldest)
+            yield first, last
+            if first <= oldest:
+                return
+            last = first - 1
+
+    def _load(self) -> None:
+        if not self._wallets:
+            raise RpcError("RobinhoodRPC.prime() must be called with the wallets to index")
+        if self._fills and time.monotonic() - self._fetched_at < settings.rpc_min_interval_s:
+            return
+
+        head = self.block_number()
+        first = max(head - settings.rpc_window_blocks, 0)
+        self._fills = self.scan(self._wallets, first, head)
+        self._fetched_at = time.monotonic()
 
     def get_trades(self, address: str, chain: str = CHAIN, since_ts: int | None = None) -> list[Trade]:
         if chain != CHAIN:
