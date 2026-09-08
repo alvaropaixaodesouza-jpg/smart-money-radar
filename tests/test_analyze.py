@@ -187,3 +187,86 @@ def test_buyer_conviction_matches_what_the_feed_ranks_by(conn):
     sig = next(s for s in signals(conn, "robinhood", hours=24) if s["sym"] == "PONS")
     tok = analyze_token(conn, TOKEN, hours=24)
     assert tok["buyer_conviction"] == pytest.approx(sig["conviction"])
+
+
+# ---------------------------------------------------------------- the book
+
+def test_position_state_reads_how_much_of_the_entry_is_left():
+    """The four things a wallet's buys and sells can say about a position, and the one they cannot."""
+    from fomo_agent.pipeline.analyze import position_state
+
+    assert position_state(100, 0) == ("open", 0.0)
+    state, exit_pct = position_state(100, 40)
+    assert state == "trimmed" and exit_pct == pytest.approx(0.4)
+    assert position_state(100, 99)[0] == "closed", "dust left behind is still a closed position"
+    assert position_state(100, 100)[0] == "closed"
+    assert position_state(0, 500)[0] == "pre-tape", "sold what we never saw bought"
+    assert position_state(100, 300)[0] == "pre-tape"
+    assert position_state(None, None)[0] == "unknown", "fills recorded without sizes"
+
+
+def test_the_book_separates_what_is_held_from_what_came_back_out(conn):
+    """A round trip, a trim and a position still running, all from one wallet's tape."""
+    from fomo_agent.pipeline.analyze import book
+
+    won, cut, run = ("0x" + "1" * 40), ("0x" + "2" * 40), ("0x" + "3" * 40)
+    now = db.now()
+    with db.tx(conn):
+        for mint, sym, price in ((won, "WON", None), (cut, "CUT", 0.002), (run, "RUN", 0.5)):
+            db.upsert_token(conn, mint, chain="robinhood", symbol=sym, price_usd=price,
+                            price_at=now if price else None)
+        rows = (
+            (won, "buy", 1_000.0, 1_000_000.0), (won, "sell", 4_000.0, 1_000_000.0),   # sold out
+            (cut, "buy", 2_000.0, 1_000_000.0), (cut, "sell", 1_500.0, 250_000.0),     # quarter out
+            (run, "buy", 500.0, 1_000.0),                                              # untouched
+        )
+        for i, (mint, side, usd_v, amt) in enumerate(rows):
+            db.insert_trade(conn, sig=f"0xbook{i}", address=ACE, chain="robinhood", mint=mint,
+                            side=side, usd_value=usd_v, token_amount=amt, ts=now - 900,
+                            source="rpc")
+
+    b = book(conn, ACE, "u1")
+    held = {p["sym"]: p for p in b["positions"]}
+    assert "WON" not in held, "a position sold out entirely is not still held"
+    assert held["CUT"]["state"] == "trimmed" and held["RUN"]["state"] == "open"
+    # three quarters of a $2k entry left, priced at 750k tokens x $0.002
+    assert held["CUT"]["cost"] == pytest.approx(1_500) and held["CUT"]["value"] == pytest.approx(1_500)
+    assert held["RUN"]["value"] == pytest.approx(500), "1000 tokens at 50c"
+
+    out = {p["sym"]: p for p in b["closed"]}
+    assert set(out) == {"WON", "CUT"}, "a trim belongs here too, for the part that left"
+    assert out["WON"]["realized"] == pytest.approx(3_000), "out less in, sold to nothing"
+    assert out["CUT"]["realized"] == pytest.approx(1_000), "out less the quarter it cost"
+    assert b["closed"][0]["sym"] == "WON", "ranked by what came back out"
+    assert b["round_trips"] == 1 and b["wins"] == 1, "only the position sold out entirely is decided"
+
+
+def test_a_position_older_than_the_tape_is_reported_as_neither(conn):
+    """Selling what we never saw bought cannot be priced, so it must not become a windfall."""
+    from fomo_agent.pipeline.analyze import book
+
+    old = "0x" + "4" * 40
+    with db.tx(conn):
+        db.upsert_token(conn, old, chain="robinhood", symbol="OLD")
+        db.insert_trade(conn, sig="0xold", address=MID, chain="robinhood", mint=old, side="sell",
+                        usd_value=90_000.0, token_amount=5_000.0, ts=db.now() - 300, source="rpc")
+
+    b = book(conn, MID, "u2")
+    assert "OLD" not in {p["sym"] for p in b["positions"]}
+    assert "OLD" not in {p["sym"] for p in b["closed"]}, "$90k of profit we cannot claim"
+    assert b["pre_tape"] == 1, "and the reader is told it was left out"
+
+
+def test_the_book_keeps_fomo_marks_and_the_quote_asset_out(conn):
+    """fomo prices a whole position; the tape only prices what it watched. USDG is neither."""
+    from fomo_agent.pipeline.analyze import book
+
+    with db.tx(conn):
+        db.upsert_token(conn, USDG, chain="robinhood", symbol="USDG", price_usd=1.0)
+        db.insert_trade(conn, sig="0xusdg", address=ACE, chain="robinhood", mint=USDG, side="buy",
+                        usd_value=50_000.0, token_amount=50_000.0, ts=db.now() - 60, source="rpc")
+
+    b = book(conn, ACE, "u1")
+    assert "USDG" not in {p["sym"] for p in b["positions"]}, "holding a stablecoin is holding cash"
+    pons = next(p for p in b["positions"] if p["sym"] == "PONS")
+    assert pons["src"] == "fomo" and pons["pnl"] == 900_000, "fomo's mark covers the whole position"

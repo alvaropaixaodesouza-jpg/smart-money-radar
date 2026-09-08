@@ -99,6 +99,9 @@ def test_trader_carries_the_open_book(client):
     body = client.get("/api/trader/ace").json()
     assert [p["sym"] for p in body["positions"]] == ["PONS"]
     assert body["open_pnl"] == 900_000
+    # the page needs every part of the book, not only what is still held
+    for key in ("closed", "realized_usd", "round_trips", "wins", "win_rate", "pre_tape", "tape_from"):
+        assert key in body, key
 
 
 def test_token_answers_with_the_holders(client):

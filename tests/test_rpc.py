@@ -87,14 +87,16 @@ def test_fill_usd_prefers_the_stablecoin():
     assert fill_usd({}, 2500) is None
 
 
-def test_get_trades_costs_two_log_queries_and_one_batch(logs, receipt, monkeypatch):
-    """One pass over the whole roster: two eth_getLogs, two block probes, one batched receipt call."""
+def test_get_trades_costs_two_log_queries_and_two_batches(logs, receipt, monkeypatch):
+    """One pass over the roster: two eth_getLogs, two block probes, receipts and decimals batched."""
     wallet, router = logs["wallet"].lower(), logs["router"].lower()
     sent = []
 
     def fake_post(self, payload):
         sent.append(payload)
-        if isinstance(payload, list):  # batched receipts
+        if isinstance(payload, list):  # batched receipts, or batched decimals()
+            if payload[0]["method"] == "eth_call":
+                return [{"id": c["id"], "result": hex(9)} for c in payload]
             return [{"id": c["id"], "result": receipt} for c in payload]
         method = payload["method"]
         if method == "eth_blockNumber":
@@ -118,12 +120,15 @@ def test_get_trades_costs_two_log_queries_and_one_batch(logs, receipt, monkeypat
     assert {t.address for t in trades} == {wallet}
     assert all(t.source == "rpc" and t.chain == "robinhood" for t in trades)
     assert all(t.usd_value and t.usd_value > 0 for t in trades)
+    assert all(t.token_amount and t.token_amount > 0 for t in trades), "sizes came off the log"
     assert all(t.ts > 1_700_000_000 for t in trades), "block numbers became timestamps"
     assert len({t.sig for t in trades}) == len(trades), "signatures are unique"
 
     methods = [p["method"] for p in sent if isinstance(p, dict)]
     assert methods.count("eth_getLogs") == 2
-    assert sum(1 for p in sent if isinstance(p, list)) == 1, "receipts go out in one batch"
+    batches = [p for p in sent if isinstance(p, list)]
+    assert len(batches) == 2, "one batch for the receipts, one for the tokens' decimals"
+    assert {p[0]["method"] for p in batches} == {"eth_getTransactionReceipt", "eth_call"}
 
     # a second pass inside the cache window costs nothing more
     before = len(sent)

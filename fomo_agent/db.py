@@ -124,6 +124,17 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_bot_sent ON bot_sent(chat_id, mint, ts);
     """,
+    11: """
+    -- A position nobody can price is half an answer: we knew what a wallet paid and how much it
+    -- still holds, but not what that is worth today. DexScreener returns the price in the same
+    -- response the liquidity already came from, so the mark costs no extra request; `price_at` is
+    -- what lets a refresh pass tell a stale quote from a fresh one.
+    ALTER TABLE tokens ADD COLUMN price_usd REAL;
+    ALTER TABLE tokens ADD COLUMN price_at INTEGER;
+    -- Rebuilding a wallet's book reads its whole tape one token at a time; without this the
+    -- ledger scans every fill in the table for every trader page.
+    CREATE INDEX IF NOT EXISTS idx_trades_wallet ON trades(address, mint);
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")

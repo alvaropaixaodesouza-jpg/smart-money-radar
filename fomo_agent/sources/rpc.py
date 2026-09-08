@@ -40,6 +40,10 @@ CHAIN_ID = 4663
 
 # keccak256("Transfer(address,address,uint256)")
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+# ERC-20 decimals(): the first four bytes of keccak256("decimals()")
+DECIMALS_SELECTOR = "0x313ce567"
+# what an ERC-20 uses unless it says otherwise, and the only sane guess for one that will not answer
+DEFAULT_DECIMALS = 18
 
 WETH = "0x0bd7d308f8e1639fab988df18a8011f41eacad73"
 USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
@@ -142,6 +146,7 @@ class RobinhoodRPC:
         self._fills: dict[str, list[Trade]] = {}
         self._fetched_at = 0.0
         self._probes: dict[int, int] = {}   # block -> timestamp, for dating an arbitrary moment
+        self._decimals: dict[str, int] = {}  # token -> decimals; constant, so cached for the run
 
     # ---------- transport ----------
 
@@ -178,6 +183,26 @@ class RobinhoodRPC:
                 if isinstance(idx, int) and 0 <= idx < len(args):
                     out[idx] = item.get("result")
         return out
+
+    def decimals(self, mints: list[str]) -> dict[str, int]:
+        """How many base units make one token, for each mint, batched and remembered.
+
+        A log carries the amount as an integer in the token's own base units, so without this a
+        fill cannot be compared to the same token's other fills, let alone to another token. The
+        answer never changes, so one batched call covers whatever is new to this process and the
+        rest come from memory.
+        """
+        want = sorted({m for m in mints if m not in self._decimals})
+        if want:
+            calls = [[{"to": m, "data": DECIMALS_SELECTOR}, "latest"] for m in want]
+            for mint, raw in zip(want, self.batch("eth_call", calls)):
+                try:
+                    value = int(raw, 16) if raw and raw != "0x" else DEFAULT_DECIMALS
+                except (TypeError, ValueError):
+                    value = DEFAULT_DECIMALS
+                # a contract answering something absurd is answering something else entirely
+                self._decimals[mint] = value if 0 <= value <= 36 else DEFAULT_DECIMALS
+        return {m: self._decimals.get(m, DEFAULT_DECIMALS) for m in mints}
 
     def block_number(self) -> int:
         return int(self.call("eth_blockNumber", []), 16)
@@ -295,6 +320,9 @@ class RobinhoodRPC:
         txs = list(fills)
         receipts = self.batch("eth_getTransactionReceipt", [[tx] for tx in txs]) if txs else []
         price = self.weth_price()
+        # position sizes, not just dollar sizes: how much of a name a wallet still holds is what
+        # separates a position it closed from one it is sitting in
+        dec = self.decimals(sorted({f["mint"] for f in fills.values()}))
 
         out: dict[str, list[Trade]] = defaultdict(list)
         priced = 0
@@ -306,6 +334,7 @@ class RobinhoodRPC:
             out[f["wallet"]].append(Trade(
                 sig=f"{tx}:{f['index']}", address=f["wallet"], chain=CHAIN, mint=f["mint"],
                 side=f["side"], sol_amount=legs.get(WETH), usd_value=usd,
+                token_amount=f["raw"] / 10 ** dec.get(f["mint"], DEFAULT_DECIMALS),
                 ts=int(head_ts - (head - f["block"]) * per_block), source="rpc",
             ))
         self._fills = dict(out)

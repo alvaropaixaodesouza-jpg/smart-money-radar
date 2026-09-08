@@ -80,12 +80,15 @@ def parse_pair(p: dict) -> NewToken | None:
         return None
     created_ms = p.get("pairCreatedAt")
     liq = (p.get("liquidity") or {}).get("usd")
+    # arrives as a string; it is what marks an open position to market
+    price = p.get("priceUsd")
     return NewToken(
         mint=norm_addr(mint),
         chain=p.get("chainId") or "solana",
         symbol=base.get("symbol"),
         mcap_usd=p.get("marketCap") or p.get("fdv"),
         liquidity_usd=liq,
+        price_usd=float(price) if price not in (None, "") else None,
         created_at=int(created_ms / 1000) if created_ms else None,
         dex=p.get("dexId"),
         pair_address=p.get("pairAddress"),

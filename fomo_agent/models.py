@@ -70,6 +70,7 @@ class NewToken(BaseModel):
     symbol: str | None = None
     mcap_usd: float | None = None
     liquidity_usd: float | None = None
+    price_usd: float | None = None
     created_at: int | None = None  # unix seconds
     dex: str | None = None
     pair_address: str | None = None

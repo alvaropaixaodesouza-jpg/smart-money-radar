@@ -70,6 +70,164 @@ def token_symbol(conn: sqlite3.Connection, mint: str) -> str:
     return (row["symbol"] if row and row["symbol"] else mint[:10])
 
 
+# ---------------------------------------------------------------- the book
+
+# How much of an entry may still be outstanding before a position counts as closed. Rounding in a
+# router and the dust a wallet never bothers to sell both leave a fraction behind.
+CLOSED_AT = 0.98
+# Selling more than the tape ever saw bought means the entry predates us by some unknown amount.
+PRE_TAPE_AT = 1.02
+
+
+def position_state(bought_amt: float | None, sold_amt: float | None) -> tuple[str, float | None]:
+    """(state, share of the entry already sold) for one token's buys and sells.
+
+    `None` for either amount means the fills behind this position were recorded without sizes, so
+    how much is left cannot be known — a different thing from knowing it is zero.
+    """
+    if bought_amt is None or sold_amt is None:
+        return "unknown", None
+    if bought_amt <= 0:
+        # sells with no entry behind them: bought before we started watching
+        return ("pre-tape", None) if sold_amt > 0 else ("unknown", None)
+    exit_pct = sold_amt / bought_amt
+    if exit_pct > PRE_TAPE_AT:
+        return "pre-tape", exit_pct
+    if exit_pct >= CLOSED_AT:
+        return "closed", min(exit_pct, 1.0)
+    return ("trimmed" if exit_pct > 0 else "open"), exit_pct
+
+
+def ledger(conn: sqlite3.Connection, address: str) -> list[dict]:
+    """Every token a wallet has traded, folded into one position each.
+
+    The tape is the only record of this trader we own outright, so the book is rebuilt from it
+    rather than taken on trust: the buys and sells of one name collapse into money in, money out,
+    and how much of the entry is still held. That last figure is what separates a position someone
+    closed from one they are sitting in, which is why token sizes matter here as much as dollars.
+
+    A wallet that sold more of a name than the tape ever saw it buy opened that position before we
+    started watching. Its profit is unknowable — the entry is missing — and reporting `out - in`
+    would invent a windfall out of half a record, so it is marked `pre-tape` and ranked nowhere.
+    """
+    rows = [dict(r) for r in conn.execute(
+        "SELECT tr.mint token, COALESCE(tk.symbol, substr(tr.mint,1,10)) sym, tr.chain chain, "
+        "  tk.price_usd price, tk.price_at price_at, tk.liquidity_usd liq, "
+        "  SUM(CASE WHEN tr.side='buy'  THEN COALESCE(tr.usd_value,0) ELSE 0 END) bought_usd, "
+        "  SUM(CASE WHEN tr.side='sell' THEN COALESCE(tr.usd_value,0) ELSE 0 END) sold_usd, "
+        "  SUM(CASE WHEN tr.side='buy'  THEN tr.token_amount ELSE 0 END) bought_amt, "
+        "  SUM(CASE WHEN tr.side='sell' THEN tr.token_amount ELSE 0 END) sold_amt, "
+        "  SUM(tr.token_amount IS NULL) sizeless, COUNT(*) fills, "
+        "  SUM(tr.side='buy') buys, SUM(tr.side='sell') sells, "
+        "  MIN(tr.ts) first_ts, MAX(tr.ts) last_ts "
+        "FROM trades tr LEFT JOIN tokens tk ON tk.mint = tr.mint "
+        "WHERE tr.address = ?" + NOT_QUOTE.format(col="tr.mint") +
+        " GROUP BY tr.mint", (address,),
+    )]
+
+    out = []
+    for r in rows:
+        sizeless = bool(r.pop("sizeless"))
+        bought_amt = None if sizeless else r["bought_amt"]
+        sold_amt = None if sizeless else r["sold_amt"]
+        state, exit_pct = position_state(bought_amt, sold_amt)
+
+        # Average-cost accounting: what came out, less what the part that left had cost. For a
+        # position sold down to nothing that is simply out minus in.
+        realized = None
+        if state in ("closed", "trimmed") and exit_pct:
+            realized = r["sold_usd"] - r["bought_usd"] * min(exit_pct, 1.0)
+
+        held = cost_open = value = unrealized = None
+        if state in ("open", "trimmed"):
+            held = max((bought_amt or 0) - (sold_amt or 0), 0.0)
+            cost_open = r["bought_usd"] * (1 - (exit_pct or 0))
+            if r["price"] is not None:
+                value = held * r["price"]
+                unrealized = value - cost_open
+        elif state == "unknown":
+            # Sizes are missing, so how much is left is unknown — but the money is not. Net cash
+            # in is what this name has cost the wallet, and a six-figure one must not sort below
+            # a fifty-dollar position just because nobody recorded the token counts.
+            cost_open = max(r["bought_usd"] - r["sold_usd"], 0.0) or None
+
+        out.append({**r, "bought_amt": bought_amt, "sold_amt": sold_amt,
+                    "state": state, "exit_pct": exit_pct, "realized": realized,
+                    "held": held, "cost_open": cost_open, "value": value,
+                    "unrealized": unrealized, "src": "chain"})
+    return out
+
+
+def book(conn: sqlite3.Connection, address: str, user_id: str | None) -> dict:
+    """A trader's positions as one answer, from the tape and from fomo's own marks.
+
+    Two records describe the same wallet and neither is complete. The tape holds every fill since
+    we started watching, which is most of the book and all of its recent shape. fomo holds three
+    positions per trader — the largest — but knows what they are worth today and knows the ones
+    opened long before we arrived, which is exactly where the outsized numbers live. So the tape
+    supplies the book, and fomo overrides the mark wherever it has one.
+    """
+    rows = ledger(conn, address)
+    bags: dict[str, dict] = {}
+    if user_id:
+        bags = {r["token"]: dict(r) for r in conn.execute(
+            "SELECT p.token token, COALESCE(tk.symbol, p.symbol, substr(p.token,1,10)) sym, "
+            "  p.chain chain, p.unrealized_pnl pnl, p.cost_basis cost, p.seen_at seen_at "
+            "FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
+            "WHERE p.user_id = ?" + NOT_QUOTE.format(col="p.token"), (user_id,),
+        )}
+
+    open_rows, closed_rows = [], []
+    for r in rows:
+        bag = bags.pop(r["token"], None)
+        if bag is not None:
+            # fomo prices the whole position, including whatever was bought before our first
+            # block. A name it still lists is open whatever our own tape reads of it.
+            trimmed = bool(r["exit_pct"] and 0 < r["exit_pct"] < 1)
+            r = {**r, "pnl": bag["pnl"], "cost": bag["cost"], "marked_at": bag["seen_at"],
+                 "src": "fomo", "state": "trimmed" if trimmed else "held"}
+        else:
+            r = {**r, "pnl": r["unrealized"], "cost": r["cost_open"], "marked_at": r["price_at"]}
+        # A position sold in part sits in both answers at once: still held, and already paid for
+        # in part. Hiding the second half is how a page ends up claiming a trader never takes
+        # profit, when trimming into strength is the most common thing good ones do.
+        if r["state"] not in ("closed", "pre-tape"):
+            open_rows.append(r)
+        if r["realized"] is not None:
+            closed_rows.append(r)
+
+    # bags in no tape of ours: another chain, or a name entered before we started watching
+    for token, bag in bags.items():
+        open_rows.append({
+            "token": token, "sym": bag["sym"], "chain": bag["chain"], "state": "held",
+            "pnl": bag["pnl"], "cost": bag["cost"], "marked_at": bag["seen_at"], "src": "fomo",
+            "bought_usd": 0.0, "sold_usd": 0.0, "fills": 0, "buys": 0, "sells": 0,
+            "first_ts": None, "last_ts": None, "realized": None, "held": None, "price": None,
+            "value": None, "unrealized": None, "exit_pct": None, "liq": None, "cost_open": None,
+        })
+
+    open_rows.sort(key=lambda r: (-(r["pnl"] or 0), -(r["cost"] or 0), -(r["bought_usd"] or 0)))
+    closed_rows.sort(key=lambda r: -(r["realized"] or 0))
+
+    # A win rate only means something over decided trades, so it counts the positions that were
+    # sold out entirely — a trim is a position still running. How many trades had to be left out
+    # for want of their entry is reported beside it rather than quietly dropped.
+    done = [r for r in closed_rows if r["state"] == "closed"]
+    wins = [r for r in done if r["realized"] > 0]
+    return {
+        "positions": open_rows,
+        "closed": closed_rows,
+        "realized_usd": sum(r["realized"] for r in closed_rows) or None,
+        "round_trips": len(done),
+        "wins": len(wins),
+        "win_rate": (len(wins) / len(done)) if done else None,
+        "pre_tape": sum(1 for r in rows if r["state"] == "pre-tape"),
+        "open_pnl": sum(r["pnl"] for r in open_rows if r["pnl"]) or None,
+        # when this wallet's tape starts, so a page can say what its own figures do not cover
+        "tape_from": min((r["first_ts"] for r in rows if r["first_ts"]), default=None),
+    }
+
+
 def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
     """Whose money is in this token, what it cost them, and who moved on it recently."""
     mint = mint.lower() if mint.startswith("0x") else mint
@@ -149,14 +307,9 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
         return None
     address, since = row["address"], db.now() - hours * 3600
 
-    # Quote assets are excluded from both: a wallet holding USDG is holding cash, and a WETH leg
-    # is how a swap is paid for, not a position anyone took.
-    positions = [dict(r) for r in conn.execute(
-        "SELECT p.token, COALESCE(tk.symbol, substr(p.token,1,10)) sym, p.unrealized_pnl pnl, "
-        "  p.cost_basis cost FROM fomo_positions p LEFT JOIN tokens tk ON tk.mint = p.token "
-        "WHERE p.user_id = ?" + NOT_QUOTE.format(col="p.token") +
-        " ORDER BY p.unrealized_pnl DESC", (row["fomo_user_id"],),
-    )]
+    # Quote assets are excluded everywhere below: a wallet holding USDG is holding cash, and a
+    # WETH leg is how a swap is paid for, not a position anyone took.
+    positions = book(conn, address, row["fomo_user_id"])
     fills = [dict(r) for r in conn.execute(
         "SELECT tr.ts, tr.side, tr.usd_value usd, tr.mint, tr.source, "
         "  COALESCE(tk.symbol, substr(tr.mint,1,10)) sym FROM trades tr "
@@ -164,15 +317,18 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
         "WHERE tr.address = ? AND tr.ts >= ?" + NOT_QUOTE.format(col="tr.mint") +
         " ORDER BY tr.ts DESC", (address, since),
     )]
-    # who else this trader keeps showing up next to, by shared open positions
+    # Who else this trader keeps showing up next to. Read from the tape rather than from fomo's
+    # three bags: overlap only means something across a whole book, and against three names almost
+    # everyone looks like a stranger.
+    held = [p["token"] for p in positions["positions"][:60]]
     company = [dict(r) for r in conn.execute(
-        "SELECT t.fomo_handle handle, t.score, COUNT(*) shared FROM fomo_positions p "
-        "JOIN traders t ON t.fomo_user_id = p.user_id "
-        "WHERE p.token IN (SELECT token FROM fomo_positions WHERE user_id = ?) "
-        "  AND p.user_id != ? AND t.score IS NOT NULL "
-        "GROUP BY p.user_id ORDER BY shared DESC, t.score DESC LIMIT 8",
-        (row["fomo_user_id"], row["fomo_user_id"]),
-    )]
+        "SELECT t.fomo_handle handle, t.score, COUNT(DISTINCT tr.mint) shared FROM trades tr "
+        "JOIN traders t ON t.address = tr.address "
+        f"WHERE tr.side='buy' AND tr.mint IN ({','.join('?' * len(held))}) "
+        "  AND tr.address != ? AND t.score IS NOT NULL "
+        "GROUP BY tr.address ORDER BY shared DESC, t.score DESC LIMIT 8",
+        (*held, address),
+    )] if held else []
     tags = json.loads(row["tags"]) if row["tags"] else {}
     stats = json.loads(row["stats_json"]) if row["stats_json"] else {}
     return {
@@ -181,8 +337,8 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
         "model": row["ai_model"], "style": tags.get("style") or [],
         "red_flags": tags.get("red_flags") or [], "stats": stats,
         "fomo_pnl": row["pnl_30d"] or row["pnl_7d"] or row["pnl_24h"],
-        "positions": positions,
-        "open_pnl": sum(p["pnl"] for p in positions if p["pnl"]) or None,
+        # the whole book: what is still held, what was closed, and what the closed part earned
+        **positions,
         "fills": fills,
         "bought_usd": sum(f["usd"] or 0 for f in fills if f["side"] == "buy"),
         "sold_usd": sum(f["usd"] or 0 for f in fills if f["side"] == "sell"),
@@ -244,14 +400,31 @@ def format_trader(a: dict) -> str:
                f"worth {usd(a['open_pnl'])} unrealised")
     s = a["stats"]
     if s:
-        bits = [f"{k} {v}" for k, v in (("win", f"{s['win_rate']*100:.0f}%" if s.get("win_rate") is not None else None),
-                                        ("closed", s.get("closed_trades")), ("fills", s.get("fills")),
+        bits = [f"{k} {v}" for k, v in (("fills", s.get("fills")),
                                         ("volume", usd(s["volume"]) if s.get("volume") else None)) if v]
+        if a["round_trips"] >= 5 and a["win_rate"] is not None:
+            bits.append(f"win {a['win_rate']*100:.0f}% of {a['round_trips']} round trips")
         out.append(" · ".join(bits))
 
-    out.append("\n## Open positions\n")
-    for p in a["positions"][:12] or [None]:
-        out.append(f"  {p['sym']:<14} {usd(p['pnl']):>9} open   cost {usd(p['cost'])}" if p else "_none_")
+    out.append(f"\n## The book — {len(a['positions'])} names open\n")
+    for p in a["positions"][:15] or [None]:
+        out.append(f"  {p['sym'][:14]:<14} {usd(p['pnl']):>9} open   cost {usd(p['cost']):<9} "
+                   f"{p['state']}" if p else "_none_")
+    if a["pre_tape"]:
+        out.append(f"\n  ({a['pre_tape']} more sold down from an entry older than our tape, so "
+                   "neither size nor profit can be stated)")
+    out.append("\n## What came back out\n")
+    if not a["closed"]:
+        out.append("_nothing sold yet inside our tape_")
+    else:
+        line = f"realised {usd(a['realized_usd'])} over {len(a['closed'])} positions"
+        if a["round_trips"]:
+            line += f", {a['wins']} of {a['round_trips']} sold out entirely for a profit"
+        out.append(line)
+        for p in a["closed"][:10]:
+            exit_at = "all" if p["state"] == "closed" else f"{(p['exit_pct'] or 0) * 100:.0f}%"
+            out.append(f"  {p['sym'][:14]:<14} {usd(p['realized']):>9} realised   "
+                       f"in {usd(p['bought_usd']):<9} out {usd(p['sold_usd']):<9} sold {exit_at}")
     out.append(f"\n## Fills, last {a['hours']}h\n")
     out.append(f"bought {usd(a['bought_usd'])} · sold {usd(a['sold_usd'])} · {len(a['fills'])} fills")
     for f in a["fills"][:15]:

@@ -41,12 +41,37 @@ def fetch_new_tokens(sources: tuple[str, ...] | None = None) -> list[NewToken]:
     )
 
 
+def stale_price_tokens(conn: sqlite3.Connection, limit: int | None = None,
+                       max_age_s: int | None = None) -> list[sqlite3.Row]:
+    """Tokens a tracked wallet still has money in, whose price is missing or too old to mark with.
+
+    Only what a wallet actually bought is worth quoting: pricing every address the tape has ever
+    seen would spend hundreds of requests on names nobody holds. The oldest quote goes first, so
+    successive passes cycle through the book instead of re-asking about the same tokens.
+    """
+    max_age = db.now() - (settings.price_max_age_s if max_age_s is None else max_age_s)
+    return conn.execute(
+        "SELECT u.token AS token, u.chain AS chain FROM ("
+        "  SELECT mint AS token, chain FROM trades WHERE side='buy'"
+        "  UNION ALL SELECT token, chain FROM fomo_positions"
+        ") u JOIN tokens t ON t.mint = u.token "
+        "WHERE u.chain IS NOT NULL AND (t.price_at IS NULL OR t.price_at < ?) "
+        "GROUP BY u.token, u.chain "
+        "ORDER BY COALESCE(t.price_at, 0) ASC LIMIT ?",
+        (max_age, limit or settings.price_refresh_limit),
+    ).fetchall()
+
+
 def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limit: int = 300) -> dict:
-    """Fill in symbol, price and liquidity for tokens we only know by address.
+    """Name the tokens we only know by address, and re-quote the ones somebody is holding.
 
     Positions and fills both arrive as bare contract addresses. DexScreener resolves 30 at a time
     for free, so a few hundred tokens cost a handful of requests and no Codex budget. Fills come
     first: an unnamed token on the signal feed is the one a reader is looking at right now.
+
+    The same response carries the price, which is what marks an open position to market. A name is
+    permanent and a price is not, so the second pass re-asks about tokens whose quote has gone
+    stale — bounded per pass, oldest first, so the cost stays flat however large the book grows.
     """
     dex = dex or DexScreener()
     rows = conn.execute(
@@ -62,8 +87,13 @@ def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limi
     for r in rows:
         by_chain.setdefault(r["chain"], []).append(r["token"])
 
-    stats = {"looked_up": len(rows), "named": 0, "requests": 0}
+    # second pass: tokens already named but priced too long ago to mark a position with
+    for r in stale_price_tokens(conn):
+        by_chain.setdefault(r["chain"], []).append(r["token"])
+
+    stats = {"looked_up": len(rows), "named": 0, "priced": 0, "requests": 0}
     for chain, mints in by_chain.items():
+        mints = sorted(set(mints))
         try:
             pairs = dex.pairs_for(chain, mints)
             stats["requests"] += (len(mints) + 29) // 30
@@ -78,8 +108,11 @@ def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limi
             seen.add(t.mint)
             with db.tx(conn):
                 db.upsert_token(conn, t.mint, chain=t.chain, symbol=t.symbol, mcap_usd=t.mcap_usd,
-                                liquidity_usd=t.liquidity_usd, created_at=t.created_at)
+                                liquidity_usd=t.liquidity_usd, created_at=t.created_at,
+                                price_usd=t.price_usd,
+                                price_at=db.now() if t.price_usd is not None else None)
             stats["named"] += 1
+            stats["priced"] += t.price_usd is not None
     log.info("token enrichment: %s", stats)
     return stats
 

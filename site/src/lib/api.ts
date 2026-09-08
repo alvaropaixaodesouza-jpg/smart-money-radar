@@ -17,14 +17,25 @@ export type TraderRow = {
   summary: string | null; fomo_pnl: number | null; style: string[]; red_flags: string[];
 };
 
-export type Position = { token: string; sym: string; pnl: number | null; cost: number | null };
+/** One name in a trader's book. `state` says whether it is still running and `src` who marked it. */
+export type Position = {
+  token: string; sym: string; chain: string | null;
+  state: 'open' | 'trimmed' | 'held' | 'closed' | 'unknown';
+  src: 'chain' | 'fomo';
+  pnl: number | null; cost: number | null; value: number | null; held: number | null;
+  price: number | null; exit_pct: number | null; realized: number | null;
+  bought_usd: number; sold_usd: number; fills: number; buys: number; sells: number;
+  first_ts: number | null; last_ts: number | null; marked_at: number | null;
+};
 
 export type Trader = {
   address: string; handle: string | null; chain: string; score: number | null; status: string;
   summary: string | null; model: string | null; style: string[]; red_flags: string[];
   stats: Record<string, number | null>; fomo_pnl: number | null;
-  positions: Position[]; open_pnl: number | null;
-  fills: { ts: number; side: string; usd: number | null; sym: string; source: string }[];
+  positions: Position[]; closed: Position[]; open_pnl: number | null;
+  realized_usd: number | null; round_trips: number; wins: number;
+  win_rate: number | null; pre_tape: number; tape_from: number | null;
+  fills: { ts: number; side: string; usd: number | null; sym: string; mint: string; source: string }[];
   bought_usd: number; sold_usd: number; hours: number;
   company: { handle: string; score: number; shared: number }[];
 };
@@ -95,6 +106,25 @@ export function multiple(cost: number | null, pnl: number | null): string {
   if (!cost || cost <= 0 || pnl === null || pnl === undefined) return '—';
   return `${((cost + pnl) / cost).toFixed(1)}×`;
 }
+
+/** A token count, which runs from fractions of a coin to billions of a memecoin. */
+export function amount(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  const a = Math.abs(v);
+  if (a >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+  if (a >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (a >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  if (a >= 1) return v.toFixed(0);
+  return v.toPrecision(2);
+}
+
+export function pct(v: number | null | undefined): string {
+  return v === null || v === undefined ? '—' : `${Math.round(v * 100)}%`;
+}
+
+/** How a position reads at a glance: still whole, part sold, or done. */
+export const stateLabel = (s: string, exit: number | null) =>
+  s === 'trimmed' ? `trimmed ${pct(exit)}` : s === 'unknown' ? 'unsized' : s;
 
 export const verdictClass = (status: string) =>
   status === 'active' ? 'follow' : status === 'watch' ? 'watch' : 'drop';

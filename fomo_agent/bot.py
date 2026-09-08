@@ -185,24 +185,32 @@ def fmt_trader(a: dict) -> str:
         out.append(f"<i>{esc(tags)}</i>")
     if a["summary"]:
         out.append(f"\n{esc(a['summary'])}")
-    s = a["stats"] or {}
     out.append("")
+    # A win rate is only stated once there are enough decided trades behind it to mean anything.
+    rated = a["round_trips"] >= 5 and a["win_rate"] is not None
     out.append(rows([
         ("fomo 30d", analyze.usd(a["fomo_pnl"])),
-        ("open bags", str(len(a["positions"]))),
+        ("open names", str(len(a["positions"]))),
         ("open PnL", analyze.usd(a["open_pnl"])),
-        ("realized", analyze.usd(s.get("realized_pnl")) if s.get("realized_pnl") is not None else "—"),
-        ("win rate", f"{s['win_rate'] * 100:.0f}%" if s.get("win_rate") is not None else "—"),
+        ("realised", analyze.usd(a["realized_usd"]) if a["realized_usd"] is not None else "—"),
+        ("round trips", f"{a['wins']}/{a['round_trips']}" if rated else str(a["round_trips"] or "—")),
         (f"bought {a['hours']}h", analyze.usd(a["bought_usd"])),
         (f"sold {a['hours']}h", analyze.usd(a["sold_usd"])),
     ]))
     if a["positions"]:
         out.append("<b>Largest positions</b>")
         lines = []
-        for p in a["positions"][:5]:
+        for p in a["positions"][:6]:
             cost, pnl = p.get("cost"), p.get("pnl")
             mult = f"  {(cost + pnl) / cost:.1f}x" if cost and pnl is not None else ""
-            lines.append(f"{p['sym']:<14}{analyze.usd(pnl):>10}{mult}")
+            lines.append(f"{p['sym'][:14]:<14}{analyze.usd(pnl):>10}{mult}")
+        out.append(f"<pre>{esc(chr(10).join(lines))}</pre>")
+    if a["closed"]:
+        out.append("<b>What came back out</b>")
+        lines = []
+        for p in a["closed"][:5]:
+            exit_at = "all" if p["state"] == "closed" else f"{(p['exit_pct'] or 0) * 100:.0f}%"
+            lines.append(f"{p['sym'][:14]:<14}{analyze.usd(p['realized']):>10}  {exit_at:>4}")
         out.append(f"<pre>{esc(chr(10).join(lines))}</pre>")
     out.append(f"<code>{esc(a['address'])}</code>")
     return "\n".join(out)

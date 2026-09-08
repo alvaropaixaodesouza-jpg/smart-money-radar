@@ -1,19 +1,32 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Search from '../../components/Search.astro';
-import { getTrader, usd, ago, multiple, verdictClass, verdictLabel } from '../../lib/api';
+import Meter from '../../components/Meter.astro';
+import { getTrader, usd, ago, amount, pct, multiple, stateLabel, verdictClass, verdictLabel } from '../../lib/api';
 
 const { who } = Astro.params;
 const t = who ? await getTrader(who) : null;
 if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(who ?? '')}&miss=trader`, 302);
 
 const name = t.handle ?? t.address.slice(0, 10);
-const s = t.stats ?? {};
-const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%` : '—';
+
+// What a position is worth now. Where fomo has marked the whole position, cost plus profit is
+// that mark; our own price only covers the part of the entry the tape watched, which on a name
+// held since before we started is a fraction of it.
+const now = (p: { value: number | null; cost: number | null; pnl: number | null; src: string }) =>
+  (p.src === 'fomo' && p.cost !== null && p.pnl !== null ? p.cost + p.pnl : p.value)
+  ?? (p.cost !== null && p.pnl !== null ? p.cost + p.pnl : null);
+
+const book = t.positions ?? [];
+const closed = t.closed ?? [];
+const marked = book.filter((p) => p.pnl !== null).length;
+// A win rate over three trades is noise; below that the figure is withheld rather than dressed up.
+const rated = t.round_trips >= 5 && t.win_rate !== null;
+const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
 ---
 <Base
   title={`${name} — Robinhood Chain trader, score ${t.score} | FOMO Robinhood Radar`}
-  description={t.summary ?? `${name}: the verdict, open positions and recent fills for this Robinhood Chain wallet.`}
+  description={t.summary ?? `${name}: the verdict, the whole book and every fill for this Robinhood Chain wallet.`}
 >
   <div class="profile">
     <div class={`score ${verdictClass(t.status)}`} style="font-size:44px">
@@ -32,27 +45,47 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
 
   <dl class="strip">
     <div><dt>fomo 30d</dt><dd class={t.fomo_pnl && t.fomo_pnl > 0 ? 'g' : 'm'}>{usd(t.fomo_pnl)}</dd></div>
-    <div><dt>Open bags</dt><dd>{t.positions.length}</dd></div>
-    <div><dt>Open PnL</dt><dd class="g">{usd(t.open_pnl)}</dd></div>
-    <div><dt>Win rate</dt><dd>{win}</dd></div>
+    <div><dt>Open names</dt><dd>{book.length}</dd></div>
+    <div><dt>Open PnL</dt><dd class={t.open_pnl && t.open_pnl < 0 ? 'c' : 'g'}>{usd(t.open_pnl)}</dd></div>
+    <div><dt>Realised</dt><dd class={t.realized_usd && t.realized_usd < 0 ? 'c' : 'g'}>{usd(t.realized_usd)}</dd></div>
+    <div><dt>Round trips</dt><dd>{rated ? `${t.wins}/${t.round_trips}` : t.round_trips || '—'}</dd></div>
     <div><dt>Bought {t.hours}h</dt><dd>{usd(t.bought_usd)}</dd></div>
     <div><dt>Sold {t.hours}h</dt><dd>{usd(t.sold_usd)}</dd></div>
   </dl>
 
+  {rated && (
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:25px;flex-wrap:wrap">
+      <span class="mono a" style="font-size:19px">{pct(t.win_rate)}</span>
+      <Meter value={(t.win_rate ?? 0) * 100} max={100} />
+      <span class="mono m" style="font-size:11px">
+        of {t.round_trips} positions sold out entirely came back above what they cost
+      </span>
+    </div>
+  )}
+
   <div class="cols">
     <section>
-      <h3 style="margin-bottom:12px">Open positions</h3>
-      {t.positions.length === 0 ? (
-        <p class="empty">No open positions on record.</p>
+      <h3 style="margin-bottom:4px">The book</h3>
+      <p class="subhead">{book.length} names still open · {marked} of them priced</p>
+      {book.length === 0 ? (
+        <p class="empty">Nothing open on record.</p>
       ) : (
         <div class="scroll">
           <table>
-            <thead><tr><th>Token</th><th class="r">Cost</th><th class="r">Open PnL</th><th class="r">Mult</th></tr></thead>
+            <thead><tr>
+              <th>Token</th><th>State</th><th class="r">In</th>
+              <th class="r">Now</th><th class="r">Open PnL</th><th class="r">Mult</th>
+            </tr></thead>
             <tbody>
-              {t.positions.slice(0, 12).map((p) => (
+              {book.slice(0, 30).map((p) => (
                 <tr>
-                  <td class="sym"><a href={`/token/${p.token}`}>{p.sym}</a></td>
+                  <td class="sym">
+                    <a href={`/token/${p.token}`}>{p.sym}</a>
+                    {p.src === 'fomo' && <i class="mark" title="marked by fomo, whole position">f</i>}
+                  </td>
+                  <td class="m mono st">{stateLabel(p.state, p.exit_pct)}</td>
                   <td class="r m">{usd(p.cost)}</td>
+                  <td class="r">{usd(now(p))}</td>
                   <td class={`r ${p.pnl && p.pnl > 0 ? 'g' : p.pnl && p.pnl < 0 ? 'c' : 'm'}`}>{usd(p.pnl)}</td>
                   <td class="r a">{multiple(p.cost, p.pnl)}</td>
                 </tr>
@@ -62,13 +95,22 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
         </div>
       )}
       <p class="note" style="margin-top:14px">
-        A dash under <b>Mult</b> means fomo reports profit already withdrawn from the position, so
-        the entry price cannot be recovered — not that the position is worthless.
+        A row marked <b class="a">f</b> is fomo's own mark on the whole position, back to whenever
+        it was opened. Every other row is priced from our tape, which starts
+        {' '}<b>{ago(t.tape_from)} ago</b> for this wallet — a name entered before that is larger
+        than it looks here, because only the part bought since is counted.
+        {t.pre_tape > 0 && (
+          <> {t.pre_tape} further {t.pre_tape === 1 ? 'name was' : 'names were'} left out entirely:
+          the wallet sold more of them than we ever saw it buy, so neither the size nor the profit
+          can be honestly stated.</>
+        )} A dash is a figure nobody can supply — no quote for the token, or fomo counting profit
+        already withdrawn, which leaves the entry price unrecoverable. It is not a zero.
       </p>
     </section>
 
     <section>
-      <h3 style="margin-bottom:12px">Recent fills</h3>
+      <h3 style="margin-bottom:4px">Recent fills</h3>
+      <p class="subhead">every trade in the last {t.hours}h</p>
       {t.fills.length === 0 ? (
         <p class="empty">Nothing in the last {t.hours}h.</p>
       ) : (
@@ -76,11 +118,11 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
           <table>
             <thead><tr><th>When</th><th>Side</th><th>Token</th><th class="r">Size</th></tr></thead>
             <tbody>
-              {t.fills.slice(0, 15).map((f) => (
+              {t.fills.slice(0, 18).map((f) => (
                 <tr>
                   <td class="m">{ago(f.ts)}</td>
                   <td class={f.side === 'buy' ? 'g' : 'c'}>{f.side}</td>
-                  <td class="sym">{f.sym}</td>
+                  <td class="sym"><a href={`/token/${f.mint}`}>{f.sym}</a></td>
                   <td class="r">{usd(f.usd)}</td>
                 </tr>
               ))}
@@ -91,7 +133,8 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
 
       {t.company.length > 0 && (
         <>
-          <h3 style="margin:25px 0 12px">Sits in the same names as</h3>
+          <h3 style="margin:25px 0 4px">Sits in the same names as</h3>
+          <p class="subhead">tracked wallets that bought the same tokens</p>
           <div class="scroll">
             <table>
               <thead><tr><th>Trader</th><th class="r">Score</th><th class="r">Shared</th></tr></thead>
@@ -99,7 +142,7 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
                 {t.company.map((c) => (
                   <tr>
                     <td class="sym"><a href={`/trader/${c.handle}`}>{c.handle}</a></td>
-                    <td class="r">{c.score}</td>
+                    <td class={`r ${c.score >= 60 ? 'g' : 'm'}`}>{c.score}</td>
                     <td class="r m">{c.shared}</td>
                   </tr>
                 ))}
@@ -111,5 +154,69 @@ const win = typeof s.win_rate === 'number' ? `${(s.win_rate * 100).toFixed(0)}%`
     </section>
   </div>
 
+  <div class="feedhead" style="margin-top:25px">
+    <h2 style="font-size:22px">What came back out</h2>
+    <span class="feedmeta">
+      {closed.length > 0
+        ? `${closed.length} positions sold in whole or in part · ${winners} of them for a profit`
+        : 'nothing sold yet inside our tape'}
+    </span>
+  </div>
+  {closed.length === 0 ? (
+    <p class="note">
+      <b>This wallet has not closed anything we can price.</b> Either it is still holding
+      everything it has bought since we started watching, or the sells belong to positions opened
+      before then — and without the entry, calling the difference profit would be a guess.
+    </p>
+  ) : (
+    <>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>Token</th><th>Exit</th><th class="r">In</th><th class="r">Out</th>
+            <th class="r">Realised</th><th class="r">Held</th><th class="r">Last</th>
+          </tr></thead>
+          <tbody>
+            {closed.slice(0, 12).map((p) => (
+              <tr>
+                <td class="sym"><a href={`/token/${p.token}`}>{p.sym}</a></td>
+                <td class="m mono st">{p.state === 'closed' ? 'all of it' : pct(p.exit_pct)}</td>
+                <td class="r m">{usd(p.bought_usd)}</td>
+                <td class="r">{usd(p.sold_usd)}</td>
+                <td class={`r ${(p.realized ?? 0) > 0 ? 'g' : (p.realized ?? 0) < 0 ? 'c' : 'm'}`}>{usd(p.realized)}</td>
+                <td class="r m">{p.state === 'closed' ? '—' : amount(p.held)}</td>
+                <td class="r m">{ago(p.last_ts)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:14px">
+        <b>Realised</b> is what came out less what the part that left had cost, at the average
+        price the wallet paid. A position sold down in part counts here for the part it sold and
+        stays in the book for the rest — trimming into strength is a decision, not an exit, and a
+        page that only listed clean exits would show most good traders doing nothing.
+      </p>
+    </>
+  )}
+
   <div style="margin-top:25px"><Search /></div>
+
+  <style>
+    .feedhead {
+      display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+      border-top: 1px solid #ffffff; padding-top: 12px; margin-bottom: 14px;
+    }
+    .feedmeta {
+      font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px;
+      letter-spacing: 0.06em; color: #606060; margin-left: auto;
+    }
+    /* the state of a position reads as a label, not as a number */
+    .st { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .mark {
+      font-family: "JetBrains Mono", ui-monospace, monospace; font-style: normal;
+      font-size: 9px; color: #ff8a00; border: 1px solid #ff8a00; border-radius: 9999px;
+      padding: 0 4px; margin-left: 6px; vertical-align: 1px;
+    }
+  </style>
 </Base>

@@ -90,6 +90,16 @@ def test_cross_source_dedupe_is_case_insensitive():
     assert len(got) == 1 and got[0].source == "geckoterminal"  # higher liquidity wins
 
 
+def test_dexscreener_carries_the_price_that_marks_a_position():
+    """The quote arrives as a string in the same response the liquidity comes from."""
+    from fomo_agent.sources.dexscreener import parse_pair
+
+    t = parse_pair({"chainId": "robinhood", "baseToken": {"address": "0xAbC", "symbol": "X"},
+                    "liquidity": {"usd": 100}, "priceUsd": "0.00004212"})
+    assert t.price_usd == pytest.approx(0.00004212)
+    assert parse_pair({"chainId": "robinhood", "baseToken": {"address": "0xAbC"}}).price_usd is None
+
+
 # ---------- codex ----------
 
 def test_codex_parse():

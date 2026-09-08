@@ -76,3 +76,28 @@ def test_a_connection_survives_being_closed_on_another_thread(tmp_path):
     t.start()
     t.join()
     assert error == [], f"connection refused a cross-thread close: {error}"
+
+
+def test_a_held_token_is_re_quoted_once_its_price_goes_stale(tmp_path):
+    """A price marks an open position, so it has to be re-asked; a name never does."""
+    from fomo_agent.pipeline.new_tokens import stale_price_tokens
+
+    conn = db.connect(tmp_path / "prices.db")
+    now = db.now()
+    held, sold_out, untracked = ("0x" + "1" * 40), ("0x" + "2" * 40), ("0x" + "3" * 40)
+    with db.tx(conn):
+        for mint in (held, sold_out, untracked):
+            db.upsert_token(conn, mint, chain="robinhood", symbol="X")
+        db.insert_trade(conn, sig="0x1", address="0xw", chain="robinhood", mint=held, side="buy",
+                        usd_value=100.0, ts=now, source="rpc")
+        db.insert_trade(conn, sig="0x2", address="0xw", chain="robinhood", mint=sold_out,
+                        side="sell", usd_value=100.0, ts=now, source="rpc")
+
+    due = [r["token"] for r in stale_price_tokens(conn)]
+    assert held in due, "somebody's money is in it"
+    assert sold_out not in due and untracked not in due, "nothing to mark, nothing to ask about"
+
+    with db.tx(conn):
+        db.upsert_token(conn, held, price_usd=0.01, price_at=now - 600)
+    assert stale_price_tokens(conn) == [], "a fresh quote is not asked for twice"
+    assert [r["token"] for r in stale_price_tokens(conn, max_age_s=60)] == [held], "an old one is"

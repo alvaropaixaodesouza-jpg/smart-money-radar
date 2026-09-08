@@ -130,6 +130,12 @@ class Settings:
     gecko_min_interval_s: float = field(default_factory=lambda: _float("GECKO_MIN_INTERVAL_S", 2.0))
     new_token_min_liquidity_usd: float = field(default_factory=lambda: _float("NEW_TOKEN_MIN_LIQUIDITY_USD", 10_000))
     holders_top_n: int = field(default_factory=lambda: _int("HOLDERS_TOP_N", 30))
+    # How long a token's price stays usable before the enrichment pass re-quotes it. Open
+    # positions are marked with it, so a two-hour-old price is fine and a day-old one is fiction.
+    price_max_age_s: int = field(default_factory=lambda: _int("PRICE_MAX_AGE_S", 7200))
+    # Tokens re-quoted per pass; DexScreener takes 30 addresses per request, and the collection
+    # timer fires four times an hour — enough for the whole book to stay inside the age above.
+    price_refresh_limit: int = field(default_factory=lambda: _int("PRICE_REFRESH_LIMIT", 400))
     # codex-based discovery: how many fresh tokens per pass get their buyers pulled (1 request each)
     discover_tokens_per_pass: int = field(default_factory=lambda: _int("DISCOVER_TOKENS_PER_PASS", 3))
     discover_min_buy_usd: float = field(default_factory=lambda: _float("DISCOVER_MIN_BUY_USD", 500))
