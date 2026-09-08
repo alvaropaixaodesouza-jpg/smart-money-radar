@@ -317,13 +317,29 @@ def fill_key(t: dict[str, Any]) -> str:
 
 
 def insert_trade(conn: sqlite3.Connection, **t: Any) -> bool:
-    """Idempotent insert keyed by signature. Returns True if a new row was inserted."""
+    """Idempotent insert keyed by signature. Returns True if a new row was inserted.
+
+    A fill already on file is left alone except for the fields nobody filled in. Sources differ in
+    what they can say about the same trade — the tracker knew the dollar value long before it knew
+    the token size — so a later pass that does know must be able to complete the row rather than
+    bounce off the unique index. It only ever writes over a NULL: what one source already recorded
+    is never replaced by another's opinion of it.
+    """
     t = {**t, "fill_key": t.get("fill_key") or fill_key(t)}
     vals = [t.get(c) for c in TRADE_COLS]
     cur = conn.execute(
         f"INSERT OR IGNORE INTO trades({','.join(TRADE_COLS)}) VALUES({_placeholders(len(TRADE_COLS))})", vals
     )
-    return cur.rowcount == 1
+    if cur.rowcount == 1:
+        return True
+    if t.get("token_amount") is not None or t.get("usd_value") is not None:
+        conn.execute(
+            "UPDATE trades SET token_amount = COALESCE(token_amount, ?), "
+            "  usd_value = COALESCE(usd_value, ?), sol_amount = COALESCE(sol_amount, ?) "
+            "WHERE fill_key = ? AND (token_amount IS NULL OR usd_value IS NULL)",
+            (t.get("token_amount"), t.get("usd_value"), t.get("sol_amount"), t["fill_key"]),
+        )
+    return False
 
 
 def last_trade_ts(conn: sqlite3.Connection, address: str) -> int | None:

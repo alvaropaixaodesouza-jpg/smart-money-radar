@@ -224,3 +224,20 @@ def test_backfill_narrows_a_range_the_endpoint_refuses(tmp_path, monkeypatch):
     covered = sorted(served)
     assert covered[0][0] == 9_000 and covered[-1][1] == 10_000, "the whole range still got asked"
     assert stats["failed"] == 0
+
+
+def test_a_later_pass_completes_a_fill_without_overwriting_it(tmp_path):
+    """Sources know different things about the same trade; the second one fills the gaps."""
+    conn = db.connect(tmp_path / "fill.db")
+    key = dict(sig="0xabc", address="0xw", chain="robinhood", mint="0xm", side="buy")
+
+    with db.tx(conn):
+        # the live tracker priced it but recorded no size
+        assert db.insert_trade(conn, **key, usd_value=100.0, ts=10, source="rpc") is True
+        # the backfill comes back over the same block with the size, and a different price
+        assert db.insert_trade(conn, **key, usd_value=999.0, token_amount=42.0, ts=10,
+                               source="rpc") is False
+
+    row = conn.execute("SELECT usd_value, token_amount FROM trades").fetchone()
+    assert row["token_amount"] == 42.0, "the gap is filled"
+    assert row["usd_value"] == 100.0, "and what was already recorded is not second-guessed"
