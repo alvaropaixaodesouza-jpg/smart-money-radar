@@ -54,6 +54,13 @@ It packs the working tree, uploads it, reinstalls dependencies, **runs the test 
 server**, rebuilds the site and restarts the three services. It never touches the database and it
 preserves `.env` across the deploy — that file belongs to the server, not to the repository.
 
+## Logs
+
+Everything goes to the journal, so rotation is journald's job rather than a logrotate file.
+`journald/fomoradar.conf` caps it at a gigabyte and thirty days — about a month of this workload,
+and longer than anybody looks back. Copy it to `/etc/systemd/journald.conf.d/` and restart
+`systemd-journald`.
+
 ## Access
 
 Key-only. Password authentication is off in `/etc/ssh/sshd_config.d/99-fomoradar.conf`, and the root
