@@ -42,6 +42,8 @@ CHAIN_ID = 4663
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 # ERC-20 decimals(): the first four bytes of keccak256("decimals()")
 DECIMALS_SELECTOR = "0x313ce567"
+# ERC-20 balanceOf(address): the selector, then the address padded to 32 bytes
+BALANCE_SELECTOR = "0x70a08231"
 # what an ERC-20 uses unless it says otherwise, and the only sane guess for one that will not answer
 DEFAULT_DECIMALS = 18
 
@@ -205,6 +207,28 @@ class RobinhoodRPC:
                 # a contract answering something absurd is answering something else entirely
                 self._decimals[mint] = value if 0 <= value <= 36 else DEFAULT_DECIMALS
         return {m: self._decimals.get(m, DEFAULT_DECIMALS) for m in mints}
+
+    def balances(self, pairs: list[tuple[str, str]]) -> dict[tuple[str, str], float]:
+        """What each wallet actually holds of each token, asked of the chain itself.
+
+        The tape says what we watched a wallet buy and sell; this says what it has. The two differ
+        whenever a position was opened before we started watching, or a fill was recorded without
+        a size — and the difference is the whole gap between a book that is roughly right and one
+        that is right. `balanceOf` is a free read, forty to a round trip.
+        """
+        pairs = [(w.lower(), m) for w, m in pairs if w and m]
+        if not pairs:
+            return {}
+        dec = self.decimals(sorted({m for _, m in pairs}))
+        calls = [[{"to": m, "data": BALANCE_SELECTOR + topic_for(w)[2:]}, "latest"] for w, m in pairs]
+        out: dict[tuple[str, str], float] = {}
+        for (wallet, mint), raw in zip(pairs, self.batch("eth_call", calls)):
+            try:
+                units = int(raw, 16)
+            except (TypeError, ValueError):
+                continue  # a token that will not answer leaves the position as the tape had it
+            out[(wallet, mint)] = units / 10 ** dec.get(mint, DEFAULT_DECIMALS)
+        return out
 
     def load_decimals(self, known: dict[str, int]) -> None:
         """Seed the cache from storage. Each pass is a fresh process; the answers are not."""

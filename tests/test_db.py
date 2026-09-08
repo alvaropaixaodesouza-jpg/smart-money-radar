@@ -98,9 +98,14 @@ def test_a_held_token_is_re_quoted_once_its_price_goes_stale(tmp_path):
     assert sold_out not in due and untracked not in due, "nothing to mark, nothing to ask about"
 
     with db.tx(conn):
-        db.upsert_token(conn, held, price_usd=0.01, price_at=now - 600)
-    assert stale_price_tokens(conn) == [], "a fresh quote is not asked for twice"
+        db.upsert_token(conn, held, price_usd=0.01, price_at=now - 600, checked_at=now - 600)
+    assert stale_price_tokens(conn) == [], "a token just asked about is not asked again"
     assert [r["token"] for r in stale_price_tokens(conn, max_age_s=60)] == [held], "an old one is"
+
+    # a token no source can price is stamped as asked, so it stops crowding out the ones with one
+    with db.tx(conn):
+        db.upsert_token(conn, held, checked_at=now)
+    assert stale_price_tokens(conn, max_age_s=60) == []
 
 
 def test_decimals_survive_between_collection_passes(tmp_path):
@@ -117,3 +122,31 @@ def test_decimals_survive_between_collection_passes(tmp_path):
 
     with db.tx(conn):
         assert db.save_token_decimals(conn, {a: 6, b: 18}) == 0, "nothing new, nothing written"
+
+
+def test_holdings_are_stored_and_re_read_when_stale(tmp_path):
+    """A balance is a fact with a timestamp; the pass that refreshes it works oldest-first."""
+    from fomo_agent.pipeline.holdings import stale_pairs
+    from fomo_agent.sources.rpc import USDG
+
+    conn = db.connect(tmp_path / "hold.db")
+    wallet, token = "0x" + "a" * 40, "0x" + "1" * 40
+    with db.tx(conn):
+        db.upsert_trader(conn, wallet, chain="robinhood", status="active")
+        for i, mint in enumerate((token, USDG)):
+            db.insert_trade(conn, sig=f"0x{i}", address=wallet, chain="robinhood", mint=mint,
+                            side="buy", usd_value=100.0, ts=db.now(), source="rpc")
+
+    assert stale_pairs(conn) == [(wallet, token)], "the stablecoin is cash, not a position"
+
+    with db.tx(conn):
+        assert db.save_holdings(conn, {(wallet, token): 12.5}) == 1
+    assert db.holdings_for(conn, wallet)[token][0] == 12.5
+    assert stale_pairs(conn) == [], "a fresh read is not repeated"
+    with db.tx(conn):
+        conn.execute("UPDATE holdings SET ts = ?", (db.now() - 600,))
+    assert stale_pairs(conn, max_age_s=60) == [(wallet, token)], "a stale one is"
+
+    with db.tx(conn):
+        db.save_holdings(conn, {(wallet, token): 0.0})
+    assert db.holdings_for(conn, wallet)[token][0] == 0.0, "a zero overwrites, it does not vanish"

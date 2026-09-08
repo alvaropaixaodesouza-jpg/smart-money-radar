@@ -43,11 +43,12 @@ def fetch_new_tokens(sources: tuple[str, ...] | None = None) -> list[NewToken]:
 
 def stale_price_tokens(conn: sqlite3.Connection, limit: int | None = None,
                        max_age_s: int | None = None) -> list[sqlite3.Row]:
-    """Tokens a tracked wallet still has money in, whose price is missing or too old to mark with.
+    """Tokens a tracked wallet still has money in, that nobody has asked about recently enough.
 
     Only what a wallet actually bought is worth quoting: pricing every address the tape has ever
-    seen would spend hundreds of requests on names nobody holds. The oldest quote goes first, so
-    successive passes cycle through the book instead of re-asking about the same tokens.
+    seen would spend hundreds of requests on names nobody holds. The queue turns on when each was
+    last *asked* about rather than on whether it has a price, because a token no source indexes
+    would otherwise sit at the front of it forever and starve the ones that do.
     """
     max_age = db.now() - (settings.price_max_age_s if max_age_s is None else max_age_s)
     return conn.execute(
@@ -55,64 +56,104 @@ def stale_price_tokens(conn: sqlite3.Connection, limit: int | None = None,
         "  SELECT mint AS token, chain FROM trades WHERE side='buy'"
         "  UNION ALL SELECT token, chain FROM fomo_positions"
         ") u JOIN tokens t ON t.mint = u.token "
-        "WHERE u.chain IS NOT NULL AND (t.price_at IS NULL OR t.price_at < ?) "
+        "WHERE u.chain IS NOT NULL AND (t.checked_at IS NULL OR t.checked_at < ?) "
         "GROUP BY u.token, u.chain "
-        "ORDER BY COALESCE(t.price_at, 0) ASC LIMIT ?",
+        "ORDER BY COALESCE(t.checked_at, 0) ASC LIMIT ?",
         (max_age, limit or settings.price_refresh_limit),
     ).fetchall()
 
 
-def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limit: int = 300) -> dict:
-    """Name the tokens we only know by address, and re-quote the ones somebody is holding.
-
-    Positions and fills both arrive as bare contract addresses. DexScreener resolves 30 at a time
-    for free, so a few hundred tokens cost a handful of requests and no Codex budget. Fills come
-    first: an unnamed token on the signal feed is the one a reader is looking at right now.
-
-    The same response carries the price, which is what marks an open position to market. A name is
-    permanent and a price is not, so the second pass re-asks about tokens whose quote has gone
-    stale — bounded per pass, oldest first, so the cost stays flat however large the book grows.
-    """
-    dex = dex or DexScreener()
-    rows = conn.execute(
+def unnamed_tokens(conn: sqlite3.Connection, limit: int, max_age_s: int | None = None) -> list[sqlite3.Row]:
+    """Addresses we have no name for, most recently traded first, skipping ones just asked about."""
+    max_age = db.now() - (settings.price_max_age_s if max_age_s is None else max_age_s)
+    return conn.execute(
         "SELECT u.token AS token, u.chain AS chain FROM ("
         "  SELECT mint AS token, chain, MAX(ts) AS seen FROM trades GROUP BY mint, chain"
         "  UNION ALL SELECT token, chain, 0 FROM fomo_positions"
         ") u LEFT JOIN tokens t ON t.mint = u.token "
         "WHERE u.chain IS NOT NULL AND (t.mint IS NULL OR t.symbol IS NULL) "
+        "  AND (t.checked_at IS NULL OR t.checked_at < ?) "
         "GROUP BY u.token, u.chain ORDER BY MAX(u.seen) DESC LIMIT ?",
-        (limit,),
+        (max_age, limit),
     ).fetchall()
+
+
+def lookup_tokens(chain: str, mints: list[str], dex: DexScreener | None = None,
+                  gecko: "GeckoTerminal | None" = None) -> tuple[list, int]:
+    """Everything known about these addresses, from whichever source covers the chain.
+
+    GeckoTerminal answers by address and returns the symbol, the decimals, the reserve and the
+    price in one call, so it goes first. DexScreener is asked only about what came back empty —
+    it indexes Solana and Base well and Robinhood Chain barely at all (measured 2026-09-08: three
+    of thirty held tokens, and a price for none of them).
+    """
+    from ..sources.geckoterminal import GeckoTerminal
+
+    found: dict[str, object] = {}
+    requests = 0
+    try:
+        gecko = gecko or GeckoTerminal()
+        for t in gecko.tokens(chain, mints):
+            found[t.mint] = t
+        requests += (len(mints) + 29) // 30
+    except Exception as e:  # noqa: BLE001 - enrichment is optional, and one source down is not fatal
+        log.warning("geckoterminal lookup failed for %s: %s", chain, e)
+
+    missing = [m for m in mints if m not in found]
+    if missing:
+        try:
+            pairs = (dex or DexScreener()).pairs_for(chain, missing)
+            requests += (len(missing) + 29) // 30
+            for p in pairs:
+                t = parse_pair(p)
+                if t and t.mint not in found:
+                    found[t.mint] = t
+        except Exception as e:  # noqa: BLE001
+            log.warning("dexscreener lookup failed for %s: %s", chain, e)
+    return list(found.values()), requests
+
+
+def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limit: int = 300) -> dict:
+    """Name the tokens we only know by address, and re-quote the ones somebody is holding.
+
+    Positions and fills both arrive as bare contract addresses, and an open position that cannot be
+    priced is half an answer. Thirty addresses go per request, so a few hundred tokens cost a
+    handful of them and no Codex budget. Names come first: an unnamed token on the signal feed is
+    the one a reader is looking at right now.
+
+    A name is permanent and a price is not, so the second pass re-asks about the tokens somebody is
+    holding — bounded per pass, longest-unasked first, so the cost stays flat however large the
+    book grows. Every address asked about is stamped whether or not an answer came back; that is
+    what keeps the tokens no source indexes from monopolising the queue.
+    """
+    rows = unnamed_tokens(conn, limit)
     by_chain: dict[str, list[str]] = {}
     for r in rows:
         by_chain.setdefault(r["chain"], []).append(r["token"])
-
-    # second pass: tokens already named but priced too long ago to mark a position with
     for r in stale_price_tokens(conn):
         by_chain.setdefault(r["chain"], []).append(r["token"])
 
     stats = {"looked_up": len(rows), "named": 0, "priced": 0, "requests": 0}
+    now = db.now()
     for chain, mints in by_chain.items():
         mints = sorted(set(mints))
-        try:
-            pairs = dex.pairs_for(chain, mints)
-            stats["requests"] += (len(mints) + 29) // 30
-        except Exception as e:  # noqa: BLE001 - enrichment is optional
-            log.warning("token enrichment failed for %s: %s", chain, e)
-            continue
-        seen: set[str] = set()
-        for p in pairs:
-            t = parse_pair(p)
-            if not t or t.mint in seen:
-                continue
-            seen.add(t.mint)
-            with db.tx(conn):
+        tokens, requests = lookup_tokens(chain, mints, dex=dex)
+        stats["requests"] += requests
+        with db.tx(conn):
+            for t in tokens:
                 db.upsert_token(conn, t.mint, chain=t.chain, symbol=t.symbol, mcap_usd=t.mcap_usd,
                                 liquidity_usd=t.liquidity_usd, created_at=t.created_at,
-                                price_usd=t.price_usd,
-                                price_at=db.now() if t.price_usd is not None else None)
-            stats["named"] += 1
-            stats["priced"] += t.price_usd is not None
+                                decimals=t.decimals, price_usd=t.price_usd,
+                                price_at=now if t.price_usd is not None else None,
+                                checked_at=now)
+                stats["named"] += 1
+                stats["priced"] += t.price_usd is not None
+            # An address nobody could answer for is stamped too, so it goes to the back of the
+            # queue instead of being re-requested every pass for the rest of the project.
+            answered = {t.mint for t in tokens}
+            for mint in mints:
+                if mint not in answered:
+                    db.upsert_token(conn, mint, chain=chain, checked_at=now)
     log.info("token enrichment: %s", stats)
     return stats
 

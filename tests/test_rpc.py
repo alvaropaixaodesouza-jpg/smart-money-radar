@@ -174,3 +174,30 @@ def test_a_token_that_will_not_answer_is_assumed_standard(monkeypatch):
     rpc = RobinhoodRPC(url="http://offline")
     mints = ["0x" + c * 40 for c in "123"]
     assert set(rpc.decimals(mints).values()) == {18}
+
+
+def test_balances_ask_the_chain_what_a_wallet_actually_holds(monkeypatch):
+    """balanceOf settles what the tape can only guess at, and goes out batched with the decimals."""
+    sent = []
+
+    def fake_post(self, payload):
+        sent.append(payload)
+        if payload[0]["params"][0]["data"] == "0x313ce567":
+            return [{"id": c["id"], "result": hex(6)} for c in payload]
+        # 2.5 tokens for the first pair, nothing for the second
+        results = [hex(2_500_000), hex(0)]
+        return [{"id": c["id"], "result": results[i]} for i, c in enumerate(payload)]
+
+    monkeypatch.setattr(RobinhoodRPC, "_post", fake_post)
+    rpc = RobinhoodRPC(url="http://offline")
+    wallet, other = "0x" + "A" * 40, "0x" + "b" * 40
+    held, gone = "0x" + "1" * 40, "0x" + "2" * 40
+
+    got = rpc.balances([(wallet, held), (other, gone)])
+    assert got[(wallet.lower(), held)] == pytest.approx(2.5), "raw units became tokens"
+    assert got[(other, gone)] == 0, "an empty position is an answer, not a missing one"
+
+    call = sent[-1][0]["params"][0]
+    assert call["to"] == held and call["data"].startswith("0x70a08231")
+    assert call["data"].endswith(wallet[2:].lower()), "the address is the padded argument"
+    assert rpc.balances([]) == {} and len(sent) == 2, "nothing to ask, nothing sent"

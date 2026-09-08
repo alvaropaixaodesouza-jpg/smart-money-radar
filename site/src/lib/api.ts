@@ -23,6 +23,8 @@ export type Position = {
   state: 'open' | 'trimmed' | 'held' | 'closed' | 'unknown';
   src: 'chain' | 'fomo';
   pnl: number | null; cost: number | null; value: number | null; held: number | null;
+  /** What the position is worth now — the balance at the token's price, or fomo's own mark. */
+  worth: number | null; read_at: number | null;
   price: number | null; exit_pct: number | null; realized: number | null;
   bought_usd: number; sold_usd: number; fills: number; buys: number; sells: number;
   first_ts: number | null; last_ts: number | null; marked_at: number | null;
@@ -32,7 +34,7 @@ export type Trader = {
   address: string; handle: string | null; chain: string; score: number | null; status: string;
   summary: string | null; model: string | null; style: string[]; red_flags: string[];
   stats: Record<string, number | null>; fomo_pnl: number | null;
-  positions: Position[]; closed: Position[]; open_pnl: number | null;
+  positions: Position[]; closed: Position[]; open_pnl: number | null; book_value: number | null;
   realized_usd: number | null; round_trips: number; wins: number;
   win_rate: number | null; pre_tape: number; tape_from: number | null;
   fills: { ts: number; side: string; usd: number | null; sym: string; mint: string; source: string }[];

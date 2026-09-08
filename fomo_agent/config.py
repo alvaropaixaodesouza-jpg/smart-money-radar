@@ -136,6 +136,10 @@ class Settings:
     # Tokens re-quoted per pass; DexScreener takes 30 addresses per request, and the collection
     # timer fires four times an hour — enough for the whole book to stay inside the age above.
     price_refresh_limit: int = field(default_factory=lambda: _int("PRICE_REFRESH_LIMIT", 400))
+    # On-chain balances: how long a read stays usable, and how many (wallet, token) pairs one pass
+    # re-reads. Forty go per request, so 2000 pairs is 50 free RPC calls.
+    holdings_max_age_s: int = field(default_factory=lambda: _int("HOLDINGS_MAX_AGE_S", 3600))
+    holdings_per_pass: int = field(default_factory=lambda: _int("HOLDINGS_PER_PASS", 2000))
     # codex-based discovery: how many fresh tokens per pass get their buyers pulled (1 request each)
     discover_tokens_per_pass: int = field(default_factory=lambda: _int("DISCOVER_TOKENS_PER_PASS", 3))
     discover_min_buy_usd: float = field(default_factory=lambda: _float("DISCOVER_MIN_BUY_USD", 500))

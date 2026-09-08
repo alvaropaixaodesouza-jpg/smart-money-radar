@@ -79,18 +79,33 @@ CLOSED_AT = 0.98
 PRE_TAPE_AT = 1.02
 
 
-def position_state(bought_amt: float | None, sold_amt: float | None) -> tuple[str, float | None]:
-    """(state, share of the entry already sold) for one token's buys and sells.
+def position_state(bought_amt: float | None, sold_amt: float | None,
+                   balance: float | None = None) -> tuple[str, float | None]:
+    """(state, share of the watched entry already sold) for one token's buys and sells.
 
-    `None` for either amount means the fills behind this position were recorded without sizes, so
-    how much is left cannot be known — a different thing from knowing it is zero.
+    Given a balance read off the chain, that settles it: nothing left is a closed position, and
+    more left than the tape ever saw bought means the wallet was in this name before we were —
+    `held`, where the size is known and the cost is not.
+
+    Without one, all we have is the tape. `None` for either amount then means the fills were
+    recorded without sizes, so how much is left cannot be known — a different thing from zero.
     """
+    exit_pct = (sold_amt / bought_amt) if bought_amt and sold_amt is not None else None
+
+    if balance is not None:
+        if balance <= 0:
+            return ("closed" if (sold_amt or 0) > 0 else "unknown"), (
+                min(exit_pct, 1.0) if exit_pct else None)
+        watched = None if bought_amt is None or sold_amt is None else bought_amt - sold_amt
+        if watched is None or balance > watched * PRE_TAPE_AT:
+            return "held", exit_pct
+        return ("trimmed" if exit_pct else "open"), exit_pct
+
     if bought_amt is None or sold_amt is None:
         return "unknown", None
     if bought_amt <= 0:
         # sells with no entry behind them: bought before we started watching
         return ("pre-tape", None) if sold_amt > 0 else ("unknown", None)
-    exit_pct = sold_amt / bought_amt
     if exit_pct > PRE_TAPE_AT:
         return "pre-tape", exit_pct
     if exit_pct >= CLOSED_AT:
@@ -125,26 +140,32 @@ def ledger(conn: sqlite3.Connection, address: str) -> list[dict]:
         " GROUP BY tr.mint", (address,),
     )]
 
+    balances = db.holdings_for(conn, address)
+
     out = []
     for r in rows:
         sizeless = bool(r.pop("sizeless"))
         bought_amt = None if sizeless else r["bought_amt"]
         sold_amt = None if sizeless else r["sold_amt"]
-        state, exit_pct = position_state(bought_amt, sold_amt)
+        balance, read_at = balances.get(r["token"], (None, None))
+        state, exit_pct = position_state(bought_amt, sold_amt, balance)
 
         # Average-cost accounting: what came out, less what the part that left had cost. For a
-        # position sold down to nothing that is simply out minus in.
+        # position sold down to nothing that is simply out minus in. A wallet that was in the name
+        # before we were has an entry price we do not know, so its profit is not stated.
         realized = None
         if state in ("closed", "trimmed") and exit_pct:
             realized = r["sold_usd"] - r["bought_usd"] * min(exit_pct, 1.0)
 
         held = cost_open = value = unrealized = None
-        if state in ("open", "trimmed"):
-            held = max((bought_amt or 0) - (sold_amt or 0), 0.0)
-            cost_open = r["bought_usd"] * (1 - (exit_pct or 0))
+        if state in ("open", "trimmed", "held"):
+            held = balance if balance is not None else max((bought_amt or 0) - (sold_amt or 0), 0.0)
+            cost_open = r["bought_usd"] * (1 - min(exit_pct or 0, 1.0)) or None
             if r["price"] is not None:
                 value = held * r["price"]
-                unrealized = value - cost_open
+                # only where the tape covers the whole entry does value minus cost mean anything
+                if state != "held" and cost_open is not None:
+                    unrealized = value - cost_open
         elif state == "unknown":
             # Sizes are missing, so how much is left is unknown — but the money is not. Net cash
             # in is what this name has cost the wallet, and a six-figure one must not sort below
@@ -154,7 +175,7 @@ def ledger(conn: sqlite3.Connection, address: str) -> list[dict]:
         out.append({**r, "bought_amt": bought_amt, "sold_amt": sold_amt,
                     "state": state, "exit_pct": exit_pct, "realized": realized,
                     "held": held, "cost_open": cost_open, "value": value,
-                    "unrealized": unrealized, "src": "chain"})
+                    "unrealized": unrealized, "src": "chain", "read_at": read_at})
     return out
 
 
@@ -188,6 +209,11 @@ def book(conn: sqlite3.Connection, address: str, user_id: str | None) -> dict:
                  "src": "fomo", "state": "trimmed" if trimmed else "held"}
         else:
             r = {**r, "pnl": r["unrealized"], "cost": r["cost_open"], "marked_at": r["price_at"]}
+        # What the position is worth now: the chain's balance at the token's price where we have
+        # both, and otherwise fomo's mark, which is a cost and a profit that add up to the same
+        # thing. Sorting and display read the one field, so they cannot disagree.
+        r["worth"] = r["value"] if r["value"] is not None else (
+            r["cost"] + r["pnl"] if r["cost"] is not None and r["pnl"] is not None else None)
         # A position sold in part sits in both answers at once: still held, and already paid for
         # in part. Hiding the second half is how a page ends up claiming a trader never takes
         # profit, when trimming into strength is the most common thing good ones do.
@@ -204,9 +230,15 @@ def book(conn: sqlite3.Connection, address: str, user_id: str | None) -> dict:
             "bought_usd": 0.0, "sold_usd": 0.0, "fills": 0, "buys": 0, "sells": 0,
             "first_ts": None, "last_ts": None, "realized": None, "held": None, "price": None,
             "value": None, "unrealized": None, "exit_pct": None, "liq": None, "cost_open": None,
+            "read_at": None,
+            "worth": (bag["cost"] + bag["pnl"]) if bag["cost"] is not None and bag["pnl"] is not None else None,
         })
 
-    open_rows.sort(key=lambda r: (-(r["pnl"] or 0), -(r["cost"] or 0), -(r["bought_usd"] or 0)))
+    # A book reads by size: biggest position first, whatever it has done. Everything nobody can
+    # price follows, ordered by what went into it — a row of dashes is the least informative thing
+    # on the page and belongs at the bottom, not scattered between the positions a reader came for.
+    open_rows.sort(key=lambda r: (r["worth"] is None, -(r["worth"] or 0),
+                                  -(r["cost"] or 0), -(r["bought_usd"] or 0)))
     closed_rows.sort(key=lambda r: -(r["realized"] or 0))
 
     # A win rate only means something over decided trades, so it counts the positions that were
@@ -223,6 +255,9 @@ def book(conn: sqlite3.Connection, address: str, user_id: str | None) -> dict:
         "win_rate": (len(wins) / len(done)) if done else None,
         "pre_tape": sum(1 for r in rows if r["state"] == "pre-tape"),
         "open_pnl": sum(r["pnl"] for r in open_rows if r["pnl"]) or None,
+        # What the whole book is worth right now. Unlike the profit it needs no entry price, so it
+        # is the one portfolio figure that survives a position opened before we started watching.
+        "book_value": sum(r["worth"] for r in open_rows if r["worth"]) or None,
         # when this wallet's tape starts, so a page can say what its own figures do not cover
         "tape_from": min((r["first_ts"] for r in rows if r["first_ts"]), default=None),
     }

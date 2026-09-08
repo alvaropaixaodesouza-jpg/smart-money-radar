@@ -10,16 +10,10 @@ if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(who ?? '')}&miss=t
 
 const name = t.handle ?? t.address.slice(0, 10);
 
-// What a position is worth now. Where fomo has marked the whole position, cost plus profit is
-// that mark; our own price only covers the part of the entry the tape watched, which on a name
-// held since before we started is a fraction of it.
-const now = (p: { value: number | null; cost: number | null; pnl: number | null; src: string }) =>
-  (p.src === 'fomo' && p.cost !== null && p.pnl !== null ? p.cost + p.pnl : p.value)
-  ?? (p.cost !== null && p.pnl !== null ? p.cost + p.pnl : null);
-
 const book = t.positions ?? [];
 const closed = t.closed ?? [];
-const marked = book.filter((p) => p.pnl !== null).length;
+const marked = book.filter((p) => p.worth !== null).length;
+const preDated = book.filter((p) => p.state === 'held').length;
 // A win rate over three trades is noise; below that the figure is withheld rather than dressed up.
 const rated = t.round_trips >= 5 && t.win_rate !== null;
 const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
@@ -46,6 +40,7 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
   <dl class="strip">
     <div><dt>fomo 30d</dt><dd class={t.fomo_pnl && t.fomo_pnl > 0 ? 'g' : 'm'}>{usd(t.fomo_pnl)}</dd></div>
     <div><dt>Open names</dt><dd>{book.length}</dd></div>
+    <div><dt>Book value</dt><dd>{usd(t.book_value)}</dd></div>
     <div><dt>Open PnL</dt><dd class={t.open_pnl && t.open_pnl < 0 ? 'c' : 'g'}>{usd(t.open_pnl)}</dd></div>
     <div><dt>Realised</dt><dd class={t.realized_usd && t.realized_usd < 0 ? 'c' : 'g'}>{usd(t.realized_usd)}</dd></div>
     <div><dt>Round trips</dt><dd>{rated ? `${t.wins}/${t.round_trips}` : t.round_trips || '—'}</dd></div>
@@ -85,7 +80,7 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
                   </td>
                   <td class="m mono st">{stateLabel(p.state, p.exit_pct)}</td>
                   <td class="r m">{usd(p.cost)}</td>
-                  <td class="r">{usd(now(p))}</td>
+                  <td class="r">{usd(p.worth)}</td>
                   <td class={`r ${p.pnl && p.pnl > 0 ? 'g' : p.pnl && p.pnl < 0 ? 'c' : 'm'}`}>{usd(p.pnl)}</td>
                   <td class="r a">{multiple(p.cost, p.pnl)}</td>
                 </tr>
@@ -95,16 +90,19 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
         </div>
       )}
       <p class="note" style="margin-top:14px">
-        A row marked <b class="a">f</b> is fomo's own mark on the whole position, back to whenever
-        it was opened. Every other row is priced from our tape, which starts
-        {' '}<b>{ago(t.tape_from)} ago</b> for this wallet — a name entered before that is larger
-        than it looks here, because only the part bought since is counted.
+        <b>Now</b> is what the wallet holds read off the chain, at the token's current price, so
+        the size and the value are exact whatever we watched. <b>In</b> is only what we watched it
+        pay, and our tape starts <b>{ago(t.tape_from)} ago</b> for this wallet.
+        {preDated > 0 && (
+          <> That is why {preDated} {preDated === 1 ? 'name is' : 'names are'} marked
+          {' '}<b>held</b>: the wallet owns more of them than we ever saw it buy, so it was in
+          those before we were and the profit is not ours to state — the size and the value still
+          are.</>
+        )} A row marked <b class="a">f</b> carries fomo's mark instead of ours.
         {t.pre_tape > 0 && (
-          <> {t.pre_tape} further {t.pre_tape === 1 ? 'name was' : 'names were'} left out entirely:
-          the wallet sold more of them than we ever saw it buy, so neither the size nor the profit
-          can be honestly stated.</>
-        )} A dash is a figure nobody can supply — no quote for the token, or fomo counting profit
-        already withdrawn, which leaves the entry price unrecoverable. It is not a zero.
+          <> {t.pre_tape} further {t.pre_tape === 1 ? 'name was' : 'names were'} left out of the
+          book entirely: sold down before we started watching, with nothing left to price.</>
+        )} A dash is a figure nobody can supply, not a zero.
       </p>
     </section>
 

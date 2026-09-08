@@ -100,6 +100,26 @@ def test_dexscreener_carries_the_price_that_marks_a_position():
     assert parse_pair({"chainId": "robinhood", "baseToken": {"address": "0xAbC"}}).price_usd is None
 
 
+def test_geckoterminal_token_lookup_answers_everything_at_once():
+    """One entry of /tokens/multi carries the name, the base unit, the price and the depth."""
+    from fomo_agent.sources.geckoterminal import parse_token
+
+    t = parse_token({"attributes": {
+        "address": "0x013E4B9b74C33Bab243dA01217c8184b75BE1de0", "name": "MOMO", "symbol": "MOMO",
+        "decimals": 18, "price_usd": "0.000003429806871", "fdv_usd": "3429.806870627",
+        "total_reserve_in_usd": "361.574036719", "market_cap_usd": None,
+    }}, "robinhood")
+    assert t.mint == "0x013e4b9b74c33bab243da01217c8184b75be1de0", "addresses are normalised"
+    assert t.symbol == "MOMO" and t.decimals == 18
+    assert t.price_usd == pytest.approx(0.000003429806871)
+    assert t.mcap_usd == pytest.approx(3429.806870627), "FDV stands in when mcap is null"
+    assert t.liquidity_usd == pytest.approx(361.574036719)
+
+    assert parse_token({"attributes": {}}, "robinhood") is None, "no address, no token"
+    odd = parse_token({"attributes": {"address": "0xa", "decimals": 999}}, "robinhood")
+    assert odd.decimals is None, "a nonsense base unit is refused rather than believed"
+
+
 # ---------- codex ----------
 
 def test_codex_parse():

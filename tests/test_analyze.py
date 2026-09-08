@@ -270,3 +270,39 @@ def test_the_book_keeps_fomo_marks_and_the_quote_asset_out(conn):
     assert "USDG" not in {p["sym"] for p in b["positions"]}, "holding a stablecoin is holding cash"
     pons = next(p for p in b["positions"] if p["sym"] == "PONS")
     assert pons["src"] == "fomo" and pons["pnl"] == 900_000, "fomo's mark covers the whole position"
+
+
+def test_the_chain_balance_outranks_what_the_tape_watched(conn):
+    """What a wallet holds is a fact; what we saw it buy is a window onto one."""
+    from fomo_agent.pipeline.analyze import book, position_state
+
+    # the chain settles the three cases the tape argues about
+    assert position_state(100, 40, balance=0)[0] == "closed", "nothing left, whatever we watched"
+    assert position_state(100, 40, balance=60)[0] == "trimmed"
+    assert position_state(100, 0, balance=100)[0] == "open"
+    assert position_state(100, 0, balance=5_000)[0] == "held", "holds what it bought before us"
+    assert position_state(None, None, balance=42)[0] == "held", "sizeless fills, real balance"
+
+    old, sold = ("0x" + "7" * 40), ("0x" + "8" * 40)
+    now = db.now()
+    with db.tx(conn):
+        db.upsert_token(conn, old, chain="robinhood", symbol="OLD", price_usd=2.0, price_at=now)
+        db.upsert_token(conn, sold, chain="robinhood", symbol="SOLD", price_usd=1.0, price_at=now)
+        db.insert_trade(conn, sig="0xold1", address=ACE, chain="robinhood", mint=old, side="buy",
+                        usd_value=1_000.0, token_amount=100.0, ts=now - 900, source="rpc")
+        db.insert_trade(conn, sig="0xsold1", address=ACE, chain="robinhood", mint=sold, side="buy",
+                        usd_value=300.0, token_amount=300.0, ts=now - 900, source="rpc")
+        db.insert_trade(conn, sig="0xsold2", address=ACE, chain="robinhood", mint=sold, side="sell",
+                        usd_value=900.0, token_amount=300.0, ts=now - 300, source="rpc")
+        # it holds ten times what we watched it buy, and nothing at all of the other
+        db.save_holdings(conn, {(ACE, old): 1_000.0, (ACE, sold): 0.0})
+
+    b = book(conn, ACE, None)
+    held = next(p for p in b["positions"] if p["sym"] == "OLD")
+    assert held["state"] == "held" and held["held"] == 1_000
+    assert held["value"] == pytest.approx(2_000), "priced on what it holds, not on what we saw"
+    assert held["pnl"] is None, "the entry predates us, so the profit is not ours to state"
+
+    assert "SOLD" not in {p["sym"] for p in b["positions"]}, "the chain says it is gone"
+    out = next(p for p in b["closed"] if p["sym"] == "SOLD")
+    assert out["realized"] == pytest.approx(600), "and the round trip is scored"

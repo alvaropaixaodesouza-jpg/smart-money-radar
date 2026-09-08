@@ -4,7 +4,13 @@ Endpoints (public, documented at https://apiguide.geckoterminal.com):
   GET /networks/{network}/new_pools?page=N              -> newest pools (20/page, mostly dust)
   GET /networks/{network}/trending_pools?duration=5m|1h|6h|24h
   GET /networks/{network}/pools?sort=h24_volume_usd_desc -> top pools by volume
+  GET /networks/{network}/tokens/multi/{a,b,...}         -> up to 30 tokens by address
 All accept include=base_token. Network ids for solana/base/robinhood match DexScreener chainIds.
+
+The multi-token lookup is what prices Robinhood Chain. DexScreener indexes almost none of it —
+measured 2026-09-08: of 30 tokens tracked wallets were holding, it returned pairs for 3 and a
+price for none, while this endpoint answered all 30 — and it carries the symbol, the decimals, the
+reserve and the FDV in the same response, so one request settles everything we ask about a token.
 """
 from __future__ import annotations
 
@@ -69,6 +75,41 @@ class GeckoTerminal:
         log.warning("geckoterminal %s %s: still 429 after retries, skipping", chain, feed)
         return []
 
+    def _get(self, path: str, params: dict | None = None) -> list[dict]:
+        """One GET against the rate limit, backing off on 429 and giving up rather than hammering."""
+        for attempt in range(3):
+            gap = settings.gecko_min_interval_s - (time.monotonic() - self._last)
+            if gap > 0:
+                time.sleep(gap)
+            self.limiter.wait()
+            r = self.http.get(path, params=params or {})
+            self._last = time.monotonic()
+            if r.status_code == 429:
+                wait = 15 * (attempt + 1)
+                log.warning("geckoterminal 429 on %s; backing off %ds", path, wait)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            return data if isinstance(data, list) else [data]
+        log.warning("geckoterminal %s: still 429 after retries, skipping", path)
+        return []
+
+    def tokens(self, chain: str, addresses: Iterable[str]) -> list[NewToken]:
+        """Look tokens up by address, thirty at a time. The one call that prices this chain."""
+        network = NETWORK_MAP.get(chain, chain)
+        out: list[NewToken] = []
+        addresses = [a for a in addresses if a]
+        for i in range(0, len(addresses), 30):
+            chunk = ",".join(addresses[i:i + 30])
+            try:
+                items = self._get(f"/networks/{network}/tokens/multi/{chunk}")
+            except httpx.HTTPError as e:
+                log.warning("geckoterminal token lookup on %s failed: %s", chain, e)
+                continue
+            out.extend(t for t in (parse_token(it, chain) for it in items) if t)
+        return out
+
     def new_tokens(self, min_mcap: float | None = None, max_age_hours: float | None = None) -> list[NewToken]:
         min_mcap = settings.new_token_min_mcap_usd if min_mcap is None else min_mcap
         max_age_hours = settings.new_token_max_age_hours if max_age_hours is None else max_age_hours
@@ -88,6 +129,30 @@ def _f(x) -> float | None:
     except (TypeError, ValueError):
         return None
     return v if v > 0 else None
+
+
+def parse_token(item: dict, chain: str) -> NewToken | None:
+    """Pure: one entry of /tokens/multi -> NewToken.
+
+    Everything the rest of the pipeline asks about a token arrives here at once: what to call it,
+    how many base units make one of it, what it is worth, and how deep the market behind that
+    price is. `market_cap_usd` is usually null on a memecoin, so FDV stands in for it.
+    """
+    a = item.get("attributes") or {}
+    address = a.get("address")
+    if not address:
+        return None
+    decimals = a.get("decimals")
+    return NewToken(
+        mint=norm_addr(address),
+        chain=chain,
+        symbol=a.get("symbol") or a.get("name") or None,
+        mcap_usd=_f(a.get("market_cap_usd")) or _f(a.get("fdv_usd")),
+        liquidity_usd=_f(a.get("total_reserve_in_usd")),
+        price_usd=_f(a.get("price_usd")),
+        decimals=int(decimals) if isinstance(decimals, int) and 0 <= decimals <= 36 else None,
+        source="geckoterminal",
+    )
 
 
 def parse_pool(p: dict) -> NewToken | None:

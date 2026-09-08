@@ -71,6 +71,7 @@ class NewToken(BaseModel):
     mcap_usd: float | None = None
     liquidity_usd: float | None = None
     price_usd: float | None = None
+    decimals: int | None = None
     created_at: int | None = None  # unix seconds
     dex: str | None = None
     pair_address: str | None = None

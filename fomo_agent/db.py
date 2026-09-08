@@ -141,6 +141,23 @@ MIGRATIONS: dict[int, str] = {
     -- re-asks about the same few hundred tokens four times an hour.
     ALTER TABLE tokens ADD COLUMN decimals INTEGER;
     """,
+    13: """
+    -- When a price source was last *asked* about this address, whatever it answered. Without it a
+    -- token nobody indexes is re-requested every pass forever, and because the queue is ordered by
+    -- how stale a quote is, those permanent failures sit at the front of it and starve the tokens
+    -- that do have a price.
+    ALTER TABLE tokens ADD COLUMN checked_at INTEGER;
+    """,
+    14: """
+    -- What a wallet actually holds, read off the chain rather than inferred from the fills we
+    -- happened to watch. This is what makes a position's size and value true for a name entered
+    -- before we started watching, and for the fills older sources recorded without a size.
+    CREATE TABLE IF NOT EXISTS holdings(
+      address TEXT, token TEXT, amount REAL, ts INTEGER,
+      PRIMARY KEY(address, token)
+    );
+    CREATE INDEX IF NOT EXISTS idx_holdings_ts ON holdings(ts);
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -258,6 +275,23 @@ def save_token_decimals(conn: sqlite3.Connection, decimals: dict[str, int]) -> i
     for mint, value in fresh.items():
         upsert_token(conn, mint, decimals=value)
     return len(fresh)
+
+
+def save_holdings(conn: sqlite3.Connection, balances: dict[tuple[str, str], float]) -> int:
+    """Store a balance read. A zero is a fact worth keeping — it says a position was closed."""
+    ts = now()
+    conn.executemany(
+        "INSERT INTO holdings(address, token, amount, ts) VALUES(?,?,?,?) "
+        "ON CONFLICT(address, token) DO UPDATE SET amount=excluded.amount, ts=excluded.ts",
+        [(w, m, amount, ts) for (w, m), amount in balances.items()],
+    )
+    return len(balances)
+
+
+def holdings_for(conn: sqlite3.Connection, address: str) -> dict[str, tuple[float, int]]:
+    """token -> (amount, when it was read) for one wallet."""
+    return {r["token"]: (r["amount"], r["ts"]) for r in
+            conn.execute("SELECT token, amount, ts FROM holdings WHERE address = ?", (address,))}
 
 
 # ---------- trades ----------

@@ -125,9 +125,15 @@ Two honesty rules keep it from inventing the part it cannot see:
 - A **win rate** counts only positions sold out entirely — a trim is a position still running — and
   is withheld below five of them.
 
-Where fomo knows more it wins: it prices a whole position back to whenever it was opened, which is
-where the outsized numbers live, so its mark overrides ours on the names it carries. Everything
-else is marked with DexScreener's price, which arrives in the same response as the liquidity.
+What a position is *worth* needs no tape at all: `balanceOf` is a free read, forty to a round trip,
+so `pipeline/holdings.py` asks the chain what each wallet actually holds and prices that. It agrees
+with fomo's own portfolio to within a rounding error — a position fomo marks at $110,845 comes back
+at $110,932 by a completely separate route — and it settles the two things the tape cannot: names
+entered before we started watching, and fills an older source recorded without a size.
+
+Prices come from GeckoTerminal, which indexes this chain. DexScreener, measured 2026-09-08, knew 3
+of 30 tokens tracked wallets were holding and priced none of them; it stays as the fallback for the
+chains it does cover.
 
 ## Commands
 

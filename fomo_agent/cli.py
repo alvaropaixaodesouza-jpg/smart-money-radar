@@ -275,10 +275,18 @@ def new_tokens(
 
 @app.command("enrich-tokens")
 def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
-    """Give names, prices and liquidity to tokens we only know as addresses (DexScreener, free)."""
+    """Give names, prices, decimals and liquidity to tokens we only know as addresses (free)."""
     from .pipeline.new_tokens import enrich_tokens
 
     typer.echo(_run("enrich_tokens", enrich_tokens, None, limit))
+
+
+@app.command("holdings")
+def holdings_cmd(limit: int = typer.Option(None, "--limit", help="wallet/token pairs to re-read")) -> None:
+    """Read what tracked wallets actually hold, off the chain. Free, and the book depends on it."""
+    from .pipeline.holdings import mark_holdings
+
+    typer.echo(_run("holdings", mark_holdings, None, limit))
 
 
 @app.command()
@@ -464,6 +472,7 @@ def report(
 def run(once: bool = typer.Option(False, "--once", help="single pass of every step, then exit")) -> None:
     """Polling loop: discover / new-tokens / resolve / track / score / page / report."""
     from .pipeline import discover as d
+    from .pipeline import holdings as hd
     from .pipeline import new_tokens as nt
     from .pipeline import resolve as rs
     from .pipeline import score as sc
@@ -487,8 +496,11 @@ def run(once: bool = typer.Option(False, "--once", help="single pass of every st
         # free on Robinhood Chain, and it is what turns collected fomo users into trackable wallets
         ("resolve", settings.discover_interval, lambda c: rs.resolve_pending(c)),
         ("track", settings.track_interval, lambda c: tr.track_all(c)),
-        # bare contract addresses are useless on the page, and DexScreener names them for nothing
+        # bare contract addresses are useless on the page, and naming them costs nothing
         ("enrich_tokens", settings.track_interval, lambda c: nt.enrich_tokens(c)),
+        # what a wallet holds is a free read, and without it every position is only as complete
+        # as the fills we happened to watch
+        ("holdings", settings.track_interval, lambda c: hd.mark_holdings(c)),
         ("score", settings.track_interval * 10, lambda c: sc.score_all(c)),
         ("page", settings.track_interval, lambda c: site.build(c, Path("radar.html"))),
         ("report", settings.report_interval, do_report),
