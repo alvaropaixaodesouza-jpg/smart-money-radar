@@ -138,7 +138,7 @@ const desc = t.is_quote
                 </table>
               </div>
               <p class="note" style="margin-top:14px">
-                {t.holders.length} tracked {t.holders.length === 1 ? 'wallet holds' : 'wallets hold'}
+                {t.holders.length}{' '}tracked{' '}{t.holders.length === 1 ? 'wallet holds' : 'wallets hold'}
                 {' '}<b>{usd(t.cohort_value)}</b> of this token between them.
                 {t.cohort_pnl !== null && (
                   <> Where fomo also carries the position it reports <b>{usd(t.cohort_pnl)}</b> of

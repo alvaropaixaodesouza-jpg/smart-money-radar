@@ -94,13 +94,13 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
         the size and the value are exact whatever we watched. <b>In</b> is only what we watched it
         pay, and our tape starts <b>{ago(t.tape_from)} ago</b> for this wallet.
         {preDated > 0 && (
-          <> That is why {preDated} {preDated === 1 ? 'name is' : 'names are'} marked
+          <> That is why {preDated}{' '}{preDated === 1 ? 'name is' : 'names are'} marked
           {' '}<b>held</b>: the wallet owns more of them than we ever saw it buy, so it was in
           those before we were and the profit is not ours to state — the size and the value still
           are.</>
         )} A row marked <b class="a">f</b> carries fomo's mark instead of ours.
         {t.pre_tape > 0 && (
-          <> {t.pre_tape} further {t.pre_tape === 1 ? 'name was' : 'names were'} left out of the
+          <> {t.pre_tape}{' '}{t.pre_tape === 1 ? 'name was' : 'names were'} further left out of the
           book entirely: sold down before we started watching, with nothing left to price.</>
         )} A dash is a figure nobody can supply, not a zero.
       </p>
