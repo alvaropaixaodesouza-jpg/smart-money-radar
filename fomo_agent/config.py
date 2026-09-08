@@ -80,6 +80,12 @@ class Settings:
     # A backfill walks 200k-block windows backwards and is bounded by requests rather than time,
     # so an unattended run cannot sit on the endpoint all night. 900 covers roughly a fortnight.
     backfill_max_requests: int = field(default_factory=lambda: _int("BACKFILL_MAX_REQUESTS", 900))
+    # How wide a historical range to ask for. 200k works on hot recent blocks and times out a week
+    # back, so a backfill starts narrower and halves further whenever the endpoint says no.
+    backfill_window_blocks: int = field(default_factory=lambda: _int("BACKFILL_WINDOW_BLOCKS", 50_000))
+    backfill_min_window_blocks: int = field(default_factory=lambda: _int("BACKFILL_MIN_WINDOW_BLOCKS", 3_000))
+    # a 429 during a backfill means slow down, not give up
+    backfill_cooldown_s: float = field(default_factory=lambda: _float("BACKFILL_COOLDOWN_S", 20))
 
     # Telegram bot: long polling, so it needs no public address and no webhook
     telegram_bot_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))

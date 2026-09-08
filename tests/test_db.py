@@ -172,3 +172,55 @@ def test_backfill_widens_the_shallowest_histories_first(tmp_path):
     assert order.index(shallow) < order.index(deep), "an hour of history before a month of it"
     assert untouched in order, "a wallet with no tape at all still needs one"
     assert "0x" + "d" * 40 not in order, "a dropped wallet is not worth the requests"
+
+
+def test_backfill_narrows_a_range_the_endpoint_refuses(tmp_path, monkeypatch):
+    """The endpoint knows how wide a range it will serve; a timeout is that answer, not a loss."""
+    from fomo_agent.config import settings
+    from fomo_agent.pipeline import backfill as bf
+
+    monkeypatch.setattr(settings, "backfill_min_window_blocks", 100)
+    monkeypatch.setattr(settings, "backfill_cooldown_s", 0)
+    conn = db.connect(tmp_path / "bfn.db")
+    with db.tx(conn):
+        db.upsert_trader(conn, "0x" + "a" * 40, chain="robinhood", status="active")
+
+    asked, served = [], []
+
+    class Chain:
+        requests = 0
+        throttled = False
+
+        def block_number(self):
+            return 10_000
+
+        def block_timestamp(self, b):
+            return 1_700_000_000 + b
+
+        def windows(self, back_to, head=None, span=None):
+            return [(9_000, 10_000)]
+
+        def load_decimals(self, known):
+            pass
+
+        def known_decimals(self):
+            return {}
+
+        def scan(self, wallets, first, last):
+            asked.append((first, last))
+            self.requests += 1
+            if last - first > 400:                      # too wide, like the real endpoint
+                raise RuntimeError("eth_getLogs: log query timed out")
+            if not served and not self.throttled:        # and once, too fast
+                self.throttled = True
+                raise RuntimeError("rate limited after 4 attempts")
+            served.append((first, last))
+            return {}
+
+    stats = bf.backfill(conn, days=1, rpc=Chain(), max_requests=100)
+    assert stats["narrowed"] >= 2, "a refused range became halves, and those halves halved again"
+    assert stats["waited"] == 1, "and a 429 was waited out rather than skipped"
+    assert all(last - first <= 400 for first, last in served), "only ranges it would serve"
+    covered = sorted(served)
+    assert covered[0][0] == 9_000 and covered[-1][1] == 10_000, "the whole range still got asked"
+    assert stats["failed"] == 0

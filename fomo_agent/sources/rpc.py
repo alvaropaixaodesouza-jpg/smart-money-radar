@@ -374,7 +374,7 @@ class RobinhoodRPC:
                  len(transfers), len(txs), priced, self.requests)
         return dict(out)
 
-    def windows(self, back_to_ts: int, head: int | None = None):
+    def windows(self, back_to_ts: int, head: int | None = None, span: int | None = None):
         """Block ranges walking backwards from the head, newest first.
 
         `eth_getLogs` answers "log query timed out" past about 200k blocks, which on a chain with
@@ -383,7 +383,7 @@ class RobinhoodRPC:
         matters most.
         """
         head = head if head is not None else self.block_number()
-        span = settings.rpc_window_blocks
+        span = span or settings.rpc_window_blocks
         # one probe pair converts the requested age into a block count
         head_ts = self.block_timestamp(head)
         probe = max(head - span, 0)

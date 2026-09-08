@@ -4,18 +4,24 @@ Everything the product says about a position is bounded by when tracking started
 entered earlier shows a size and a value and no profit, because the entry price is missing — the
 `held` state on a trader page, and every dash in the PnL column, is that boundary showing.
 
-The boundary is not fundamental. `eth_getLogs` will answer for any range; it just refuses more than
-about 200k blocks at once, which on a chain with 0.1s blocks is under six hours. So the fix is to
-ask repeatedly, newest first, until the requested depth is covered. Newest first matters: a run
-that is interrupted has still filled the part nearest today, which is the part anybody reads.
+The boundary is not fundamental. `eth_getLogs` will answer for any range; it just refuses ranges it
+finds too expensive, and how expensive a range is depends on how far back it is. The live tracker
+gets away with 200k blocks because recent blocks are hot; the same width a week back answers "log
+query timed out". So the width is not a constant to be tuned once — it is a negotiation, and the
+endpoint is the one that knows. A range that times out is halved and both halves are retried, down
+to a floor; a range that answers is kept.
 
-It is free. The cost is time — one pass over a month is a few hundred requests against a rate limit
-that exists to be polite, not because anybody is charging.
+Newest first matters: a run that is interrupted has still filled the part nearest today, which is
+the part anybody reads.
+
+It is free. The cost is time — a few hundred requests against a rate limit that exists to be
+polite, not because anybody is charging.
 """
 from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 
 from .. import db
 from ..config import settings
@@ -24,9 +30,14 @@ from .track import TRACKED
 
 log = logging.getLogger(__name__)
 
+# The endpoint says "log query timed out" for a range it will not serve, and "rate limited" when it
+# wants a pause. They need opposite responses: narrow for the first, wait for the second.
+TOO_WIDE = "timed out"
+TOO_FAST = "rate limited"
+
 
 def wallets_to_backfill(conn: sqlite3.Connection) -> list[str]:
-    """Every tracked wallet on this chain, oldest tape first.
+    """Every tracked wallet on this chain, shallowest tape first.
 
     Ordering by how far back we already have fills means a repeated run widens the shallowest
     histories rather than deepening the ones that are already deep.
@@ -41,16 +52,29 @@ def wallets_to_backfill(conn: sqlite3.Connection) -> list[str]:
     return [r["address"] for r in rows if r["address"].startswith("0x")]
 
 
+def store(conn: sqlite3.Connection, found: dict, rpc: RobinhoodRPC) -> tuple[int, int]:
+    """Write one range's fills. Per range, so an interrupted run keeps what it already found."""
+    fills = new = 0
+    with db.tx(conn):
+        for trades in found.values():
+            for t in trades:
+                fills += 1
+                new += db.insert_trade(conn, **t.model_dump())
+        db.save_token_decimals(conn, rpc.known_decimals())
+    return fills, new
+
+
 def backfill(conn: sqlite3.Connection, days: int = 30, rpc: RobinhoodRPC | None = None,
              max_requests: int | None = None) -> dict:
-    """Fill the tape back `days`, newest window first, stopping at a request budget.
+    """Fill the tape back `days`, newest range first, stopping at a request budget.
 
     Every wallet goes into the same query: the topic filter takes a list, so one range costs the
     same two requests whether the roster is one wallet or three hundred.
     """
     wallets = wallets_to_backfill(conn)
-    stats = {"wallets": len(wallets), "windows": 0, "fills": 0, "new": 0, "requests": 0,
-             "days": days, "stopped_early": False}
+    stats = {"wallets": len(wallets), "ranges": 0, "narrowed": 0, "waited": 0, "failed": 0,
+             "fills": 0, "new": 0, "requests": 0, "days": days, "reached_h": 0.0,
+             "stopped_early": False}
     if not wallets:
         log.info("backfill: nothing tracked on %s", CHAIN)
         return stats
@@ -58,28 +82,45 @@ def backfill(conn: sqlite3.Connection, days: int = 30, rpc: RobinhoodRPC | None 
     rpc = rpc or RobinhoodRPC()
     rpc.load_decimals(db.token_decimals(conn))
     budget = max_requests if max_requests is not None else settings.backfill_max_requests
+    floor = settings.backfill_min_window_blocks
+    head = rpc.block_number()
+    head_ts = rpc.block_timestamp(head)
     since = db.now() - days * 86400
 
-    for first, last in rpc.windows(since):
+    # A stack rather than a loop, because a range that will not answer becomes two ranges.
+    pending = list(rpc.windows(since, head=head, span=settings.backfill_window_blocks))
+    pending.reverse()   # newest ends up on top
+
+    while pending:
         if rpc.requests >= budget:
             stats["stopped_early"] = True
-            log.info("backfill: stopping at the %d-request budget, %d windows in",
-                     budget, stats["windows"])
+            log.info("backfill: stopping at the %d-request budget", budget)
             break
+        first, last = pending.pop()
         try:
             found = rpc.scan(wallets, first, last)
-        except Exception as e:  # noqa: BLE001 - one bad window must not lose the ones already done
-            log.warning("backfill window %d..%d failed: %s", first, last, e)
+        except Exception as e:  # noqa: BLE001 - the message is the whole point here
+            text = str(e)
+            if TOO_WIDE in text and last - first > floor:
+                mid = (first + last) // 2
+                pending.extend([(first, mid), (mid + 1, last)])   # narrower halves, newest first
+                stats["narrowed"] += 1
+                continue
+            if TOO_FAST in text:
+                stats["waited"] += 1
+                time.sleep(settings.backfill_cooldown_s)
+                pending.append((first, last))                     # the same range, later
+                continue
+            stats["failed"] += 1
+            log.warning("backfill %d..%d gave up: %s", first, last, text)
             continue
-        stats["windows"] += 1
-        # Written per window rather than at the end: an interrupted backfill keeps what it found,
-        # and the unique index on fill_key makes a re-run over the same range a no-op.
-        with db.tx(conn):
-            for trades in found.values():
-                for t in trades:
-                    stats["fills"] += 1
-                    stats["new"] += db.insert_trade(conn, **t.model_dump())
-            db.save_token_decimals(conn, rpc.known_decimals())
+
+        stats["ranges"] += 1
+        f, n = store(conn, found, rpc)
+        stats["fills"] += f
+        stats["new"] += n
+        stats["reached_h"] = max(stats["reached_h"], (head - first) * 0.1 / 3600)
+
     stats["requests"] = rpc.requests
     log.info("backfill: %s", stats)
     return stats
