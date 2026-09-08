@@ -78,7 +78,11 @@ cat > "$POLICY" <<JSON
   }
 }
 JSON
-chmod 0600 "$POLICY"
+# Chrome reads its policies as the account it runs under, so root-only is too tight - it silently
+# ignores a file it cannot read and un-installs the extension it was told to install. The token in
+# here guards a loopback endpoint on this same machine, and radar is the account that uses it.
+chown root:radar "$POLICY"
+chmod 0640 "$POLICY"
 
 echo "==> policy written to $POLICY"
 cp /opt/fomoradar/app/deploy/systemd/radar-crx.service /etc/systemd/system/
