@@ -1,0 +1,15 @@
+[Unit]
+Description=FOMO Robinhood Radar - virtual display for the collector browser
+Before=radar-browser.service
+
+[Service]
+User=radar
+Group=radar
+# 1280x900 is a real desktop size: Cloudflare and fomo both look at the viewport, and a browser
+# claiming a 100x100 screen is the first thing a bot check notices.
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x900x24 -nolisten tcp
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=FOMO Robinhood Radar - VNC onto the collector display, for signing in by hand
+After=radar-xvfb.service
+Requires=radar-xvfb.service
+
+[Service]
+User=radar
+Group=radar
+# Loopback only. The only way in is an SSH tunnel with the key, which is also the only way into
+# the machine. This is started by hand when somebody needs to sign in and stopped straight after,
+# so the display is not sitting there reachable for the rest of the month.
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -nopw -shared -forever -noxdamage
+Restart=no
