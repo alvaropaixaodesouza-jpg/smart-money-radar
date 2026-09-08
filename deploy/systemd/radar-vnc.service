@@ -9,5 +9,9 @@ Group=radar
 # Loopback only. The only way in is an SSH tunnel with the key, which is also the only way into
 # the machine. This is started by hand when somebody needs to sign in and stopped straight after,
 # so the display is not sitting there reachable for the rest of the month.
-ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -nopw -shared -forever -noxdamage
+#
+# -xkb because without it Shift arrives unreliably, which shows up as a password field that
+# refuses to hold a capital letter. The keymap stays a single us group for the same reason: two
+# groups and a group-switch modifier confuse the keysym-to-keycode mapping.
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -nopw -shared -forever -noxdamage -xkb
 Restart=no
