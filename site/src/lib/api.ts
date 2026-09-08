@@ -12,6 +12,17 @@ export type Signal = {
   first_ts: number; avg_score: number; conviction: number; who: string[]; scores: number[];
 };
 
+/** One launch the cohort is entering. `heat` is conviction weighted by how early each buyer was. */
+export type Fresh = {
+  mint: string; sym: string; chain: string | null;
+  created_at: number | null; age_h: number | null;
+  liq: number | null; mcap: number | null; price: number | null;
+  buyers: number; avg_score: number | null; conviction: number; heat: number;
+  usd: number | null; first_ts: number; last_ts: number; lead_minutes: number | null;
+  who: string[]; scores: (number | null)[];
+  entries: { handle: string; score: number | null; ts: number; usd: number | null }[];
+};
+
 export type TraderRow = {
   handle: string | null; address: string; score: number; status: string;
   summary: string | null; fomo_pnl: number | null; style: string[]; red_flags: string[];
@@ -83,6 +94,10 @@ export async function get<T>(path: string): Promise<T | null> {
 export const getStats = () => get<Stats>('/api/stats');
 export const getSignals = (hours = 24, limit = 40) =>
   get<{ hours: number; count: number; signals: Signal[] }>(`/api/signals?hours=${hours}&limit=${limit}`);
+export const getFresh = (hours = 24, maxAgeH = 72, minLiquidity = 5000, minBuyers = 2) =>
+  get<{ tokens: Fresh[]; drained: number; hours: number; max_age_h: number;
+        min_liquidity: number; min_buyers: number }>(
+    `/api/fresh?hours=${hours}&max_age_h=${maxAgeH}&min_liquidity=${minLiquidity}&min_buyers=${minBuyers}`);
 export const getLeaderboard = (status = 'active', limit = 60) =>
   get<{ status: string; count: number; traders: TraderRow[] }>(`/api/leaderboard?status=${status}&limit=${limit}`);
 export const getTrader = (who: string) => get<Trader>(`/api/trader/${encodeURIComponent(who)}`);

@@ -226,3 +226,25 @@ def test_run_once_polls_and_broadcasts(conn, monkeypatch):
     stats = bot.run(conn, tg, once=True)
     assert stats["handled"] == 1 and stats["sent"] == 1
     assert {c for c, _ in tg.sent} == {"7", "low"}
+
+
+def test_fresh_command_reads_the_launch_feed(conn):
+    """The bot and the page rank launches by the same measure."""
+    from fomo_agent.bot import fmt_fresh, handle_text
+
+    empty = fmt_fresh({"tokens": [], "hours": 24, "min_buyers": 2})
+    assert "sitting in what it already holds" in empty
+
+    feed = {
+        "hours": 24, "drained": 3, "min_buyers": 2,
+        "tokens": [{"sym": "PORT", "mint": "0x" + "a" * 40, "heat": 1.83, "buyers": 5,
+                    "lead_minutes": 8.0, "who": ["fibs", "cissy"], "scores": [78, 80]}],
+    }
+    text = fmt_fresh(feed)
+    assert "$PORT" in text and "heat 1.83" in text
+    assert "first 8m after launch" in text
+    assert "fibs 78" in text and "cissy 80" in text, "a list of names works as well as a string"
+    assert "3 more had trusted buying" in text
+
+    assert "FRESH" in handle_text(conn, "/fresh", 1, "u")
+    assert "/fresh" in handle_text(conn, "/help", 1, "u")

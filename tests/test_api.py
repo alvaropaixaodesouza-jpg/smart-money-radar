@@ -195,3 +195,11 @@ def test_candles_are_served_from_memory_between_requests(monkeypatch):
 
     api.candles_for("0xpool", "robinhood", "30d")
     assert calls[1][2] == "day", "a month is daily candles, not 720 hourly ones"
+
+
+def test_fresh_endpoint_carries_the_filters_it_applied(client):
+    """A reader has to know what was left out before trusting what was let in."""
+    body = client.get("/api/fresh?hours=24&min_liquidity=1000&min_buyers=1").json()
+    assert body["hours"] == 24 and body["min_liquidity"] == 1000 and body["min_buyers"] == 1
+    assert "drained" in body and isinstance(body["tokens"], list)
+    assert client.get("/api/fresh?hours=999").status_code == 422

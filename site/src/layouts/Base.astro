@@ -6,7 +6,7 @@ interface Props {
   title: string;
   description: string;
   /** Which nav item is current */
-  section?: 'signals' | 'leaderboard' | 'about' | null;
+  section?: 'signals' | 'fresh' | 'leaderboard' | 'about' | null;
   /** Rendered into og:image alt and the page's own h1 is left to the page */
   noindex?: boolean;
 }
@@ -49,6 +49,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://fomoradar.x
       </a>
       <nav class="tabs">
         <a href="/" aria-current={section === 'signals' ? 'page' : undefined}>signals</a>
+        <a href="/fresh" aria-current={section === 'fresh' ? 'page' : undefined}>fresh</a>
         <a href="/leaderboard" aria-current={section === 'leaderboard' ? 'page' : undefined}>leaderboard</a>
         <a href="/about" aria-current={section === 'about' ? 'page' : undefined}>about</a>
       </nav>

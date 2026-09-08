@@ -105,10 +105,18 @@ def rows(pairs: list[tuple[str, str]], width: int = 17) -> str:
     return f"<pre>{esc(body)}</pre>"
 
 
-def who_line(handles: str | None, scores: str | None, limit: int = 6) -> str:
-    """`unipcs 92 · rasmr 88 · …` — names carry more than a count does."""
-    hs = [h for h in (handles or "").split(",") if h]
-    ss = [s for s in (scores or "").split(",") if s]
+def who_line(handles, scores, limit: int = 6) -> str:
+    """`unipcs 92 \u00b7 rasmr 88 \u00b7 …` — names carry more than a count does.
+
+    Takes either a list or the comma-joined string sqlite's GROUP_CONCAT produces, because one
+    caller aggregates in SQL and the other in Python.
+    """
+    def parts(v):
+        if isinstance(v, (list, tuple)):
+            return [str(x) for x in v if x is not None]
+        return [x for x in (v or "").split(",") if x]
+
+    hs, ss = parts(handles), parts(scores)
     pairs = [f"{esc(h)} {esc(s)}" for h, s in zip(hs, ss)][:limit]
     tail = f" +{len(hs) - limit}" if len(hs) > limit else ""
     return " · ".join(pairs) + tail
@@ -141,6 +149,28 @@ def fmt_signals(sigs: list[dict], hours: int, now: int | None = None) -> str:
         out.append(f"{i:>2}. <b>${esc(s['sym'])}</b>  conviction {s['conviction']:.1f}"
                    f"  ·  {s['buyers']} buyers, avg {s['avg_score']:.0f}")
         out.append(f"    <i>{who_line(s.get('who'), s.get('scores'), 4)}</i>")
+    out.append("\nSend a token address for the full breakdown.")
+    return "\n".join(out)
+
+
+def fmt_fresh(feed: dict, now: int | None = None) -> str:
+    """The launches the cohort is entering, hottest first."""
+    tokens = feed.get("tokens") or []
+    hours = feed.get("hours", 24)
+    if not tokens:
+        return (f"No young token has {feed.get('min_buyers', 2)} trusted buyers opening a "
+                f"position in the last {hours}h.\n\n"
+                "The cohort is sitting in what it already holds.")
+    out = [f"<b>FRESH \u00b7 {hours}h \u00b7 Robinhood Chain</b>",
+           "<i>only what the cohort has just started buying, weighted by how early</i>", ""]
+    for i, t in enumerate(tokens, 1):
+        lead = t.get("lead_minutes")
+        when = "?" if lead is None else (f"{lead:.0f}m" if lead < 90 else f"{lead / 60:.1f}h")
+        out.append(f"{i:>2}. <b>${esc(t['sym'])}</b>  heat {t['heat']:.2f}"
+                   f"  \u00b7  {t['buyers']} in, first {when} after launch")
+        out.append(f"    <i>{who_line(t.get('who'), t.get('scores'), 4)}</i>")
+    if feed.get("drained"):
+        out.append(f"\n<i>{feed['drained']} more had trusted buying, but the pool is drained.</i>")
     out.append("\nSend a token address for the full breakdown.")
     return "\n".join(out)
 
@@ -235,6 +265,7 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 <i>which fomo.family traders on Robinhood Chain actually know what they are doing</i>
 
 /signals — what trusted wallets are buying now
+/fresh — launches they are entering right now
 /top — the scored leaderboard
 /watch, /dropped — the other two verdicts
 /subscribe — get signals pushed as they happen
@@ -355,6 +386,10 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None
         return fmt_signals(analyze.signals(conn, chain, hours=hours, limit=10), hours)
+    if cmd == "/fresh":
+        hours = int(args[0]) if args and args[0].isdigit() else 24
+        chain = settings.dex_chains[0] if settings.dex_chains else None
+        return fmt_fresh(analyze.fresh(conn, chain, hours=hours, limit=10))
     if cmd in ("/top", "/watch", "/dropped"):
         status = {"/top": "active", "/watch": "watch", "/dropped": "dropped"}[cmd]
         n = int(args[0]) if args and args[0].isdigit() else 15

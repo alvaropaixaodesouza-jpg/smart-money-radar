@@ -55,6 +55,120 @@ def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
     )]
 
 
+# ---------------------------------------------------------------- fresh launches
+
+def earliness(entered_ts: int, launched_ts: int | None) -> float:
+    """How early a wallet was, from 1.0 at the launch to nothing a day later.
+
+    On a token that is hours old, *when* somebody bought is most of what their buy says. A wallet
+    scoring 88 that entered four minutes after the pool opened took a different risk from the same
+    wallet entering the next morning on a chart everyone could already see, and a feed that scores
+    them the same is not reading the thing it claims to read.
+
+    Halving every hour is aggressive on purpose — 0.5 at an hour, 0.09 at ten, 0.04 at a day — and
+    it matches how these markets actually move.
+    """
+    if launched_ts is None:
+        return 1.0
+    return 1.0 / (1.0 + max(entered_ts - launched_ts, 0) / 3600)
+
+
+def heat(buyers: list[dict], launched_ts: int | None) -> float:
+    """Conviction, weighted by how early each wallet got in. The fresh feed's one measure.
+
+    Conviction alone answers whose money is in a name. On something that launched this morning the
+    question is sharper — whose money got there *first* — so each buyer's (score/100)² is scaled by
+    how soon after the launch they bought.
+    """
+    return sum((b["score"] / 100) ** 2 * earliness(b["ts"], launched_ts)
+               for b in buyers if b.get("score"))
+
+
+def fresh(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
+          max_age_h: int = 72, min_liquidity: float = 5_000, min_buyers: int = 2,
+          limit: int = 40) -> dict:
+    """Tokens the cohort has *just started* buying, hottest first.
+
+    Different question from the signal feed, which ranks everything trusted wallets bought today
+    however long they have held it. Here a token qualifies only if its first trusted buy landed
+    inside the window: the cohort is entering, not sitting.
+
+    Liquidity is the filter that matters. Measured on a live 24h window, the token with the most
+    trusted buyers — seventeen of them — had twenty-nine dollars of liquidity left, because the
+    pool had already been drained. Ranked on headcount it would have topped the page. Those are
+    counted and reported rather than silently dropped, but they do not rank.
+    """
+    since = db.now() - hours * 3600
+    params: list = [since, TRUSTED]
+    if chain:
+        params.append(chain)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT tr.mint mint, tr.address address, t.fomo_handle handle, t.score score, "
+        "  MIN(tr.ts) ts, SUM(tr.usd_value) usd "
+        "FROM trades tr JOIN traders t ON t.address = tr.address "
+        f"WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        + NOT_QUOTE.format(col="tr.mint") +
+        " GROUP BY tr.mint, tr.address", params,
+    )]
+
+    by_mint: dict[str, list[dict]] = {}
+    for r in rows:
+        by_mint.setdefault(r["mint"], []).append(r)
+    if not by_mint:
+        return {"tokens": [], "drained": 0, "hours": hours, "max_age_h": max_age_h,
+                "min_liquidity": min_liquidity, "min_buyers": min_buyers}
+
+    meta = {r["mint"]: dict(r) for r in conn.execute(
+        "SELECT mint, symbol, chain, created_at, liquidity_usd, mcap_usd, price_usd FROM tokens "
+        f"WHERE mint IN ({','.join('?' * len(by_mint))})", list(by_mint),
+    )}
+    # A token whose first trusted buy predates the window is not a launch we are watching happen.
+    earliest = {m: min(b["ts"] for b in bs) for m, bs in by_mint.items()}
+    prior = {r["mint"] for r in conn.execute(
+        "SELECT DISTINCT tr.mint mint FROM trades tr JOIN traders t ON t.address = tr.address "
+        f"WHERE tr.side='buy' AND tr.ts < ? AND t.score >= ? AND tr.mint IN ({','.join('?' * len(by_mint))})",
+        [since, TRUSTED, *by_mint],
+    )}
+
+    now = db.now()
+    out, drained = [], 0
+    for mint, buyers in by_mint.items():
+        if mint in prior or len(buyers) < min_buyers:
+            continue
+        m = meta.get(mint, {})
+        launched = m.get("created_at")
+        age_h = (now - launched) / 3600 if launched else None
+        if age_h is not None and age_h > max_age_h:
+            continue
+        liq = m.get("liquidity_usd")
+        # a pool with nothing left in it is a rug that already happened, not a signal
+        if liq is not None and liq < min_liquidity:
+            drained += 1
+            continue
+        buyers.sort(key=lambda b: b["ts"])
+        scores = [b["score"] for b in buyers if b["score"]]
+        first_ts = earliest[mint]
+        out.append({
+            "mint": mint, "sym": m.get("symbol") or mint[:10], "chain": m.get("chain"),
+            "created_at": launched, "age_h": age_h,
+            "liq": liq, "mcap": m.get("mcap_usd"), "price": m.get("price_usd"),
+            "buyers": len(buyers), "avg_score": sum(scores) / len(scores) if scores else None,
+            "conviction": conviction(scores),
+            "heat": heat(buyers, launched),
+            "usd": sum(b["usd"] or 0 for b in buyers) or None,
+            "first_ts": first_ts, "last_ts": max(b["ts"] for b in buyers),
+            # how long after the pool opened the first trusted wallet arrived
+            "lead_minutes": (first_ts - launched) / 60 if launched else None,
+            "who": [b["handle"] or b["address"][:10] for b in buyers],
+            "scores": [b["score"] for b in buyers],
+            "entries": [{"handle": b["handle"] or b["address"][:10], "score": b["score"],
+                         "ts": b["ts"], "usd": b["usd"]} for b in buyers],
+        })
+    out.sort(key=lambda r: (-r["heat"], -(r["usd"] or 0)))
+    return {"tokens": out[:limit], "drained": drained, "hours": hours, "max_age_h": max_age_h,
+            "min_liquidity": min_liquidity, "min_buyers": min_buyers}
+
+
 def leaderboard(conn: sqlite3.Connection, limit: int = 25, status: str = "active") -> list[dict]:
     """The scored roster, best first — our own ranking by judgement rather than by headline PnL."""
     return [dict(r) for r in conn.execute(

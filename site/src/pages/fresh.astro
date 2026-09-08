@@ -1,0 +1,184 @@
+---
+import Base from '../layouts/Base.astro';
+import Meter from '../components/Meter.astro';
+import Search from '../components/Search.astro';
+import Ident from '../components/Ident.astro';
+import Panel from '../components/Panel.astro';
+import { getFresh, usd, ago, type Fresh } from '../lib/api';
+
+const hours = Number(Astro.url.searchParams.get('hours') ?? 24);
+const feed = await getFresh(hours);
+const tokens: Fresh[] = feed?.tokens ?? [];
+const hottest = tokens.length ? Math.max(...tokens.map((t) => t.heat)) : 1;
+const lead = tokens[0];
+
+/** "8 min" reads as a decision; "0.1h" reads as a spreadsheet. */
+const lag = (minutes: number | null) =>
+  minutes === null ? 'unknown'
+    : minutes < 1 ? 'the same minute'
+    : minutes < 90 ? `${Math.round(minutes)} min`
+    : `${(minutes / 60).toFixed(1)}h`;
+
+const age = (h: number | null) => (h === null ? '—' : h < 1 ? `${Math.round(h * 60)}m` : `${h.toFixed(0)}h`);
+---
+<Base
+  title="Fresh launches — what the profitable Robinhood Chain wallets are entering now"
+  description="Tokens that trusted fomo.family wallets have just started buying on Robinhood Chain, ranked by how good the buyers are and how soon after the launch they got in."
+  section="fresh"
+>
+  <div class="pagehead">
+    <h1 style="font-size:clamp(28px,5vw,44px)">Fresh</h1>
+    <span class="badge follow">{tokens.length} launches</span>
+  </div>
+  <p class="verdict" style="margin-bottom:20px">
+    The signal feed ranks everything the cohort is holding. This one only lists names it has
+    <b>just started</b> buying — no trusted wallet touched them before {hours}h ago — and weighs
+    each buyer by how soon after the pool opened they arrived.
+  </p>
+
+  <dl class="strip">
+    <div><dt>Window</dt><dd>{feed?.hours ?? hours}h</dd></div>
+    <div><dt>Launches</dt><dd class="g">{tokens.length}</dd></div>
+    <div><dt>Buyers min</dt><dd>{feed?.min_buyers ?? 2}</dd></div>
+    <div><dt>Max age</dt><dd>{feed?.max_age_h ?? 72}h</dd></div>
+    <div><dt>Liquidity floor</dt><dd>{usd(feed?.min_liquidity ?? 5000)}</dd></div>
+    <div><dt>Drained</dt><dd class="c">{feed?.drained ?? 0}</dd></div>
+  </dl>
+
+  {!feed && <p class="empty">The data service is not answering.</p>}
+
+  {feed && tokens.length === 0 && (
+    <p class="note">
+      <b>Nothing new in the last {hours}h.</b> Two or more scored wallets have to open a position
+      in the same young token before it appears here, and today they have not. That is a reading,
+      not a gap — the cohort is sitting in what it already holds.
+    </p>
+  )}
+
+  {lead && (
+    <Panel title="Hottest entry" meta={`first wallet in ${lag(lead.lead_minutes)} after launch`}>
+      <div class="lead">
+        <div class="lead-mark">
+          <Ident seed={lead.mint} size={40} />
+          <span class="cv">{lead.heat.toFixed(2)}</span>
+          <small>heat</small>
+        </div>
+        <div>
+          <a class="lead-tk" href={`/token/${lead.mint}`}>${lead.sym}</a>
+          <p class="lead-copy">
+            <strong>{lead.buyers} wallets</strong> scoring 60+ opened a position, averaging
+            <strong> {lead.avg_score?.toFixed(0) ?? '—'}</strong>, for {usd(lead.usd)} between them.
+            The token is <strong>{age(lead.age_h)}</strong> old and the first of them was in
+            {' '}<strong>{lag(lead.lead_minutes)}</strong> after the pool opened.
+            {lead.liq && ` Liquidity ${usd(lead.liq)}.`}
+          </p>
+          <p class="lead-who">
+            {lead.who.slice(0, 6).map((h, n) => (
+              <>{n > 0 && ' · '}<a href={`/trader/${h}`}>{h}</a> {lead.scores[n]}</>
+            ))}
+            {lead.who.length > 6 && ` +${lead.who.length - 6}`}
+          </p>
+        </div>
+      </div>
+    </Panel>
+  )}
+
+  {tokens.length > 0 && (
+    <>
+      <div class="feedhead">
+        <h2>Entering now</h2>
+        <span class="feedmeta">
+          last {hours}h · {tokens.length} launches · ranked by heat
+        </span>
+      </div>
+
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Token</th><th class="r">Heat</th><th></th>
+            <th class="r">Buyers</th><th class="r">Avg</th><th class="r">First in</th>
+            <th class="r">Age</th><th class="r">Money in</th><th class="r">Liquidity</th>
+          </tr></thead>
+          <tbody>
+            {tokens.map((t, i) => (
+              <tr>
+                <td class="m mono">{String(i + 1).padStart(2, '0')}</td>
+                <td class="sym">
+                  <span class="tkwrap"><Ident seed={t.mint} size={16} />
+                    <a href={`/token/${t.mint}`}>{t.sym}</a></span>
+                </td>
+                <td class="r a mono">{t.heat.toFixed(2)}</td>
+                <td class="bar"><Meter value={t.heat} max={Math.max(hottest, 0.01)} /></td>
+                <td class="r g">{t.buyers}</td>
+                <td class="r m">{t.avg_score?.toFixed(0) ?? '—'}</td>
+                <td class="r">{lag(t.lead_minutes)}</td>
+                <td class="r m">{age(t.age_h)}</td>
+                <td class="r">{usd(t.usd)}</td>
+                <td class={`r ${t.liq === null ? 'm' : t.liq < 25_000 ? 'y' : 'm'}`}>{usd(t.liq)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ol class="who-list">
+        {tokens.slice(0, 8).map((t) => (
+          <li>
+            <a class="tk" href={`/token/${t.mint}`}>{t.sym}</a>
+            <span class="m">
+              {t.entries.slice(0, 6).map((e, n) => (
+                <>{n > 0 && ' · '}<a href={`/trader/${e.handle}`}>{e.handle}</a>{' '}
+                <b>{e.score}</b> <i>{ago(e.ts)}</i></>
+              ))}
+              {t.entries.length > 6 && ` +${t.entries.length - 6}`}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </>
+  )}
+
+  <div class="cols" style="margin-top:25px">
+    <p class="note">
+      <b>Heat</b> is the sum of each buyer's (score/100)², scaled by how early they were: full
+      weight at the launch, half an hour later, a tenth after ten hours. On a token that opened
+      this morning, <i>when</i> somebody bought is most of what their buy says — a wallet scoring
+      88 entering four minutes in took a different risk from the same wallet entering the next day
+      on a chart everyone could see.
+    </p>
+    <p class="note">
+      <b>{feed?.drained ?? 0} more had trusted buying and are not listed</b>, because less than
+      {' '}{usd(feed?.min_liquidity ?? 5000)} of liquidity is left in the pool. That is a rug that
+      already happened rather than a signal — on a live window the token with the most trusted
+      buyers of all, seventeen of them, had twenty-nine dollars left in it.
+    </p>
+  </div>
+
+  <div style="margin-top:25px"><Search /></div>
+
+  <style>
+    .feedhead {
+      display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+      border-top: 1px solid #ffffff; padding-top: 12px; margin: 25px 0 14px;
+    }
+    .feedhead h2 { font-size: 22px; margin: 0; }
+    .feedmeta {
+      font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px;
+      letter-spacing: 0.06em; color: #606060; margin-left: auto;
+    }
+    .tkwrap { display: inline-flex; align-items: center; gap: 7px; }
+    td.bar { width: 22%; min-width: 90px; }
+    .who-list { list-style: none; padding: 0; margin: 18px 0 0; font-size: 12px; }
+    .who-list li {
+      display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+      border-top: 1px solid #1a1a1a; padding: 7px 0;
+    }
+    .who-list .tk {
+      font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500;
+      min-width: 92px; color: #ffffff; text-decoration: none;
+    }
+    .who-list .m { color: #606060; }
+    .who-list b { color: #00ff85; font-weight: 400; }
+    .who-list i { font-style: normal; color: #3f3f3f; }
+  </style>
+</Base>

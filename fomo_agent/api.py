@@ -270,6 +270,24 @@ def tape(
     return {"count": len(rows), "fills": rows}
 
 
+@app.get("/api/fresh", tags=["signals"])
+def fresh(
+    hours: int = Query(24, ge=1, le=168),
+    max_age_h: int = Query(72, ge=1, le=720),
+    min_liquidity: float = Query(5_000, ge=0),
+    min_buyers: int = Query(2, ge=1, le=20),
+    limit: int = Query(40, ge=1, le=100),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    """Tokens the cohort has just started buying, ranked by heat.
+
+    The signal feed ranks everything trusted wallets bought today, however long they have held it.
+    This one only lists tokens whose first trusted buy landed inside the window — the cohort
+    entering rather than sitting — and weights each buyer by how soon after the launch they got in.
+    """
+    return analyze.fresh(conn, chain(), hours, max_age_h, min_liquidity, min_buyers, limit)
+
+
 @app.get("/api/leaderboard", tags=["traders"])
 def leaderboard(
     status: str = Query("active", pattern="^(active|watch|dropped|all)$"),

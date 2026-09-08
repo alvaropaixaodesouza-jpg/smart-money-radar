@@ -323,3 +323,72 @@ def test_a_token_lists_the_wallets_whose_balance_says_they_hold_it(conn):
     assert a["cohort_value"] == pytest.approx(500)
     assert a["conviction"] == pytest.approx(0.85 ** 2), "holder conviction is real now"
     assert a["holders"][0]["pnl"] is None, "no fomo mark, so no profit claimed"
+
+
+# ---------------------------------------------------------------- fresh launches
+
+def test_earliness_decays_from_the_launch():
+    """Full weight at the pool opening, half an hour later, almost nothing the next day."""
+    from fomo_agent.pipeline.analyze import earliness
+
+    t0 = 1_700_000_000
+    assert earliness(t0, t0) == 1.0
+    assert earliness(t0 + 3600, t0) == pytest.approx(0.5)
+    assert earliness(t0 + 36000, t0) == pytest.approx(1 / 11)
+    assert earliness(t0 - 60, t0) == 1.0, "a buy before the launch is as early as it gets"
+    assert earliness(t0, None) == 1.0, "an unknown launch cannot penalise anyone"
+
+
+def test_heat_ranks_the_early_wallet_over_the_late_one():
+    """The same buy an hour later is a different decision, and heat says so."""
+    from fomo_agent.pipeline.analyze import conviction, heat
+
+    t0 = 1_700_000_000
+    early = [{"score": 80, "ts": t0 + 120}, {"score": 80, "ts": t0 + 300}]
+    late = [{"score": 80, "ts": t0 + 7200}, {"score": 80, "ts": t0 + 9000}]
+    assert conviction([80, 80]) == pytest.approx(1.28), "conviction cannot tell them apart"
+    assert heat(early, t0) > heat(late, t0) * 2
+    assert heat(early, None) == pytest.approx(conviction([80, 80])), "no launch time, no weighting"
+
+
+def test_fresh_lists_only_what_the_cohort_has_just_started_buying(conn):
+    """A name the cohort has held for a week is a signal, not a launch."""
+    from fomo_agent.pipeline.analyze import fresh
+
+    now = db.now()
+    new, old, thin = ("0x" + c * 40 for c in "abc")
+    with db.tx(conn):
+        db.upsert_token(conn, new, chain="robinhood", symbol="NEW", liquidity_usd=90_000,
+                        created_at=now - 3600)
+        db.upsert_token(conn, old, chain="robinhood", symbol="OLD", liquidity_usd=90_000,
+                        created_at=now - 3600)
+        db.upsert_token(conn, thin, chain="robinhood", symbol="THIN", liquidity_usd=29,
+                        created_at=now - 3600)
+        rows = [
+            (ACE, new, now - 1800), (MID, new, now - 1500),
+            (ACE, thin, now - 1800), (MID, thin, now - 1500),
+            # the cohort was already in OLD three days ago, so today's buy is not an entry
+            (ACE, old, now - 3 * 86400), (ACE, old, now - 900), (MID, old, now - 800),
+        ]
+        for i, (addr, mint, ts) in enumerate(rows):
+            db.insert_trade(conn, sig=f"0xfresh{i}", address=addr, chain="robinhood", mint=mint,
+                            side="buy", usd_value=1_000.0, ts=ts, source="rpc")
+
+    f = fresh(conn, "robinhood", hours=24)
+    listed = [t["sym"] for t in f["tokens"]]
+    assert "NEW" in listed
+    assert "OLD" not in listed, "the cohort was already in it, so today's buy is not an entry"
+    assert "THIN" not in listed, "nothing left in the pool"
+    assert f["drained"] == 1, "the pool with $29 left is counted, not silently dropped"
+
+    t = next(x for x in f["tokens"] if x["sym"] == "NEW")
+    assert t["buyers"] == 2 and t["heat"] > 0
+    assert t["lead_minutes"] == pytest.approx(30, abs=1), "half an hour after the pool opened"
+    assert [e["handle"] for e in t["entries"]] == ["ace", "mid"], "earliest buyer first"
+
+    loose = fresh(conn, "robinhood", hours=24, min_liquidity=0)
+    assert loose["drained"] == 0 and "THIN" in [x["sym"] for x in loose["tokens"]], \
+        "liquidity only filters; it never reorders"
+    young = [x["sym"] for x in fresh(conn, "robinhood", hours=24, max_age_h=0)["tokens"]]
+    assert "NEW" not in young, "an hour old is too old when the cap is zero"
+    assert fresh(conn, "robinhood", hours=24, min_buyers=3)["tokens"] == []
