@@ -42,11 +42,13 @@ install -d -o radar -g radar -m 0700 "$PROFILE"
 
 echo "==> units"
 cp /opt/fomoradar/app/deploy/systemd/radar-xvfb.service /etc/systemd/system/
+cp /opt/fomoradar/app/deploy/systemd/radar-wm.service /etc/systemd/system/
 cp /opt/fomoradar/app/deploy/systemd/radar-browser.service /etc/systemd/system/
 cp /opt/fomoradar/app/deploy/systemd/radar-vnc.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now radar-xvfb radar-browser
-systemctl status radar-xvfb radar-browser --no-pager -n 3 || true
+systemctl enable --now radar-xvfb radar-wm radar-browser
+sleep 5
+systemctl is-active radar-xvfb radar-wm radar-browser || true
 
 cat <<EOF
 

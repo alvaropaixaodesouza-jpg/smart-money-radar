@@ -1,15 +1,14 @@
 [Unit]
 Description=FOMO Robinhood Radar - logged-in Chrome that collects fomo
-After=radar-xvfb.service radar-receive.service
-Requires=radar-xvfb.service
+After=radar-xvfb.service radar-wm.service radar-receive.service
+Requires=radar-xvfb.service radar-wm.service
 
 [Service]
 User=radar
 Group=radar
 Environment=DISPLAY=:99
+Environment=HOME=/opt/fomoradar
 WorkingDirectory=/opt/fomoradar
-# A window manager, or Chrome's own dialogs open unfocused and cannot be dismissed over VNC.
-ExecStartPre=/bin/sh -c '/usr/bin/fluxbox >/dev/null 2>&1 &'
 # Deliberately NOT headless and with no automation flags: headless Chrome announces itself in the
 # user agent, and --enable-automation sets navigator.webdriver, which is exactly what Google's
 # sign-in refuses. This is an ordinary Chrome that happens to have no physical monitor.
@@ -31,7 +30,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/opt/fomoradar
-PrivateTmp=no
+# Chrome needs a writable /tmp for its singleton socket, and ProtectSystem=strict makes the real
+# one read-only. A private one satisfies it and keeps the host's /tmp out of reach.
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target
