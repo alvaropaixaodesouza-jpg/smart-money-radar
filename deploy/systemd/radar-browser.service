@@ -9,18 +9,16 @@ Group=radar
 Environment=DISPLAY=:99
 Environment=HOME=/opt/fomoradar
 WorkingDirectory=/opt/fomoradar
-# Chrome 137 turned --load-extension into a no-op behind a feature flag, so an unpacked extension
-# needs that feature switched back off. Verified against Chrome 152: without it the extensions
-# page is simply empty and nothing anywhere says why.
+# The collector extension is not loaded from here. Chrome 137 made --load-extension a no-op and by
+# 152 the feature flag that undid that is gone as well: the flag is accepted, shows up in
+# chrome://version and does nothing. It is force-installed by policy instead - see
+# deploy/install-extension.sh - and --disable-extensions-except would switch off exactly that.
 #
 # Deliberately NOT headless and with no automation flags: headless Chrome announces itself in the
 # user agent, and --enable-automation sets navigator.webdriver, which is exactly what Google's
 # sign-in refuses. This is an ordinary Chrome that happens to have no physical monitor.
 ExecStart=/usr/bin/google-chrome \
   --user-data-dir=/opt/fomoradar/chrome-profile \
-  --load-extension=/opt/fomoradar/app/extension \
-  --disable-extensions-except=/opt/fomoradar/app/extension \
-  --disable-features=DisableLoadExtensionCommandLineSwitch \
   --no-first-run --no-default-browser-check \
   --disable-background-timer-throttling \
   --disable-backgrounding-occluded-windows \
