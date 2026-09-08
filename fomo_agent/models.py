@@ -72,6 +72,8 @@ class NewToken(BaseModel):
     liquidity_usd: float | None = None
     price_usd: float | None = None
     decimals: int | None = None
+    # the deepest pool this token trades in; the candle endpoint takes no other handle
+    pool_address: str | None = None
     created_at: int | None = None  # unix seconds
     dex: str | None = None
     pair_address: str | None = None

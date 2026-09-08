@@ -3,11 +3,17 @@ import Base from '../../layouts/Base.astro';
 import Meter from '../../components/Meter.astro';
 import Search from '../../components/Search.astro';
 import Ident from '../../components/Ident.astro';
-import { getToken, usd, ago, amount, multiple } from '../../lib/api';
+import Chart from '../../components/Chart.astro';
+import { getToken, getChart, usd, ago, amount, multiple } from '../../lib/api';
 
 const { mint } = Astro.params;
 const t = mint ? await getToken(mint) : null;
 if (!t) return Astro.redirect(`/search?q=${encodeURIComponent(mint ?? '')}&miss=token`, 302);
+
+const spans = ['24h', '7d', '30d'];
+const spanParam = Astro.url.searchParams.get('span') ?? '7d';
+const span = spans.includes(spanParam) ? spanParam : '7d';
+const chart = t.is_quote ? null : await getChart(t.mint, span);
 
 const name = t.symbol ?? `${t.mint.slice(0, 6)}…${t.mint.slice(-4)}`;
 
@@ -63,6 +69,10 @@ const desc = t.is_quote
         {hasBook && <div><dt>Holders</dt><dd>{t.holders.length}</dd></div>}
         {hasBook && <div><dt>They hold</dt><dd class="g">{usd(t.cohort_value)}</dd></div>}
       </dl>
+
+      {chart && chart.candles.length > 1 && (
+        <Chart candles={chart.candles} span={span} base={`/token/${t.mint}`} />
+      )}
 
       {hasFlow && (
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:25px;flex-wrap:wrap">

@@ -1,0 +1,134 @@
+---
+/**
+ * Price and volume for one pool, drawn here rather than embedded.
+ *
+ * Every third-party widget was tried against Robinhood Chain on 2026-09-08 and none of them draws:
+ * DexScreener never finishes loading a pair because it does not index the chain, GeckoTerminal's
+ * own iframe renders its chrome and no candles, and defined.fi frames its entire app with a
+ * sign-in bar over it. The candles themselves are free and complete, so the page draws them in its
+ * own hand — which also means the chart obeys the same rules as everything else on it.
+ */
+import { usd } from '../lib/api';
+
+interface Props {
+  candles: number[][];   // [ts, open, high, low, close, volume], oldest first
+  span: string;          // 24h | 7d | 30d
+  base: string;          // where the range links point
+}
+const { candles, span, base } = Astro.props;
+
+// the last row of the box is the time axis, which lives below the volume baseline
+const W = 1000, H = 260, VH = 54, PAD_R = 92, PAD_L = 10, GAP = 14, AX = 22;
+
+const closes = candles.map((c) => c[4]);
+const highs = candles.map((c) => c[2]);
+const lows = candles.map((c) => c[3]);
+const vols = candles.map((c) => c[5]);
+const hi = Math.max(...highs, 0);
+const lo = Math.min(...lows.filter((v) => v > 0), hi || 1);
+const first = closes[0] ?? 0;
+const last = closes[closes.length - 1] ?? 0;
+const change = first > 0 ? last / first - 1 : 0;
+
+// A launch candle can span three orders of magnitude, and on a linear axis it flattens every day
+// after it into one straight line. Above a wide enough range the axis is logarithmic and says so.
+const logScale = hi > 0 && lo > 0 && hi / lo > 25;
+const project = (v: number) => {
+  const f = logScale
+    ? (Math.log10(Math.max(v, lo)) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo) || 1)
+    : (v - lo) / (hi - lo || 1);
+  return H - 8 - f * (H - 26);
+};
+const xAt = (i: number) =>
+  PAD_L + (candles.length < 2 ? W - PAD_L - PAD_R : (i / (candles.length - 1)) * (W - PAD_L - PAD_R));
+
+const line = candles.map((c, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${project(c[4]).toFixed(1)}`).join('');
+const maxVol = Math.max(...vols, 1);
+const barW = Math.max((W - PAD_L - PAD_R) / Math.max(candles.length, 1) - 1, 1);
+
+// Prices here run from fractions of a cent to hundreds of dollars, so significant digits beat
+// a fixed number of decimals.
+const px = (v: number) => (v >= 1 ? `$${v.toFixed(2)}` : `$${v.toPrecision(3)}`);
+const clock = (ts: number) => {
+  const d = new Date(ts * 1000);
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return span === '24h' ? `${String(d.getUTCHours()).padStart(2, '0')}:00` : day;
+};
+const ticks = candles.length > 1 ? [0, Math.floor((candles.length - 1) / 2), candles.length - 1] : [0];
+const up = change >= 0;
+---
+<section class="chart">
+  <header>
+    <h3>Price</h3>
+    <span class="mono chg" data-up={up}>{up ? '+' : ''}{(change * 100).toFixed(1)}%</span>
+    <span class="mono last">{px(last)}</span>
+    <nav class="mono">
+      {['24h', '7d', '30d'].map((s) => (
+        <a href={`${base}?span=${s}`} aria-current={s === span ? 'page' : undefined}>{s}</a>
+      ))}
+    </nav>
+  </header>
+
+  {candles.length < 2 ? (
+    <p class="empty">Not enough trading history to draw yet.</p>
+  ) : (
+    <svg viewBox={`0 0 ${W} ${H + GAP + VH + AX}`} role="img"
+         aria-label={`${span} price, ${(change * 100).toFixed(1)} percent`}>
+      <!-- the range the axis covers, as three hairlines -->
+      {[hi, logScale ? Math.sqrt(hi * lo) : (hi + lo) / 2, lo].map((v) => (
+        <>
+          <line x1={PAD_L} y1={project(v)} x2={W - PAD_R} y2={project(v)}
+                stroke="#242424" stroke-dasharray="2 5" />
+          <text x={W - PAD_R + 8} y={project(v) + 3.5} class="ax">{px(v)}</text>
+        </>
+      ))}
+
+      <path d={line} fill="none" stroke={up ? '#00ff85' : '#ff003d'} stroke-width="1.5"
+            stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+      <circle cx={xAt(candles.length - 1)} cy={project(last)} r="3" fill={up ? '#00ff85' : '#ff003d'} />
+
+      <!-- volume, on its own baseline so it never competes with the price -->
+      <g>
+        {candles.map((c, i) => (
+          <rect x={xAt(i) - barW / 2} y={H + GAP + VH - Math.max((c[5] / maxVol) * VH, 0.6)}
+                width={barW} height={Math.max((c[5] / maxVol) * VH, 0.6)}
+                fill={c[4] >= c[1] ? '#0d3f27' : '#3f0d1a'} />
+        ))}
+        <line x1={PAD_L} y1={H + GAP + VH} x2={W - PAD_R} y2={H + GAP + VH} stroke="#242424" />
+        <text x={W - PAD_R + 8} y={H + GAP + VH} class="ax">{usd(maxVol)} vol</text>
+      </g>
+
+      {ticks.map((i) => (
+        <text x={Math.min(Math.max(xAt(i), 24), W - PAD_R - 24)} y={H + GAP + VH + 15}
+              class="ax" text-anchor="middle">{clock(candles[i][0])}</text>
+      ))}
+      {logScale && <text x={PAD_L} y={12} class="ax">log</text>}
+    </svg>
+  )}
+  <p class="foot mono">
+    {candles.length} candles · deepest pool · geckoterminal · high {px(hi)} · low {px(lo)}
+  </p>
+</section>
+
+<style>
+  .chart { border: 1px solid #ffffff; padding: 14px 16px 10px; margin-bottom: 25px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+  h3 { font-size: 15px; margin: 0; letter-spacing: 0.01em; }
+  .chg { font-size: 13px; }
+  .chg[data-up='true'] { color: #00ff85; }
+  .chg[data-up='false'] { color: #ff003d; }
+  .last { font-size: 13px; color: #ff8a00; }
+  nav { margin-left: auto; display: flex; gap: 2px; }
+  nav a {
+    font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #606060;
+    border: 1px solid #242424; border-radius: 9999px; padding: 2px 10px; text-decoration: none;
+  }
+  nav a:hover { color: #ffffff; border-color: #606060; }
+  nav a[aria-current='page'] { color: #000000; background: #ffffff; border-color: #ffffff; }
+  svg { display: block; width: 100%; height: auto; }
+  .ax {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; fill: #606060;
+  }
+  .foot { font-size: 10.5px; color: #3f3f3f; margin: 8px 0 0; letter-spacing: 0.04em; }
+  .empty { color: #606060; font-size: 13px; padding: 30px 0; }
+</style>

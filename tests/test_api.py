@@ -155,3 +155,43 @@ def test_openapi_describes_the_product(client):
     spec = client.get("/openapi.json").json()
     assert spec["info"]["title"] == "FOMO Robinhood Radar"
     assert "/api/signals" in spec["paths"] and "/api/token/{mint}" in spec["paths"]
+
+
+def test_chart_answers_with_candles_and_says_why_when_it_cannot(client, monkeypatch):
+    """A token page without a chart is a smaller answer, not a broken one."""
+    body = client.get(f"/api/token/{TOKEN}/chart").json()
+    assert body["candles"] == [] and body["pool"] is None
+    assert "no pool" in body["why"], "the reason is stated rather than 404'd"
+
+    conn = db.connect()
+    with db.tx(conn):
+        db.upsert_token(conn, TOKEN, pool_address="0xpool")
+    conn.close()
+    monkeypatch.setattr(api, "candles_for", lambda pool, chain, span: [[1, 2, 3, 1, 2, 9]])
+
+    body = client.get(f"/api/token/{TOKEN}/chart?span=24h").json()
+    assert body["pool"] == "0xpool" and body["span"] == "24h"
+    assert body["candles"] == [[1, 2, 3, 1, 2, 9]]
+    assert client.get(f"/api/token/{TOKEN}/chart?span=1y").status_code == 422, "spans are fixed"
+
+
+def test_candles_are_served_from_memory_between_requests(monkeypatch):
+    """Every visitor to a token page would otherwise cost one upstream request."""
+    calls = []
+
+    class FakeGecko:
+        def ohlcv(self, chain, pool, timeframe, aggregate, limit):
+            calls.append((chain, pool, timeframe, limit))
+            return [[1, 2, 3, 1, 2, 9]]
+
+    import fomo_agent.sources.geckoterminal as gt
+    monkeypatch.setattr(gt, "GeckoTerminal", FakeGecko)
+    api._candles.clear()
+
+    assert api.candles_for("0xpool", "robinhood", "7d") == [[1, 2, 3, 1, 2, 9]]
+    assert api.candles_for("0xpool", "robinhood", "7d") == [[1, 2, 3, 1, 2, 9]]
+    assert len(calls) == 1, "the second visitor is served from the cache"
+    assert calls[0][2] == "hour" and calls[0][3] == 168, "7d is a week of hourly candles"
+
+    api.candles_for("0xpool", "robinhood", "30d")
+    assert calls[1][2] == "day", "a month is daily candles, not 720 hourly ones"

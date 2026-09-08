@@ -110,6 +110,25 @@ class GeckoTerminal:
             out.extend(t for t in (parse_token(it, chain) for it in items) if t)
         return out
 
+    def ohlcv(self, chain: str, pool: str, timeframe: str = "hour", aggregate: int = 1,
+              limit: int = 168) -> list[list[float]]:
+        """Candles for one pool: [timestamp, open, high, low, close, volume], oldest first.
+
+        The chart on a token page is drawn from these rather than from an embedded widget. Every
+        third-party widget was tried on 2026-09-08: DexScreener never finishes loading a Robinhood
+        pair because it does not index the chain, GeckoTerminal's own iframe renders its chrome and
+        no candles, and defined.fi frames its whole app with a sign-in bar over it. The data itself
+        is here and complete, so the page draws it in its own hand.
+        """
+        network = NETWORK_MAP.get(chain, chain)
+        try:
+            data = self._get(f"/networks/{network}/pools/{pool}/ohlcv/{timeframe}",
+                             {"aggregate": aggregate, "limit": min(limit, 1000)})
+        except httpx.HTTPError as e:
+            log.warning("geckoterminal ohlcv %s/%s failed: %s", network, pool, e)
+            return []
+        return parse_ohlcv(data[0] if data else None)
+
     def new_tokens(self, min_mcap: float | None = None, max_age_hours: float | None = None) -> list[NewToken]:
         min_mcap = settings.new_token_min_mcap_usd if min_mcap is None else min_mcap
         max_age_hours = settings.new_token_max_age_hours if max_age_hours is None else max_age_hours
@@ -131,6 +150,26 @@ def _f(x) -> float | None:
     return v if v > 0 else None
 
 
+def parse_ohlcv(payload: dict | None) -> list[list[float]]:
+    """Pure: the ohlcv response -> candles oldest first, dropping any row that is not a number.
+
+    The API answers newest first and occasionally carries a candle with a null in it; a chart that
+    reverses the axis or plots a null is worse than a chart that is one bar shorter.
+    """
+    rows = ((payload or {}).get("attributes") or {}).get("ohlcv_list") or []
+    out = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 6:
+            continue
+        try:
+            ts, o, h, low, c, v = (float(x) for x in row[:6])
+        except (TypeError, ValueError):
+            continue
+        if h > 0 and low > 0:
+            out.append([int(ts), o, h, low, c, v])
+    return sorted(out, key=lambda r: r[0])
+
+
 def parse_token(item: dict, chain: str) -> NewToken | None:
     """Pure: one entry of /tokens/multi -> NewToken.
 
@@ -143,6 +182,10 @@ def parse_token(item: dict, chain: str) -> NewToken | None:
     if not address:
         return None
     decimals = a.get("decimals")
+    # The deepest pool comes along for free, and it is what the chart is drawn from. Ids arrive
+    # prefixed with the network ("robinhood_0x...") because the same call can span chains.
+    pools = ((item.get("relationships") or {}).get("top_pools") or {}).get("data") or []
+    pool = (pools[0].get("id") or "").split("_", 1)[-1] if pools else None
     return NewToken(
         mint=norm_addr(address),
         chain=chain,
@@ -151,6 +194,7 @@ def parse_token(item: dict, chain: str) -> NewToken | None:
         liquidity_usd=_f(a.get("total_reserve_in_usd")),
         price_usd=_f(a.get("price_usd")),
         decimals=int(decimals) if isinstance(decimals, int) and 0 <= decimals <= 36 else None,
+        pool_address=pool or None,
         source="geckoterminal",
     )
 

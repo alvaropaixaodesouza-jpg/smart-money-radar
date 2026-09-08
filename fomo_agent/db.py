@@ -158,6 +158,11 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_holdings_ts ON holdings(ts);
     """,
+    15: """
+    -- The pool a token actually trades in. It arrives free alongside the price, and it is the only
+    -- handle the candle endpoint takes, so without it a token page has no chart.
+    ALTER TABLE tokens ADD COLUMN pool_address TEXT;
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")

@@ -144,6 +144,7 @@ def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limi
                 db.upsert_token(conn, t.mint, chain=t.chain, symbol=t.symbol, mcap_usd=t.mcap_usd,
                                 liquidity_usd=t.liquidity_usd, created_at=t.created_at,
                                 decimals=t.decimals, price_usd=t.price_usd,
+                                pool_address=t.pool_address,
                                 price_at=now if t.price_usd is not None else None,
                                 checked_at=now)
                 stats["named"] += 1

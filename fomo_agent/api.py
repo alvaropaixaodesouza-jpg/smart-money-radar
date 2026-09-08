@@ -128,23 +128,50 @@ def trader_row(r: dict) -> dict:
 def live_lookup(conn: sqlite3.Connection, mint: str) -> bool:
     """Name a token we have never seen, so an unknown address still gets a real answer.
 
-    One free DexScreener request. Returns True when something was learned.
+    One free request, through the same source the collection pass uses. Returns True when
+    something was learned.
     """
-    from .sources.dexscreener import DexScreener, parse_pair
+    from .pipeline.new_tokens import lookup_tokens
 
     try:
-        pairs = DexScreener().pairs_for(chain() or "robinhood", [mint])
+        tokens, _ = lookup_tokens(chain() or "robinhood", [mint])
     except Exception as e:  # noqa: BLE001 - an unknown token is still answerable without this
         log.warning("live lookup for %s failed: %s", mint[:10], e)
         return False
-    for p in pairs:
-        t = parse_pair(p)
-        if t and t.mint.lower() == mint.lower():
+    for t in tokens:
+        if t.mint.lower() == mint.lower():
             with db.tx(conn):
                 db.upsert_token(conn, t.mint, chain=t.chain, symbol=t.symbol, mcap_usd=t.mcap_usd,
-                                liquidity_usd=t.liquidity_usd, created_at=t.created_at)
+                                liquidity_usd=t.liquidity_usd, created_at=t.created_at,
+                                price_usd=t.price_usd, price_at=db.now(), checked_at=db.now(),
+                                decimals=t.decimals, pool_address=t.pool_address)
             return True
     return False
+
+
+# A candle set is the same for every visitor, and the pool it comes from produces one new bar an
+# hour at most. Serving it from memory keeps a page nobody has cached off the upstream rate limit.
+RANGES = {"24h": ("hour", 1, 24), "7d": ("hour", 1, 168), "30d": ("day", 1, 30)}
+_candles: dict[tuple[str, str], tuple[float, list]] = {}
+CANDLE_TTL = 300
+
+
+def candles_for(pool: str, chain_name: str, span: str) -> list[list[float]]:
+    """OHLCV for one pool, cached for five minutes and empty rather than raising."""
+    from .sources.geckoterminal import GeckoTerminal
+
+    key = (pool, span)
+    hit = _candles.get(key)
+    if hit and time.monotonic() - hit[0] < CANDLE_TTL:
+        return hit[1]
+    timeframe, aggregate, limit = RANGES[span]
+    try:
+        rows = GeckoTerminal().ohlcv(chain_name, pool, timeframe, aggregate, limit)
+    except Exception as e:  # noqa: BLE001 - a page without a chart is still a page
+        log.warning("candles for %s failed: %s", pool[:12], e)
+        return hit[1] if hit else []
+    _candles[key] = (time.monotonic(), rows)
+    return rows
 
 
 # ---------------------------------------------------------------- routes
@@ -286,6 +313,28 @@ def token(
     a["tracked"] = bool(a["holders"] or a["flow"])
     a["is_quote"] = a["mint"] in QUOTE_TOKENS
     return a
+
+
+@app.get("/api/token/{mint}/chart", tags=["tokens"])
+def token_chart(
+    mint: str,
+    span: str = Query("7d", pattern="^(24h|7d|30d)$"),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    """Candles for the token's deepest pool: [ts, open, high, low, close, volume], oldest first.
+
+    Every third-party chart widget was tried against this chain and none of them draws, so the
+    page draws its own from these. An unknown pool answers with an empty list and a reason, not a
+    404: a token page without a chart is a smaller answer, not a broken one.
+    """
+    mint = mint.lower() if mint.startswith("0x") else mint
+    row = conn.execute("SELECT pool_address, chain, symbol FROM tokens WHERE mint=?", (mint,)).fetchone()
+    if row is None or not row["pool_address"]:
+        return {"mint": mint, "span": span, "pool": None, "candles": [],
+                "why": "no pool on record for this token yet"}
+    rows = candles_for(row["pool_address"], row["chain"] or chain() or "robinhood", span)
+    return {"mint": mint, "span": span, "pool": row["pool_address"],
+            "symbol": row["symbol"], "candles": rows, "source": "geckoterminal"}
 
 
 @app.get("/api/search", tags=["meta"])

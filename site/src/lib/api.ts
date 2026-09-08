@@ -63,6 +63,12 @@ export type Token = {
   trusted_buyers: number; hours: number;
 };
 
+/** [ts, open, high, low, close, volume] per candle, oldest first. */
+export type Chart = {
+  mint: string; span: string; pool: string | null; symbol?: string | null;
+  candles: number[][]; source?: string; why?: string;
+};
+
 /** Returns null on 404 or on a service that is down, so a page can say so instead of crashing. */
 export async function get<T>(path: string): Promise<T | null> {
   try {
@@ -81,6 +87,8 @@ export const getLeaderboard = (status = 'active', limit = 60) =>
   get<{ status: string; count: number; traders: TraderRow[] }>(`/api/leaderboard?status=${status}&limit=${limit}`);
 export const getTrader = (who: string) => get<Trader>(`/api/trader/${encodeURIComponent(who)}`);
 export const getToken = (mint: string) => get<Token>(`/api/token/${encodeURIComponent(mint)}`);
+export const getChart = (mint: string, span = '7d') =>
+  get<Chart>(`/api/token/${encodeURIComponent(mint)}/chart?span=${span}`);
 export const search = (q: string) =>
   get<{ kind: string; handle?: string; address?: string; traders?: TraderRow[]; tokens?: { mint: string; symbol: string }[] }>(
     `/api/search?q=${encodeURIComponent(q)}`);

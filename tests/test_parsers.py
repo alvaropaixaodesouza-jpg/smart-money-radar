@@ -408,3 +408,30 @@ def test_db_roundtrip(tmp_path):
     assert db.insert_trade(conn, sig="S1", address="A", mint="M", side="buy", ts=10) is False
     assert db.last_trade_ts(conn, "A") == 10
     conn.commit()
+
+
+def test_geckoterminal_candles_come_back_oldest_first_and_clean():
+    """The API answers newest first; a chart that plots that reads backwards."""
+    from fomo_agent.sources.geckoterminal import parse_ohlcv
+
+    rows = parse_ohlcv({"attributes": {"ohlcv_list": [
+        [1788868800, 0.0026, 0.0031, 0.0024, 0.0028, 37995.4],
+        [1788865200, 0.0023, 0.0027, 0.0021, 0.0026, 64056.3],
+        [1788861600, None, 0.0022, 0.0020, 0.0021, 100.0],   # a hole in the row
+        [1788858000, 0.002, 0.0, 0.0, 0.002, 5.0],           # a candle with no range
+        "nonsense",
+    ]}})
+    assert [r[0] for r in rows] == [1788865200, 1788868800], "oldest first, junk dropped"
+    assert rows[-1][4] == pytest.approx(0.0028) and rows[-1][5] == pytest.approx(37995.4)
+    assert parse_ohlcv(None) == [] and parse_ohlcv({}) == []
+
+
+def test_geckoterminal_token_carries_the_pool_the_chart_is_drawn_from():
+    from fomo_agent.sources.geckoterminal import parse_token
+
+    t = parse_token({
+        "attributes": {"address": "0xabc", "symbol": "CME", "price_usd": "0.0029"},
+        "relationships": {"top_pools": {"data": [{"id": "robinhood_0xff0aa5f0"}, {"id": "x_0xdeep"}]}},
+    }, "robinhood")
+    assert t.pool_address == "0xff0aa5f0", "deepest pool first, network prefix stripped"
+    assert parse_token({"attributes": {"address": "0xabc"}}, "robinhood").pool_address is None
