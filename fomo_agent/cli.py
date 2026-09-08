@@ -281,6 +281,35 @@ def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
     typer.echo(_run("enrich_tokens", enrich_tokens, None, limit))
 
 
+@app.command("health")
+def health_cmd(
+    push: bool = typer.Option(False, "--push", help="send the report to every bot subscriber"),
+) -> None:
+    """What is quietly broken: stale collections, a silent tape, a router that moved."""
+    from .pipeline.health import report
+
+    conn = db.connect()
+    try:
+        r = report(conn)
+        for c in r["checks"]:
+            typer.echo(f"{'ok ' if c['ok'] else 'BAD'}  {c['name']:<20} {c['detail']}")
+        if push:
+            from .bot import Telegram, fmt_health, subscribers
+
+            tg, text = Telegram(), fmt_health(r)
+            sent = 0
+            for sub in subscribers(conn):
+                try:
+                    tg.send(sub["chat_id"], text)
+                    sent += 1
+                except Exception as e:  # noqa: BLE001 - one blocked chat must not stop the rest
+                    logging.getLogger("health").warning("send failed: %s", e)
+            typer.echo(f"pushed to {sent} subscribers")
+    finally:
+        conn.close()
+    raise typer.Exit(0 if r["ok"] else 1)
+
+
 @app.command("backfill")
 def backfill_cmd(
     days: int = typer.Option(30, "--days", help="how far back to walk"),

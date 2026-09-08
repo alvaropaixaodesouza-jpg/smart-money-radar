@@ -197,6 +197,17 @@ def fmt_launch(t: dict, now: int | None = None) -> str:
     return "\n".join(out)
 
 
+def fmt_health(r: dict) -> str:
+    """The state of the machine, worst first. Sent daily and on demand."""
+    mark = {True: "\u00b7", False: "\u25c6"}
+    head = "<b>ALL CLEAR</b>" if r["ok"] else f"<b>{r['failing']} THINGS NEED A LOOK</b>"
+    out = [head, ""]
+    for c in r["checks"]:
+        line = f"{mark[c['ok']]} <b>{esc(c['name'])}</b> \u2014 {esc(c['detail'])}"
+        out.append(line if c["ok"] else f"<i>{line}</i>")
+    return "\n".join(out)
+
+
 def fmt_token(a: dict) -> str:
     name = esc(a["symbol"] or short(a["mint"]))
     if a["is_quote"]:
@@ -293,6 +304,7 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 /subscribe — get launches and signals pushed as they happen
 /unsubscribe — stop
 /status — what the database holds
+/health — what is quietly broken
 
 Or just send me:
 · a token address → who holds it and at what cost
@@ -425,6 +437,10 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
         return HELP
     if cmd == "/status":
         return status_text(conn)
+    if cmd == "/health":
+        from .pipeline.health import report
+
+        return fmt_health(report(conn))
     if cmd == "/signals":
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None

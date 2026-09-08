@@ -392,3 +392,48 @@ def test_fresh_lists_only_what_the_cohort_has_just_started_buying(conn):
     young = [x["sym"] for x in fresh(conn, "robinhood", hours=24, max_age_h=0)["tokens"]]
     assert "NEW" not in young, "an hour old is too old when the cap is zero"
     assert fresh(conn, "robinhood", hours=24, min_buyers=3)["tokens"] == []
+
+
+# ---------------------------------------------------------------- health
+
+def test_a_moved_router_is_told_apart_from_a_quiet_market(conn):
+    """No fills is ambiguous. Transfers with no fills is not."""
+    from fomo_agent.pipeline.health import router_alive
+
+    class Chain:
+        def __init__(self, moved):
+            self.moved = moved
+
+        def block_number(self):
+            return 1_000_000
+
+        def transfers(self, wallets, first, last, outgoing):
+            return self.moved
+
+    # the fixture's wallets traded an hour ago, so the tape speaks for itself
+    assert router_alive(conn, Chain([]))["ok"]
+
+    conn.execute("DELETE FROM trades")
+    quiet = router_alive(conn, Chain([]))
+    assert quiet["ok"] and "still" in quiet["detail"], "a quiet cohort is not a broken router"
+
+    moved = router_alive(conn, Chain([{"tx": "0x1"}, {"tx": "0x2"}]))
+    assert not moved["ok"]
+    assert "RPC_ROUTERS" in moved["detail"], "and the message says which setting to look at"
+
+    class Broken(Chain):
+        def block_number(self):
+            raise RuntimeError("endpoint down")
+
+    assert router_alive(conn, Broken([]))["ok"], "a check that cannot run must not cry wolf"
+
+
+def test_health_puts_the_failures_first(conn):
+    from fomo_agent.pipeline.health import report
+
+    r = report(conn, rpc=None)
+    names = [c["name"] for c in r["checks"]]
+    assert "fomo collection" in names and "on-chain tape" in names
+    oks = [c["ok"] for c in r["checks"]]
+    assert oks == sorted(oks), "worst first, so the first line is the one that matters"
+    assert r["failing"] == sum(1 for c in r["checks"] if not c["ok"])

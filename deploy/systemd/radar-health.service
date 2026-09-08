@@ -1,0 +1,17 @@
+[Unit]
+Description=FOMO Robinhood Radar - daily health report, pushed to the bot
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# Exit code 1 means something is wrong, which is exactly what we want systemd to record - but the
+# report has already gone out by then, so a failed unit here is a notice, not an incident.
+SuccessExitStatus=0 1
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli health --push
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

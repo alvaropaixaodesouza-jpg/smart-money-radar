@@ -1,0 +1,11 @@
+[Unit]
+Description=FOMO Robinhood Radar - daily health report
+
+[Timer]
+# Morning, before anybody looks at the site. Persistent so a machine that was off still reports.
+OnCalendar=*-*-* 07:40:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
