@@ -39,7 +39,7 @@ cd "$APP/site"
 sudo -u radar npm install --silent --no-fund --no-audit
 sudo -u radar npm run build 2>&1 | grep -E "error|Complete!" | tail -1
 
-systemctl restart radar-api radar-site radar-bot
+systemctl restart radar-api radar-site radar-bot radar-receive
 sleep 5
 for u in radar-api radar-site radar-bot; do printf '   %-12s %s\n' "$u" "$(systemctl is-active $u)"; done
 REMOTE
