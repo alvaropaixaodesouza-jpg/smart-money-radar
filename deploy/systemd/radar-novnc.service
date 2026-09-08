@@ -1,0 +1,12 @@
+[Unit]
+Description=FOMO Robinhood Radar - noVNC, so signing in needs a browser tab and nothing installed
+After=radar-vnc.service
+Requires=radar-vnc.service
+
+[Service]
+User=radar
+Group=radar
+# Loopback only, same as the VNC server behind it. Started by hand for a sign-in and stopped
+# after: there is no reason for a remote desktop into this machine to be sitting there all month.
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900
+Restart=no
