@@ -1,0 +1,21 @@
+[Unit]
+Description=FOMO Robinhood Radar - loopback file server for the extension update manifest
+Before=radar-browser.service
+
+[Service]
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/ext
+# Chrome's extension updater will not fetch an update manifest over file://, so the manifest and
+# the packed extension are served over loopback instead. Nothing outside this machine can reach
+# it, and there is nothing secret in it either — it is a signed copy of what is in the repository.
+ExecStart=/opt/fomoradar/venv/bin/python -m http.server 8098 --bind 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target

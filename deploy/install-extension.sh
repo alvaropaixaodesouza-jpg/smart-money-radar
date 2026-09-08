@@ -38,11 +38,14 @@ ID=$(openssl rsa -in "$DEST/key.pem" -pubout -outform DER 2>/dev/null \
 VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SRC/manifest.json" | head -1)
 echo "==> id $ID  version $VERSION"
 
+# Chrome's extension updater refuses a file:// update manifest, so both it and the packed
+# extension are served over loopback by radar-crx.service.
+BASE=http://127.0.0.1:8098
 cat > "$DEST/update.xml" <<XML
 <?xml version='1.0' encoding='UTF-8'?>
 <gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
   <app appid='$ID'>
-    <updatecheck codebase='file://$DEST/collector.crx' version='$VERSION' />
+    <updatecheck codebase='$BASE/collector.crx' version='$VERSION' />
   </app>
 </gupdate>
 XML
@@ -54,14 +57,17 @@ chmod 0600 "$DEST/key.pem"
 install -d -m 0755 /etc/opt/chrome/policies/managed
 cat > "$POLICY" <<JSON
 {
-  "ExtensionInstallForcelist": ["$ID;file://$DEST/update.xml"],
-  "ExtensionInstallSources": ["file://$DEST/*"],
+  "ExtensionInstallForcelist": ["$ID;$BASE/update.xml"],
+  "ExtensionInstallSources": ["$BASE/*"],
   "ExtensionAllowedTypes": ["extension"],
   "BlockExternalExtensions": false
 }
 JSON
 
 echo "==> policy written to $POLICY"
+cp /opt/fomoradar/app/deploy/systemd/radar-crx.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now radar-crx
 systemctl restart radar-browser
 echo "$ID" > "$DEST/extension-id.txt"
 echo "==> restarted. id is in $DEST/extension-id.txt"
