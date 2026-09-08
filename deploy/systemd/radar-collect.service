@@ -13,6 +13,9 @@ ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli resolve --limit 20
 ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli track --limit 400
 ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli enrich-tokens --limit 300
 ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli holdings
+# Fresh launches are the whole point of the /fresh feed, and this is what puts a launch time on
+# them. It was only ever in the `run` loop, which nothing on this machine runs.
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli new-tokens
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
