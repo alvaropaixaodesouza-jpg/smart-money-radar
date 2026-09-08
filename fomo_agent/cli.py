@@ -289,7 +289,7 @@ def backfill_cmd(
     """Fill the tape from before tracking started. Free, newest window first, resumable."""
     from .pipeline.backfill import backfill
 
-    typer.echo(_run("backfill", backfill, None, days, None, max_requests))
+    typer.echo(_run("backfill", backfill, days=days, max_requests=max_requests))
 
 
 @app.command("browser")
