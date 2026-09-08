@@ -34,8 +34,14 @@ export type Holder = {
   pnl: number | null; cost: number | null;
 };
 
+export type Buyer = {
+  handle: string | null; address: string; score: number | null;
+  bought: number; sold: number; fills: number; first_ts: number;
+};
+
 export type Token = {
   mint: string; symbol: string | null; is_quote: boolean; tracked: boolean;
+  buyers: Buyer[]; buyer_conviction: number;
   liquidity_usd: number | null; mcap_usd: number | null;
   holders: Holder[]; trusted_holders: number; avg_score: number | null; conviction: number;
   cohort_pnl: number | null; cohort_cost: number | null;

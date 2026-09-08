@@ -93,9 +93,27 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
     ).fetchone()
     token = conn.execute("SELECT * FROM tokens WHERE mint=?", (mint,)).fetchone()
 
+    # Who is *buying* it, grouped by wallet. This is a different question from who holds it, and
+    # for a fresh token it is the only one with an answer: positions come from fomo's snapshot of a
+    # trader's three biggest bags, so a token nobody has ridden yet appears in nobody's top three
+    # while a dozen trusted wallets are already accumulating it.
+    by_wallet: dict[str, dict] = {}
+    for f in flow:
+        w = by_wallet.setdefault(f["address"], {
+            "handle": f["handle"], "address": f["address"], "score": f["score"],
+            "bought": 0.0, "sold": 0.0, "fills": 0, "first_ts": f["ts"],
+        })
+        w["fills"] += 1
+        w["first_ts"] = min(w["first_ts"], f["ts"])
+        w["bought" if f["side"] == "buy" else "sold"] += f["usd"] or 0
+    buyers = sorted(by_wallet.values(), key=lambda w: (-(w["score"] or 0), -w["bought"]))
+
     scores = [h["score"] for h in holders if h["score"]]
     costs = [h["cost"] for h in holders if h["cost"]]
     return {
+        # The same measure the feed ranks by, so the two pages can never disagree about a token.
+        "buyers": buyers,
+        "buyer_conviction": conviction([b["score"] for b in buyers if (b["score"] or 0) >= TRUSTED]),
         "mint": mint,
         "symbol": token["symbol"] if token and token["symbol"] else None,
         "is_quote": mint in QUOTE_TOKENS,

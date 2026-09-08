@@ -147,3 +147,43 @@ def test_drop_automated_takes_the_bot_out_of_the_queue(conn):
     row = _db.get_trader(conn, bot)
     assert row["status"] == "dropped" and row["ai_model"] == "heuristic:bot"
     assert "automated" in row["ai_summary"]
+
+
+def test_a_fresh_token_still_answers_from_its_buyers(conn):
+    """The bug this covers: a token nobody holds yet looked empty on the page.
+
+    Positions come from fomo's snapshot of a trader's three biggest bags, so a token that has not
+    grown into anyone's top three shows no holders — while trusted wallets are already buying it.
+    Reading conviction only from holders made the feed and the token page disagree about the same
+    token, one saying 13.3 and the other 0.0.
+    """
+    fresh = "0x" + "f" * 40
+    with db.tx(conn):
+        db.upsert_token(conn, fresh, chain="robinhood", symbol="CME", liquidity_usd=81_000)
+        for i, (addr, side, usd_v) in enumerate(((ACE, "buy", 4_000.0), (ACE, "buy", 2_000.0),
+                                                 (MID, "buy", 1_000.0), (MID, "sell", 500.0),
+                                                 (DUD, "buy", 9_000.0))):
+            db.insert_trade(conn, sig=f"0xfresh{i}", address=addr, chain="robinhood", mint=fresh,
+                            side=side, usd_value=usd_v, ts=db.now() - 600, source="rpc")
+
+    a = analyze_token(conn, fresh)
+    assert a["holders"] == [], "nobody holds it yet, which is the whole point"
+    assert a["conviction"] == 0, "holder conviction is genuinely zero"
+
+    assert [b["handle"] for b in a["buyers"]] == ["ace", "mid", "dud"], "best score first"
+    assert a["buyer_conviction"] == pytest.approx(0.85 ** 2 + 0.62 ** 2), "the wallet scoring 30 does not count"
+    assert a["buyer_conviction"] > 0, "the page has something real to show"
+
+    ace = a["buyers"][0]
+    assert ace["bought"] == 6_000 and ace["sold"] == 0 and ace["fills"] == 2, "fills roll up per wallet"
+    mid = a["buyers"][1]
+    assert mid["bought"] == 1_000 and mid["sold"] == 500, "both sides are kept"
+
+
+def test_buyer_conviction_matches_what_the_feed_ranks_by(conn):
+    """One token, one number: the feed and the token page must not disagree."""
+    from fomo_agent.pipeline.analyze import signals
+
+    sig = next(s for s in signals(conn, "robinhood", hours=24) if s["sym"] == "PONS")
+    tok = analyze_token(conn, TOKEN, hours=24)
+    assert tok["buyer_conviction"] == pytest.approx(sig["conviction"])
