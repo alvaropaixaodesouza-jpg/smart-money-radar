@@ -4,12 +4,15 @@ Bound to loopback only. The payload is the same shape `scripts/fomo_export.js` d
 the extension and the manual console export land in `import_browser_export`.
 
     POST /ingest   JSON body -> rows in the database, replies with the import stats
+    POST /seed     a fomo session exported from a signed-in browser, held for one read
+    GET  /seed     hands that session to the collector extension and deletes it
     GET  /health   liveness + how much fomo data is already stored
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -43,8 +46,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         self._send(204, {})
 
+    def _authorized(self) -> bool:
+        return not settings.receiver_token or self.headers.get("x-agent-token") == settings.receiver_token
+
     def do_GET(self) -> None:  # noqa: N802
-        if self.path.split("?")[0] != "/health":
+        path = self.path.split("?")[0]
+        if path == "/seed":
+            # One read, then gone. A session handed over this way is somebody's login: leaving it
+            # on disk after the browser has taken it would be keeping a credential for no reason.
+            if not self._authorized():
+                return self._send(401, {"error": "bad or missing x-agent-token"})
+            seed = settings.seed_path
+            if not seed.exists():
+                return self._send(404, {"error": "no session waiting"})
+            try:
+                payload = json.loads(seed.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                return self._send(500, {"error": f"unreadable seed: {e}"})
+            finally:
+                seed.unlink(missing_ok=True)
+            log.info("seed handed over (%d local keys) and deleted",
+                     len(payload.get("local") or {}))
+            return self._send(200, payload)
+        if path != "/health":
             return self._send(404, {"error": "not found"})
         conn = db.connect()
         try:
@@ -63,10 +87,22 @@ class Handler(BaseHTTPRequestHandler):
         # of the status we are trying to tell it about
         body = self.rfile.read(min(length, MAX_BODY)) if length > 0 else b""
 
-        if self.path.split("?")[0] != "/ingest":
+        path = self.path.split("?")[0]
+        if path not in ("/ingest", "/seed"):
             return self._send(404, {"error": "not found"})
-        if settings.receiver_token and self.headers.get("x-agent-token") != settings.receiver_token:
+        if not self._authorized():
             return self._send(401, {"error": "bad or missing x-agent-token"})
+        if path == "/seed":
+            try:
+                payload = json.loads(body)
+                keys = len((payload.get("local") or {}) if isinstance(payload, dict) else {})
+            except (ValueError, UnicodeDecodeError) as e:
+                return self._send(400, {"error": f"invalid JSON: {e}"})
+            seed = settings.seed_path
+            seed.write_bytes(body)
+            os.chmod(seed, 0o600)
+            log.info("seed stored: %d local keys, waiting for the collector", keys)
+            return self._send(200, {"ok": True, "keys": keys})
         if length < 0:
             return self._send(400, {"error": "bad content-length"})
         if not body or length > MAX_BODY:

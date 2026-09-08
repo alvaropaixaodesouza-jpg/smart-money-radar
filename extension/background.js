@@ -44,12 +44,49 @@ async function fomoTab() {
   return tabs.find((t) => t.status === 'complete') || tabs[0] || null;
 }
 
+/** Take a session handed over from a browser that is already signed in, if one is waiting.
+ *
+ * The receiver holds it for exactly one read and deletes it, so this is a transfer rather than a
+ * stored credential. It only matters on a machine nobody sits at: signing in there by hand means
+ * a password through a remote desktop and a two-factor prompt on a phone in another building.
+ */
+async function takeSeed(tab) {
+  const c = await cfg();
+  let payload;
+  try {
+    const r = await fetch(c.endpoint.replace(/\/ingest$/, '/seed'), {
+      headers: c.token ? { 'x-agent-token': c.token } : {},
+    });
+    if (r.status === 404) return null;          // nothing waiting, which is the normal case
+    if (!r.ok) return { error: `seed ${r.status}` };
+    payload = await r.json();
+  } catch (e) {
+    return { error: `receiver unreachable: ${e.message}` };
+  }
+  let reply;
+  try {
+    reply = await chrome.tabs.sendMessage(tab.id, { type: 'seed', payload });
+  } catch (e) {
+    await injectInto(tab.id);
+    await new Promise((r) => setTimeout(r, 400));
+    reply = await chrome.tabs.sendMessage(tab.id, { type: 'seed', payload });
+  }
+  if (!reply || reply.error) return { error: reply ? reply.error : 'no reply' };
+  await chrome.tabs.reload(tab.id);             // the app reads its session at load, not later
+  await new Promise((r) => setTimeout(r, 6000));
+  return { wrote: reply.wrote };
+}
+
 async function collectNow(reason = 'manual') {
   const c = await cfg();
   const tab = await fomoTab();
   if (!tab) {
     await setStatus({ ok: false, reason, message: 'no fomo.family tab open' });
     return { error: 'no fomo.family tab open' };
+  }
+  const seeded = await takeSeed(tab);
+  if (seeded && seeded.wrote) {
+    await setStatus({ ok: true, reason, message: `session handed over: ${seeded.wrote.local} keys` });
   }
   // knownUserIds lets the page skip wallets we already resolved, so repeat runs stay cheap
   const known = (await chrome.storage.local.get('knownUserIds')).knownUserIds || [];

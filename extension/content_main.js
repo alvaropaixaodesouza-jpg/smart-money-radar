@@ -100,10 +100,36 @@
     return out;
   }
 
+  // --- 3. accept a session from a browser that is already signed in ---
+  // Signing in on a machine with no keyboard in front of it means an Apple or Google password
+  // through a remote desktop and a two-factor prompt on a phone somewhere else. Carrying the
+  // session across instead is the same act as staying signed in, done deliberately and once.
+  function seed(payload) {
+    const wrote = { local: 0, session: 0, cookies: 0 };
+    for (const [k, v] of Object.entries(payload.local || {})) {
+      try { window.localStorage.setItem(k, v); wrote.local++; } catch (e) { /* quota, private mode */ }
+    }
+    for (const [k, v] of Object.entries(payload.session || {})) {
+      try { window.sessionStorage.setItem(k, v); wrote.session++; } catch (e) { /* ditto */ }
+    }
+    for (const [k, v] of Object.entries(payload.cookies || {})) {
+      // A cookie the page could read is a cookie the page can set. HttpOnly ones never left the
+      // other browser in the first place, which is the point of them.
+      document.cookie = `${k}=${v}; path=/; max-age=${60 * 60 * 24 * 30}; samesite=lax`;
+      wrote.cookies++;
+    }
+    return wrote;
+  }
+
   window.addEventListener('message', async (ev) => {
     const d = ev.data;
     if (ev.source !== window || !d || !d.__fomoAgentReq) return;
     if (d.type === 'ping') return post('pong', { hasToken: !!auth });
+    if (d.type === 'seed') {
+      let wrote = null;
+      try { wrote = seed(d.payload || {}); } catch (e) { /* report it as nothing written */ }
+      return post('seeded', { id: d.id, wrote });
+    }
     if (d.type !== 'collect') return;
     try {
       post('collected', { id: d.id, data: await collect(d.payload || {}) });

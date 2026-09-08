@@ -8,7 +8,7 @@ const pending = new Map();
 window.addEventListener('message', (ev) => {
   const d = ev.data;
   if (ev.source !== window || !d || !d.__fomoAgent) return;
-  if (d.type === 'collected') {
+  if (d.type === 'collected' || d.type === 'seeded') {
     const resolve = pending.get(d.payload.id);
     if (resolve) {
       pending.delete(d.payload.id);
@@ -20,15 +20,15 @@ window.addEventListener('message', (ev) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type !== 'collect') return false;
+  if (msg.type !== 'collect' && msg.type !== 'seed') return false;
   const id = Math.random().toString(36).slice(2);
   const timer = setTimeout(() => {
-    if (pending.delete(id)) sendResponse({ error: 'collector timed out (page may still be loading)' });
-  }, 180000);
+    if (pending.delete(id)) sendResponse({ error: `${msg.type} timed out (page may still be loading)` });
+  }, msg.type === 'seed' ? 15000 : 180000);
   pending.set(id, (payload) => {
     clearTimeout(timer);
     sendResponse(payload);
   });
-  window.postMessage({ __fomoAgentReq: true, type: 'collect', id, payload: msg.payload || {} }, '*');
+  window.postMessage({ __fomoAgentReq: true, type: msg.type, id, payload: msg.payload || {} }, '*');
   return true; // keep the channel open for the async reply
 });

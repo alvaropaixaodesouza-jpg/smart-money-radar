@@ -87,3 +87,23 @@ def test_token_is_enforced_when_set(server, payload, monkeypatch):
     ok = httpx.post(f"{server}/ingest", json=payload,
                     headers={"x-agent-token": "s3cret"}, timeout=30)
     assert ok.status_code == 200
+
+
+def test_a_seed_is_held_for_exactly_one_read(server, tmp_path, monkeypatch):
+    """A handed-over session is a transfer, not a stored credential: it survives one GET."""
+    monkeypatch.setattr(settings, "seed_path", tmp_path / "fomo-session.json")
+    monkeypatch.setattr(settings, "receiver_token", "s3cret")
+    payload = {"origin": "https://fomo.family", "local": {"privy:token": "x", "privy:refresh": "y"}}
+    auth = {"x-agent-token": "s3cret"}
+
+    assert httpx.post(f"{server}/seed", json=payload, timeout=10).status_code == 401
+    r = httpx.post(f"{server}/seed", json=payload, headers=auth, timeout=10)
+    assert r.status_code == 200 and r.json()["keys"] == 2
+    assert settings.seed_path.exists()
+
+    got = httpx.get(f"{server}/seed", headers=auth, timeout=10)
+    assert got.status_code == 200 and got.json()["local"] == payload["local"]
+    assert not settings.seed_path.exists(), "read once, then gone"
+
+    assert httpx.get(f"{server}/seed", headers=auth, timeout=10).status_code == 404
+    assert httpx.get(f"{server}/seed", timeout=10).status_code == 401

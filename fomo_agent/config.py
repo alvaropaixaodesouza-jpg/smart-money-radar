@@ -104,6 +104,9 @@ class Settings:
     receiver_host: str = field(default_factory=lambda: _env("RECEIVER_HOST", "127.0.0.1"))
     receiver_port: int = field(default_factory=lambda: _int("RECEIVER_PORT", 8787))
     receiver_token: str = field(default_factory=lambda: _env("RECEIVER_TOKEN"))
+    # A fomo session handed over from a browser that is already signed in. Written once, read once
+    # by the collector extension, then deleted - it is somebody's login, not a stored credential.
+    seed_path: Path = field(default_factory=lambda: Path(_env("SEED_PATH", "fomo-session.json")))
 
     # storage
     db_path: Path = field(default_factory=lambda: Path(_env("DB_PATH", "fomo_agent.db")))
