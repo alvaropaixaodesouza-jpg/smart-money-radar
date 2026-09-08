@@ -135,6 +135,13 @@ Prices come from GeckoTerminal, which indexes this chain. DexScreener, measured 
 of 30 tokens tracked wallets were holding and priced none of them; it stays as the fallback for the
 chains it does cover.
 
+The token page's chart is drawn from GeckoTerminal's OHLCV rather than embedded. All three widgets
+were tried against a real Robinhood pool on the same day: DexScreener never leaves "Loading
+pair...", GeckoTerminal's own iframe renders its toolbar over an empty canvas, and defined.fi
+frames its entire app including a sign-in bar. The candles are free and complete, so
+`site/src/components/Chart.astro` draws them as server-rendered SVG — no third-party script, and
+the chart follows the same visual rules as the page around it.
+
 ## Commands
 
 ```
