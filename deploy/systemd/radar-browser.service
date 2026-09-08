@@ -14,12 +14,17 @@ WorkingDirectory=/opt/fomoradar
 # chrome://version and does nothing. It is force-installed by policy instead - see
 # deploy/install-extension.sh - and --disable-extensions-except would switch off exactly that.
 #
+# The debugging port binds loopback only. It is not automation in the sense sites test for - it
+# sets no navigator.webdriver - it is how the server asks this browser a question and gets an
+# answer, rather than synthesising keystrokes and photographing the result.
+#
 # Deliberately NOT headless and with no automation flags: headless Chrome announces itself in the
 # user agent, and --enable-automation sets navigator.webdriver, which is exactly what Google's
 # sign-in refuses. This is an ordinary Chrome that happens to have no physical monitor.
 ExecStart=/usr/bin/google-chrome \
   --user-data-dir=/opt/fomoradar/chrome-profile \
   --no-first-run --no-default-browser-check \
+  --remote-debugging-port=9222 --remote-allow-origins=* \
   --disable-background-timer-throttling \
   --disable-backgrounding-occluded-windows \
   --disable-renderer-backgrounding \

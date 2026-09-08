@@ -281,6 +281,30 @@ def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
     typer.echo(_run("enrich_tokens", enrich_tokens, None, limit))
 
 
+@app.command("browser")
+def browser_cmd(
+    seed: bool = typer.Option(False, "--seed", help="write the waiting session into the browser"),
+) -> None:
+    """Ask the collector browser what it sees, and optionally hand it a waiting session."""
+    from . import browser
+
+    if seed:
+        path = settings.seed_path
+        if not path.exists():
+            typer.echo(f"no session waiting at {path}")
+            raise typer.Exit(1)
+        import json as _json
+
+        wrote = browser.write_session(_json.loads(path.read_text(encoding="utf-8")))
+        path.unlink(missing_ok=True)
+        typer.echo(f"wrote {wrote} and deleted the file")
+        time.sleep(8)
+    st = browser.state()
+    typer.echo(st)
+    typer.echo("signed in" if st.get("hasToken") and not st.get("showsLogin")
+               else "NOT signed in - the page still offers a login")
+
+
 @app.command("holdings")
 def holdings_cmd(limit: int = typer.Option(None, "--limit", help="wallet/token pairs to re-read")) -> None:
     """Read what tracked wallets actually hold, off the chain. Free, and the book depends on it."""

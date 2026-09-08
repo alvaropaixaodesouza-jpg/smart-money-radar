@@ -106,6 +106,9 @@ class Settings:
     receiver_token: str = field(default_factory=lambda: _env("RECEIVER_TOKEN"))
     # A fomo session handed over from a browser that is already signed in. Written once, read once
     # by the collector extension, then deleted - it is somebody's login, not a stored credential.
+    # DevTools port of the collector browser. Loopback only; it is how the server asks that
+    # browser a question instead of typing at it and photographing the result.
+    browser_debug_port: int = field(default_factory=lambda: _int("BROWSER_DEBUG_PORT", 9222))
     seed_path: Path = field(default_factory=lambda: Path(
         _env("SEED_PATH") or (Path(_env("DB_PATH", "fomo_agent.db")).parent / "fomo-session.json")))
 
