@@ -20,6 +20,7 @@ async function render() {
     `<span class="${s.ok ? 'ok' : 'bad'}">${s.ok ? 'ok' : 'idle / error'}</span> · last run ${when}` +
     `\n${s.message || ''}` +
     (s.counts ? `\nleaderboards ${s.counts.leaderboards}, wallets ${s.counts.swaps}, positions ${s.counts.trades || 0}` : '') +
+    (s.seed ? `\nsession handover: ${s.seed}` : '') +
     `\nresolved so far: ${known}` +
     (s.response ? `\nreceiver: ${s.response}` : '');
 }

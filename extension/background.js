@@ -61,7 +61,7 @@ async function takeSeed(tab) {
     if (!r.ok) return { error: `seed ${r.status}` };
     payload = await r.json();
   } catch (e) {
-    return { error: `receiver unreachable: ${e.message}` };
+    return { error: `receiver unreachable: ${e && e.message ? e.message : e}` };
   }
   let reply;
   try {
@@ -84,10 +84,14 @@ async function collectNow(reason = 'manual') {
     await setStatus({ ok: false, reason, message: 'no fomo.family tab open' });
     return { error: 'no fomo.family tab open' };
   }
+  // Whatever the handover did, say so. A silent failure here looks exactly like "nothing was
+  // waiting", and the two need different fixes.
   const seeded = await takeSeed(tab);
-  if (seeded && seeded.wrote) {
-    await setStatus({ ok: true, reason, message: `session handed over: ${seeded.wrote.local} keys` });
-  }
+  await setStatus({
+    seed: !seeded ? 'nothing waiting'
+      : seeded.error ? `failed: ${seeded.error}`
+      : `handed over ${seeded.wrote.local} keys`,
+  });
   // knownUserIds lets the page skip wallets we already resolved, so repeat runs stay cheap
   const known = (await chrome.storage.local.get('knownUserIds')).knownUserIds || [];
   const msg = {
