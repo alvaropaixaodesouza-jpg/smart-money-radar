@@ -98,6 +98,12 @@ dependency beyond a webfont — with three views:
 
 - **Signals** — tokens that two or more traders scoring 60+ bought inside the window, ranked by how
   many agree, next to a live tape of every fill by a trusted wallet.
+- **Fresh** (`/fresh` on the site, `/api/fresh`, `/fresh` in the bot) — only the names the cohort
+  has *just started* buying: a token qualifies when its first trusted buy lands inside the window.
+  Ranked by **heat**, which is conviction scaled by how soon after the launch each wallet arrived —
+  full weight at the pool opening, half an hour later, a tenth after ten hours. Pools with less
+  than the liquidity floor left are counted under the table rather than ranked; on a live window
+  the token with the most trusted buyers of all had twenty-nine dollars left in it.
 - **Tokens** — everything the cohort still holds, ranked by unrealised profit, with what it cost
   them and the multiple that implies.
 - **Traders** — the scored roster: a verdict, the reasoning, the figures behind it, and each
