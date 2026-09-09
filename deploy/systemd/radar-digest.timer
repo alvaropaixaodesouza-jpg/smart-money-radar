@@ -1,0 +1,13 @@
+[Unit]
+Description=FOMO Robinhood Radar - daily digest
+
+[Timer]
+# Evening UTC, which is the morning for nobody and the afternoon for most of the cohort. The
+# window it reports is the last 24h, so the hour only decides where the day is cut, not what is in
+# it. Persistent so a machine that was off still sends one rather than silently skipping a day.
+OnCalendar=*-*-* 18:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -308,6 +309,35 @@ def health_cmd(
     finally:
         conn.close()
     raise typer.Exit(0 if r["ok"] else 1)
+
+
+@app.command("digest")
+def digest_cmd(
+    hours: int = typer.Option(24, "--hours", help="window the digest covers"),
+    push: bool = typer.Option(False, "--push", help="send it to every bot subscriber"),
+) -> None:
+    """The day in one message: what came in, what went out, who joined, what is broken."""
+    from .bot import fmt_digest
+    from .pipeline.digest import daily
+
+    conn = db.connect()
+    try:
+        chain = settings.dex_chains[0] if settings.dex_chains else None
+        text = fmt_digest(daily(conn, hours=hours, chain=chain))
+        typer.echo(re.sub(r"<[^>]+>", "", text))
+        if push:
+            from .bot import Telegram, subscribers
+
+            tg, sent = Telegram(), 0
+            for chat in subscribers(conn):
+                try:
+                    tg.send(chat["chat_id"], text)
+                    sent += 1
+                except Exception as e:  # noqa: BLE001 - one blocked chat must not stop the rest
+                    logging.getLogger("digest").warning("send failed: %s", e)
+            typer.echo(f"pushed to {sent} subscribers")
+    finally:
+        conn.close()
 
 
 @app.command("calibrate")

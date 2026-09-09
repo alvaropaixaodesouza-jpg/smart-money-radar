@@ -1,0 +1,16 @@
+[Unit]
+Description=FOMO Robinhood Radar - daily digest to subscribers
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli digest --push
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

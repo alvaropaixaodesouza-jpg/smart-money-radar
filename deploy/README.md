@@ -21,6 +21,7 @@ Xvfb, the one piece that would make fomo collection fully unattended.
 | `radar-collect.timer` | resolve → track → name tokens, every 15 min | — |
 | `radar-backup.timer` | sqlite `.backup` nightly, 14 kept | — |
 | `radar-health.timer` | what is quietly broken, pushed to the bot at 07:40 | — |
+| `radar-digest.timer` | the day in one message to every subscriber, 18:00 | — |
 | `radar-xvfb` / `radar-wm` / `radar-browser` | the signed-in Chrome that collects fomo | — |
 | `radar-crx` | serves the extension's update manifest to that Chrome | 127.0.0.1:8098 |
 | `caddy` | the only thing listening publicly | 80, 443 |

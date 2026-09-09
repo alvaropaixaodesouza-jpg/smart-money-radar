@@ -198,6 +198,53 @@ def fmt_exits(leaving: list[dict], hours: int, now: int | None = None) -> str:
     return "\n".join(out)
 
 
+def fmt_digest(d: dict) -> str:
+    """The day in one message. Five things that change a decision, and nothing else."""
+    from .pipeline.digest import is_quiet
+
+    c = d["counts"]
+    head = (f"<b>THE DAY · {d['hours']}h</b>\n"
+            f"<i>{c.get('active', 0)} follow · {c.get('watch', 0)} watch · "
+            f"{c.get('dropped', 0)} dropped</i>")
+    if is_quiet(d):
+        return (f"{head}\n\nNothing moved: no trusted wallet entered or left a position, no launch "
+                "drew the cohort in, nobody new was scored.\n\nThat is information too.")
+
+    out = [head, ""]
+    if d["fresh"]:
+        out.append("<b>Launches they entered</b>")
+        for t in d["fresh"]:
+            out.append(f"  ${esc(t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, "
+                       f"first {t['lead_minutes']:.0f}m after the pool opened")
+    if d["signals"]:
+        out.append("\n<b>Bought</b>")
+        for s in d["signals"]:
+            out.append(f"  ${esc(s['sym'])}  conviction {s['conviction']:.1f} · "
+                       f"{s['buyers']} wallets · {analyze.usd(s['usd'])}")
+    if d["exits"]:
+        out.append("\n<b>Left</b>")
+        for t in d["exits"]:
+            gone = f", {t['gone']} out entirely" if t["gone"] else ""
+            out.append(f"  ${esc(t['sym'])}  {t['sellers']} selling{gone} · "
+                       f"{analyze.usd(t['usd'])} out")
+    if d["theses"]:
+        out.append("\n<b>Said</b>")
+        for th in d["theses"]:
+            out.append(f"  <b>{esc(th['handle'])}</b> {th['score']} on ${esc(th['sym'])}\n"
+                       f"  <i>{esc(th['text'][:180])}</i>")
+    if d["joined_n"]:
+        who = " · ".join(f"{esc(j['handle'] or short(j['address']))} {j['score']}"
+                         for j in d["joined"])
+        more = f" (+{d['joined_n'] - len(d['joined'])} more)" if d["joined_n"] > len(d["joined"]) else ""
+        out.append(f"\n<b>Joined the roster</b>\n  {who}{more}")
+
+    h = d["health"]
+    if not h["ok"]:
+        bad = ", ".join(c["name"] for c in h["checks"] if not c["ok"])
+        out.append(f"\n⚠ <b>Broken:</b> {esc(bad)} — /health")
+    return "\n".join(out)
+
+
 def fmt_fresh(feed: dict, now: int | None = None) -> str:
     """The launches the cohort is entering, hottest first."""
     tokens = feed.get("tokens") or []
@@ -356,6 +403,7 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 /signals — what trusted wallets are buying now
 /fresh — launches they are entering right now
 /exits — where they are getting out
+/digest — the last day in one message
 /top — the scored leaderboard
 /watch, /dropped — the other two verdicts
 /subscribe — get launches and signals pushed as they happen
@@ -506,6 +554,10 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None
         return fmt_fresh(analyze.fresh(conn, chain, hours=hours, limit=10))
+    if cmd == "/digest":
+        from .pipeline.digest import daily
+        chain = settings.dex_chains[0] if settings.dex_chains else None
+        return fmt_digest(daily(conn, hours=24, chain=chain))
     if cmd == "/exits":
         hours = int(args[0]) if args and args[0].isdigit() else 6
         chain = settings.dex_chains[0] if settings.dex_chains else None
