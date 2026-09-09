@@ -142,27 +142,41 @@
   //
   // chrome.alarms is the obvious home for this and it does not hold. In Manifest V3 the service
   // worker is torn down when idle and the alarm is meant to wake it; on the collector machine it
-  // stopped waking it after a few hours, with the browser still signed in and nothing failing.
-  // A page timer has no such lifecycle: this tab is always open, and the browser is started with
-  // background timer throttling disabled precisely so this keeps ticking.
+  // stopped waking it after a few hours, twice, with the browser still signed in and nothing
+  // failing. A page timer has no such lifecycle: this tab is always open, and the browser is
+  // started with background timer throttling disabled precisely so this keeps ticking.
   //
-  // The page collects and hands the result to the extension, which is the one thing it cannot do
-  // itself - the receiver is plain http and this page is https, so the post has to happen outside.
+  // The page collects and hands the result to the extension, which does the one part the page
+  // cannot: posting to a plain-http receiver from an https page.
+  const EVERY_MS = 30 * 60 * 1000;
   let busy = false;
-  async function tick(minutes) {
-    if (busy || !auth) return;
+  let collected = 0;
+
+  async function tick() {
+    // The token is learned by watching the app's own requests, so the first minutes after a load
+    // have nothing to collect with. Waiting out a whole period for that would mean a browser that
+    // just restarted sits idle for half an hour.
+    if (busy || !auth) return false;
     busy = true;
     try {
       post('autocollect', await collect({ resolveTop: 25, withPositions: true }));
+      collected += 1;
+      return true;
     } catch (e) {
-      console.warn(`[${TAG}] scheduled collection failed:`, e && e.message);
+      console.warn(`[${TAG}] scheduled collection failed:`, (e && e.message) || e);
+      return false;
     } finally {
       busy = false;
     }
   }
-  // The first run waits for the app to make a request, which is where the token comes from.
-  setTimeout(() => tick(), 20000);
-  setInterval(() => tick(), 30 * 60 * 1000);
+
+  // Try often until the first one lands, then settle into the real interval.
+  const opening = setInterval(async () => {
+    if (await tick()) {
+      clearInterval(opening);
+      setInterval(tick, EVERY_MS);
+    }
+  }, 20000);
 
   post('ready', {});
   console.log(`[${TAG}] collector injected`);
