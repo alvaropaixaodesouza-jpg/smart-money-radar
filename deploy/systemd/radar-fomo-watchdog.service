@@ -1,0 +1,7 @@
+[Unit]
+Description=FOMO Robinhood Radar - restart the collector browser if fomo collection has stalled
+
+[Service]
+Type=oneshot
+# root, because the whole job is to restart another unit.
+ExecStart=/opt/fomoradar/app/deploy/fomo-watchdog.sh 45

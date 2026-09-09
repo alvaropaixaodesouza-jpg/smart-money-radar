@@ -77,9 +77,12 @@ def evaluate(expression: str, match: str = "fomo.family", port: int | None = Non
     """Run one expression in a page or a service worker and return its value.
 
     Everything goes through the browser's own socket with an attached session rather than a
-    target's socket directly. A page answers either way; an extension's service worker only
-    answers this one - connect to its socket on its own and it stays paused, replying to nothing,
-    which is indistinguishable from a hang.
+    target's socket directly.
+
+    An extension's service worker cannot be reached at all: attaching to its own socket leaves it
+    paused and silent, and attaching through the browser answers "Not allowed" - Chrome does not
+    let a debugger into an extension. That is why the fomo collection is kept alive by restarting
+    the browser (deploy/fomo-watchdog.sh) rather than by calling into it from here.
 
     Anything the expression throws comes back as a BrowserError carrying the page's own message,
     because a silent failure here is what this module exists to stop.
@@ -154,54 +157,6 @@ SIGNED_IN = """(() => {
 def state(port: int | None = None) -> dict:
     """What the fomo tab currently is: signed in, or showing a login button."""
     return evaluate(SIGNED_IN, port=port) or {}
-
-
-def collect(port: int | None = None, timeout: float = 30.0) -> dict:
-    """Make the collector run now, from here rather than from Chrome's own alarm.
-
-    The extension schedules itself with `chrome.alarms`, and in Manifest V3 that is a request
-    rather than a promise: the service worker is torn down when idle and the alarm is supposed to
-    wake it. Observed on this box, it stopped waking it after a few hours - collections simply
-    stopped, with the browser still signed in and nothing anywhere complaining.
-
-    A systemd timer does not have that problem. So the schedule moves to the server and the
-    extension keeps only the part it is uniquely able to do: making the requests from inside a
-    signed-in page. Its own alarm stays as a fallback for whenever nobody is asking.
-    """
-    import time as _time
-
-    call = "collectNow('server'); true"
-    if not _worker_awake(port):
-        # A dormant Manifest V3 worker is not listed as a target at all, so there is nothing to
-        # call. Reloading the page wakes it: the content script messages the extension the moment
-        # it sees an auth header, and that message is what starts the worker.
-        #
-        # The reload is deliberately not awaited. Navigating destroys the execution context the
-        # evaluate is running in, so the reply never comes and the call hangs until it times out;
-        # handing it to setTimeout lets the evaluate return before the page goes away.
-        log.info("collector worker is asleep; reloading the page to wake it")
-        evaluate("setTimeout(() => location.reload(), 50); true", port=port, timeout=15)
-        for _ in range(20):
-            _time.sleep(3)
-            if _worker_awake(port):
-                break
-        else:
-            raise BrowserError("the collector's service worker never woke up")
-    # Started, not awaited. A pass takes minutes of deliberately paced requests, and holding a
-    # devtools socket open across it only invents a second thing that can time out. Whether it
-    # worked is a question for the receiver's log and the health check, which is where anyone
-    # would look anyway.
-    evaluate(call, match="background.js", port=port, timeout=timeout)
-    return {"started": True}
-
-
-def _worker_awake(port: int | None = None) -> bool:
-    """Is the extension's service worker running? It only appears as a target while it is."""
-    try:
-        return any(t.get("type") == "service_worker" and "background.js" in (t.get("url") or "")
-                   for t in targets(port))
-    except BrowserError:
-        return False
 
 
 def write_session(payload: dict, port: int | None = None) -> dict:

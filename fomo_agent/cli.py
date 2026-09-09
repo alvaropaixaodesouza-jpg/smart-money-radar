@@ -310,18 +310,6 @@ def health_cmd(
     raise typer.Exit(0 if r["ok"] else 1)
 
 
-@app.command("collect-fomo")
-def collect_fomo_cmd() -> None:
-    """Make the collector browser pull fomo now. The server's schedule, not Chrome's."""
-    from . import browser
-
-    try:
-        typer.echo(browser.collect())
-    except browser.BrowserError as e:
-        typer.echo(f"could not reach the collector: {e}")
-        raise typer.Exit(1)
-
-
 @app.command("backfill")
 def backfill_cmd(
     days: int = typer.Option(30, "--days", help="how far back to walk"),

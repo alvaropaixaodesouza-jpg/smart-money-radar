@@ -1,0 +1,11 @@
+[Unit]
+Description=FOMO Robinhood Radar - watch the fomo collection
+
+[Timer]
+# Checks four times an hour, acts only when nothing has arrived for 45 minutes. The collection
+# itself runs every 30, so one missed pass is normal and two is a stall.
+OnBootSec=10min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target
