@@ -1,0 +1,30 @@
+# Line endings, decided here rather than by whichever machine last touched a file.
+#
+# This repo is edited on Windows and runs on Linux, so git helpfully converts on checkout — and a
+# shell script that arrives with CRLF fails in a way that reads like a shell bug: bash sees the
+# trailing carriage return as part of the last token and reports `set: pipefail: invalid option
+# name`. Three deploy scripts shipped that way before anyone noticed.
+#
+# Everything that is executed or parsed on the server is pinned to LF. Windows batch files are
+# pinned the other way: cmd.exe needs CRLF.
+
+* text=auto
+
+*.sh            text eol=lf
+*.service       text eol=lf
+*.timer         text eol=lf
+*.conf          text eol=lf
+Caddyfile       text eol=lf
+*.py            text eol=lf
+*.js            text eol=lf
+*.json          text eol=lf
+*.astro         text eol=lf
+*.css           text eol=lf
+*.ts            text eol=lf
+*.md            text eol=lf
+
+*.bat           text eol=crlf
+
+*.png           binary
+*.ttf           binary
+*.db            binary
