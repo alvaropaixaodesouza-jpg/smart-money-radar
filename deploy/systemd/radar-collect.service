@@ -16,6 +16,10 @@ ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli holdings
 # Fresh launches are the whole point of the /fresh feed, and this is what puts a launch time on
 # them. It was only ever in the `run` loop, which nothing on this machine runs.
 ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli new-tokens
+# fomo last, because it is the only step that depends on a browser being awake. Chrome's own
+# alarm stopped firing after a few hours here with nothing to show for it; a timer does not.
+# `-` so a browser that is signed out or restarting does not fail the whole pass.
+ExecStart=-/opt/fomoradar/venv/bin/python -m fomo_agent.cli collect-fomo
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

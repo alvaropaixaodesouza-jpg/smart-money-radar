@@ -43,11 +43,19 @@ def targets(port: int | None = None) -> list[dict]:
     return [t for t in r.json() if isinstance(t, dict)]
 
 
+# A page and an extension's service worker are both things we ask questions of, and the worker is
+# the more useful of the two: it is where the collector actually lives.
+DRIVABLE = ("page", "service_worker")
+
+
 def find_target(match: str, port: int | None = None) -> dict:
-    pages = [t for t in targets(port) if t.get("type") == "page" and match in (t.get("url") or "")]
-    if not pages:
-        raise BrowserError(f"no open page whose url contains {match!r}")
-    return pages[0]
+    found = [t for t in targets(port)
+             if t.get("type") in DRIVABLE and match in (t.get("url") or "")]
+    if not found:
+        raise BrowserError(f"nothing open whose url contains {match!r}")
+    # A page beats a worker when both match, because a bare url fragment usually means the page.
+    found.sort(key=lambda t: t.get("type") != "page")
+    return found[0]
 
 
 def evaluate(expression: str, match: str = "fomo.family", port: int | None = None,
@@ -110,6 +118,24 @@ SIGNED_IN = """(() => {
 def state(port: int | None = None) -> dict:
     """What the fomo tab currently is: signed in, or showing a login button."""
     return evaluate(SIGNED_IN, port=port) or {}
+
+
+def collect(port: int | None = None, timeout: float = 240.0) -> dict:
+    """Make the collector run now, from here rather than from Chrome's own alarm.
+
+    The extension schedules itself with `chrome.alarms`, and in Manifest V3 that is a request
+    rather than a promise: the service worker is torn down when idle and the alarm is supposed to
+    wake it. Observed on this box, it stopped waking it after a few hours - collections simply
+    stopped, with the browser still signed in and nothing anywhere complaining.
+
+    A systemd timer does not have that problem. So the schedule moves to the server and the
+    extension keeps only the part it is uniquely able to do: making the requests from inside a
+    signed-in page. Its own alarm stays as a fallback for whenever nobody is asking.
+    """
+    return evaluate(
+        "collectNow('server').then(r => JSON.stringify(r || {}))",
+        match="background.js", port=port, timeout=timeout,
+    )
 
 
 def write_session(payload: dict, port: int | None = None) -> dict:
