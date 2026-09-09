@@ -58,9 +58,28 @@ def find_target(match: str, port: int | None = None) -> dict:
     return found[0]
 
 
+def browser_ws(port: int | None = None) -> str:
+    """The browser's own debugger socket, as opposed to any one target's."""
+    port = port or settings.browser_debug_port
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/json/version", timeout=10)
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise BrowserError(f"no browser answering on 127.0.0.1:{port} ({e})") from e
+    url = r.json().get("webSocketDebuggerUrl")
+    if not url:
+        raise BrowserError("the browser exposes no debugger socket")
+    return url
+
+
 def evaluate(expression: str, match: str = "fomo.family", port: int | None = None,
              timeout: float = 30.0) -> Any:
-    """Run one expression in a page and return its value.
+    """Run one expression in a page or a service worker and return its value.
+
+    Everything goes through the browser's own socket with an attached session rather than a
+    target's socket directly. A page answers either way; an extension's service worker only
+    answers this one - connect to its socket on its own and it stays paused, replying to nothing,
+    which is indistinguishable from a hang.
 
     Anything the expression throws comes back as a BrowserError carrying the page's own message,
     because a silent failure here is what this module exists to stop.
@@ -72,26 +91,38 @@ def evaluate(expression: str, match: str = "fomo.family", port: int | None = Non
     except ImportError as e:  # pragma: no cover - only ever hit off the server
         raise BrowserError("this needs `websockets` (pip install '.[api]')") from e
 
-    ws_url = find_target(match, port).get("webSocketDebuggerUrl")
-    if not ws_url:
-        raise BrowserError("that page exposes no debugger socket")
+    target_id = find_target(match, port).get("id")
+    if not target_id:
+        raise BrowserError("that target has no id")
+    ws_url = browser_ws(port)
 
     async def run() -> Any:
         async with websockets.connect(ws_url, max_size=64 * 1024 * 1024) as ws:
-            # Attaching to a service worker pauses it until it is told to carry on, and a paused
-            # worker answers nothing - the evaluate simply never returns. Pages ignore both of
-            # these, so they are sent unconditionally rather than branching on target type.
-            await ws.send(json.dumps({"id": 90, "method": "Runtime.enable"}))
-            await ws.send(json.dumps({"id": 91, "method": "Runtime.runIfWaitingForDebugger"}))
             await ws.send(json.dumps({
-                "id": 1, "method": "Runtime.evaluate",
+                "id": 1, "method": "Target.attachToTarget",
+                "params": {"targetId": target_id, "flatten": True},
+            }))
+            session = None
+            while session is None:
+                msg = json.loads(await ws.recv())
+                if msg.get("id") == 1:
+                    if "error" in msg:
+                        raise BrowserError(f"could not attach: {msg['error']}")
+                    session = (msg.get("result") or {}).get("sessionId")
+
+            # A worker attached to for the first time is paused until it is told to carry on.
+            await ws.send(json.dumps({"id": 2, "method": "Runtime.enable", "sessionId": session}))
+            await ws.send(json.dumps({"id": 3, "method": "Runtime.runIfWaitingForDebugger",
+                                      "sessionId": session}))
+            await ws.send(json.dumps({
+                "id": 4, "method": "Runtime.evaluate", "sessionId": session,
                 "params": {"expression": expression, "awaitPromise": True,
                            "returnByValue": True, "userGesture": True},
             }))
             while True:
                 msg = json.loads(await ws.recv())
-                if msg.get("id") != 1:
-                    continue          # an event; we only asked one question
+                if msg.get("id") != 4:
+                    continue          # an event, or one of the setup replies
                 if "error" in msg:
                     raise BrowserError(f"devtools refused: {msg['error']}")
                 result = msg.get("result") or {}
