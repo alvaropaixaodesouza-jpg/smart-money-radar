@@ -17,25 +17,57 @@
   const API = 'https://prod-api.fomo.family';
   const TAG = 'fomo-agent';
   let auth = null;
+  let authAt = 0;
   let lastBridge = null;
 
   const post = (type, payload) => window.postMessage({ __fomoAgent: true, type, payload }, '*');
 
   // --- 1. capture the token ---
+  //
+  // Counted as well as captured. A collector that reports "no token" cannot say whether the app
+  // made no requests, made them without a bearer, or made them somewhere this hook cannot see -
+  // and those need different fixes. The counters are on window.__fomoAgent.
+  let apiCalls = 0, authCalls = 0, xhrCalls = 0;
+
   const origFetch = window.fetch;
   window.fetch = function (input, init) {
     try {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
       if (url.includes('prod-api.fomo.family')) {
+        apiCalls += 1;
         const h = new Headers((init && init.headers) || (input instanceof Request ? input.headers : undefined));
         const a = h.get('authorization');
+        if (a) authCalls += 1;
         if (a && a !== auth) {
           auth = a;
-          post('token', { ok: true, at: Date.now() });
+          authAt = Date.now();
+          post('token', { ok: true, at: authAt });
         }
       }
     } catch (e) { /* never break the app */ }
     return origFetch.apply(this, arguments);
+  };
+
+  // The app may reach the API through XMLHttpRequest rather than fetch, and a token that arrives
+  // that way is just as good. Same treatment, so neither path is the one we happen to miss.
+  const origOpen = XMLHttpRequest.prototype.open;
+  const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    try { this.__fomoUrl = String(url || ''); } catch (e) { /* ignore */ }
+    return origOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    try {
+      if ((this.__fomoUrl || '').includes('prod-api.fomo.family')) {
+        xhrCalls += 1;
+        if (String(name).toLowerCase() === 'authorization' && value && value !== auth) {
+          auth = value;
+          authAt = Date.now();
+          post('token', { ok: true, at: authAt });
+        }
+      }
+    } catch (e) { /* never break the app */ }
+    return origSetHeader.apply(this, arguments);
   };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -146,6 +178,8 @@
   // Reading it changes nothing.
   window.__fomoAgent = {
     get hasToken() { return !!auth; },
+    get tokenAgeMin() { return authAt ? Math.round((Date.now() - authAt) / 60000) : null; },
+    get seen() { return { apiCalls, authCalls, xhrCalls }; },
     get lastBridge() { return lastBridge; },
   };
 
