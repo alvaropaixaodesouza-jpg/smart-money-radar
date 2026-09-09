@@ -132,10 +132,27 @@ def collect(port: int | None = None, timeout: float = 240.0) -> dict:
     extension keeps only the part it is uniquely able to do: making the requests from inside a
     signed-in page. Its own alarm stays as a fallback for whenever nobody is asking.
     """
-    return evaluate(
-        "collectNow('server').then(r => JSON.stringify(r || {}))",
-        match="background.js", port=port, timeout=timeout,
-    )
+    import time as _time
+
+    call = "collectNow('server').then(r => JSON.stringify(r || {}))"
+    try:
+        return evaluate(call, match="background.js", port=port, timeout=timeout)
+    except BrowserError as e:
+        if "nothing open" not in str(e):
+            raise
+    # A dormant worker is not listed as a target at all, so it has to be woken before it can be
+    # asked anything. Reloading the page does it: the content script messages the extension the
+    # moment it sees an auth header, and that message is what starts the worker.
+    log.info("collector worker is asleep; reloading the page to wake it")
+    evaluate("location.reload(); true", port=port)
+    for _ in range(12):
+        _time.sleep(5)
+        try:
+            return evaluate(call, match="background.js", port=port, timeout=timeout)
+        except BrowserError as e:
+            if "nothing open" not in str(e):
+                raise
+    raise BrowserError("the collector's service worker never woke up")
 
 
 def write_session(payload: dict, port: int | None = None) -> dict:
