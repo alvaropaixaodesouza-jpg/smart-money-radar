@@ -209,11 +209,13 @@ def canvas(w: int, h: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
     return im, ImageDraw.Draw(im)
 
 
-def save(im: Image.Image, name: str, w: int, h: int) -> None:
+def save(im: Image.Image, name: str, w: int, h: int, where: pathlib.Path | None = None) -> None:
     out = im.resize((w, h), Image.LANCZOS)
-    path = HERE / name
+    path = (where or HERE) / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     out.save(path, "PNG", optimize=True)
-    print(f"{name:34} {w}x{h}  {path.stat().st_size // 1024} KB")
+    rel = path.relative_to(HERE.parent.parent)
+    print(f"{str(rel):44} {w}x{h}  {path.stat().st_size // 1024} KB")
 
 
 # ---------------------------------------------------------------- the assets
@@ -229,7 +231,8 @@ def avatar(name: str, side: int = 512, solid: bool = False) -> None:
     save(im, name, side, side)
 
 
-def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True) -> None:
+def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True,
+           where: pathlib.Path | None = None) -> None:
     """Wide artwork: description picture, /start photo, link preview.
 
     One left edge for everything below the lockup — a grid built from hairlines cannot afford two
@@ -282,7 +285,7 @@ def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True) -> 
         small = "ROBINHOOD CHAIN 4663   ·   READ-ONLY RESEARCH   ·   NEVER TRADES"
         fs, ts = mono_fit(small, inner, H * 0.034)
         draw_runs(d, pad, H * 0.935, [(small, fs)], CARBON, ts)
-    save(im, name, w, h)
+    save(im, name, w, h, where)
 
 
 if __name__ == "__main__":
@@ -290,4 +293,6 @@ if __name__ == "__main__":
     avatar("tg-avatar-solid-512.png", solid=True)
     banner("tg-description-640x360.png", 640, 360, footnote=False)
     banner("tg-start-1280x640.png", 1280, 640, note="/signals  /fresh  /token  /trader")
-    banner("og-1200x630.png", 1200, 630, note="193.233.209.98")
+    # The link preview is written straight into the site so there is one file rather than two
+    # copies that can drift; Base.astro points og:image and twitter:image at it.
+    banner("og.png", 1200, 630, note="193.233.209.98", where=HERE.parent.parent / "site" / "public")

@@ -37,7 +37,11 @@ sudo -u radar /opt/fomoradar/venv/bin/python -m pytest -q 2>&1 | tail -1
 
 cd "$APP/site"
 sudo -u radar npm install --silent --no-fund --no-audit
-sudo -u radar npm run build 2>&1 | grep -E "error|Complete!" | tail -1
+# Astro bakes `site` into the SSR bundle at build time, so the canonical, og:url and og:image
+# addresses are decided here rather than by the unit file. Without this the pages ship claiming
+# whatever the config default happens to be, which is a domain we do not serve.
+SITE_URL="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$APP/.env" | tail -1)"
+sudo -u radar env PUBLIC_SITE_URL="$SITE_URL" npm run build 2>&1 | grep -E "error|Complete!" | tail -1
 
 systemctl restart radar-api radar-site radar-bot radar-receive
 sleep 5

@@ -7,12 +7,15 @@ interface Props {
   description: string;
   /** Which nav item is current */
   section?: 'signals' | 'fresh' | 'leaderboard' | 'about' | null;
-  /** Rendered into og:image alt and the page's own h1 is left to the page */
+  /** Keep this page out of search results (thin or address-specific pages) */
   noindex?: boolean;
 }
 const { title, description, section = null, noindex = false } = Astro.props;
-const site = Astro.site?.origin ?? '';
-const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://fomoradar.xyz').href;
+const base = Astro.site ?? new URL('https://fomoradar.xyz');
+const canonical = new URL(Astro.url.pathname, base).href;
+// Crawlers need an absolute URL and a raster: Telegram, Twitter and Slack all refuse SVG.
+// site/public/og.png is written by assets/brand/make_brand.py from the same mark as everything else.
+const ogImage = new URL('/og.png', base).href;
 ---
 <!doctype html>
 <html lang="en">
@@ -25,13 +28,19 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://fomoradar.x
   {noindex && <meta name="robots" content="noindex" />}
 
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="FOMO Robinhood Radar" />
   <meta property="og:title" content={title} />
   <meta property="og:description" content={description} />
   <meta property="og:url" content={canonical} />
+  <meta property="og:image" content={ogImage} />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="FOMO Robinhood Radar" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content={title} />
   <meta name="twitter:description" content={description} />
-  {site && <meta property="og:image" content={`${site}/banner.svg`} />}
+  <meta name="twitter:image" content={ogImage} />
 
   <meta name="theme-color" content="#000000" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
