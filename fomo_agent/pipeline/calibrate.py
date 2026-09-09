@@ -125,9 +125,14 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
         b.pop("returns")
 
     ranked = [bands[n] for _, _, n in BANDS]
+    ages = sorted((db.now() - v["ts"]) / 86400 for v in verdicts.values())
     return {
         "bands": ranked,
         "scored_wallets": len(verdicts),
+        # How long the verdicts have had to be right. Without it the table is unreadable: 0.88x
+        # over three days and 0.88x over a year are not the same claim.
+        "median_age_days": statistics.median(ages) if ages else None,
+        "oldest_age_days": ages[-1] if ages else None,
         "positions": sum(b["closed"] for b in ranked),
         "min_usd": min_usd,
         # The claim the product makes, reduced to one boolean per reading: did the top band come
@@ -145,8 +150,11 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
 
 def report(result: dict) -> str:
     """The table, plus the caveat. Never print one without the other."""
+    age = (f"a median of {result['median_age_days']:.1f} days, longest {result['oldest_age_days']:.1f}"
+           if result.get("median_age_days") is not None else "an unknown period")
     out = [f"Positions opened *after* the verdict that assigned the band, over "
-           f"${result['min_usd']:.0f}. Two readings, because neither alone is honest.", ""]
+           f"${result['min_usd']:.0f}. Verdicts have had {age} to be right.",
+           "Two readings, because neither alone is honest.", ""]
     out.append(f"{'band':<9}{'wallets':>8}{'closed':>8}{'win':>7}{'median':>9}{'realized':>10}"
                f"{'  ':>3}{'all':>7}{'marked':>9}")
     for b in result["bands"]:
@@ -176,4 +184,10 @@ def report(result: dict) -> str:
                "well a cohort cuts losses. Marked measures whether it picks winners, and pays for "
                "that by trusting a price quote.")
     out.append("Small counts mean nothing; wallets that stopped trading stop contributing.")
+    out.append("")
+    out.append("READ THE COLUMNS AGAINST EACH OTHER, NOT AGAINST 1.00x. There is no market "
+               "benchmark here yet, so an absolute figure below a dollar does not mean the cohort "
+               "lost to the market — over a week when every token fell, 0.88x could be the best "
+               "result on the chain. What the table can support is the comparison between bands, "
+               "and only that.")
     return "\n".join(out)
