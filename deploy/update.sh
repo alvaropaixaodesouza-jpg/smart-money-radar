@@ -27,6 +27,17 @@ APP=/opt/fomoradar/app
 # .env is preserved across every deploy: it is the one file the server owns, not the repo
 cp "$APP/.env" /tmp/.env.keep
 tar -xzf /tmp/radar-app.tgz -C "$APP"
+
+# Windows line endings do not survive contact with a shell. The repo is edited on a Windows box,
+# git converts on checkout, and any tool that writes a file with platform newlines puts them back
+# - which is how install-extension.sh once failed with `set: pipefail: invalid option name`, a
+# message that reads like a bash bug and is a carriage return. Normalising here rather than
+# trusting the packing machine means no future edit anywhere can break a deploy this way.
+# The carriage return is built with printf rather than written as an escape, because a literal one
+# in this file would be stripped by the very normalising this line performs.
+CR=$(printf '\015')
+find "$APP/deploy" -type f \( -name '*.sh' -o -name '*.service' -o -name '*.timer' \
+     -o -name '*.conf' -o -name 'Caddyfile' \) -exec sed -i "s/${CR}\$//" {} +
 install -o radar -g radar -m 600 /tmp/.env.keep "$APP/.env"
 rm -f /tmp/.env.keep /tmp/radar-app.tgz
 chown -R radar:radar "$APP"
