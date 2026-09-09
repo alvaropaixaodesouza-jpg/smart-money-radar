@@ -16,6 +16,7 @@ window.addEventListener('message', (ev) => {
     }
     return;
   }
+  // An autocollect carries a whole collection back to the worker, which is also what wakes it.
   chrome.runtime.sendMessage({ type: d.type, payload: d.payload }).catch(() => {});
 });
 

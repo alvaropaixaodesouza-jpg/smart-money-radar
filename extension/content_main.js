@@ -138,6 +138,32 @@
     }
   });
 
+  // --- 4. the schedule, kept here rather than in the extension ---
+  //
+  // chrome.alarms is the obvious home for this and it does not hold. In Manifest V3 the service
+  // worker is torn down when idle and the alarm is meant to wake it; on the collector machine it
+  // stopped waking it after a few hours, with the browser still signed in and nothing failing.
+  // A page timer has no such lifecycle: this tab is always open, and the browser is started with
+  // background timer throttling disabled precisely so this keeps ticking.
+  //
+  // The page collects and hands the result to the extension, which is the one thing it cannot do
+  // itself - the receiver is plain http and this page is https, so the post has to happen outside.
+  let busy = false;
+  async function tick(minutes) {
+    if (busy || !auth) return;
+    busy = true;
+    try {
+      post('autocollect', await collect({ resolveTop: 25, withPositions: true }));
+    } catch (e) {
+      console.warn(`[${TAG}] scheduled collection failed:`, e && e.message);
+    } finally {
+      busy = false;
+    }
+  }
+  // The first run waits for the app to make a request, which is where the token comes from.
+  setTimeout(() => tick(), 20000);
+  setInterval(() => tick(), 30 * 60 * 1000);
+
   post('ready', {});
   console.log(`[${TAG}] collector injected`);
 })();
