@@ -135,24 +135,32 @@ def collect(port: int | None = None, timeout: float = 240.0) -> dict:
     import time as _time
 
     call = "collectNow('server').then(r => JSON.stringify(r || {}))"
+    if not _worker_awake(port):
+        # A dormant Manifest V3 worker is not listed as a target at all, so there is nothing to
+        # call. Reloading the page wakes it: the content script messages the extension the moment
+        # it sees an auth header, and that message is what starts the worker.
+        #
+        # The reload is deliberately not awaited. Navigating destroys the execution context the
+        # evaluate is running in, so the reply never comes and the call hangs until it times out;
+        # handing it to setTimeout lets the evaluate return before the page goes away.
+        log.info("collector worker is asleep; reloading the page to wake it")
+        evaluate("setTimeout(() => location.reload(), 50); true", port=port, timeout=15)
+        for _ in range(20):
+            _time.sleep(3)
+            if _worker_awake(port):
+                break
+        else:
+            raise BrowserError("the collector's service worker never woke up")
+    return evaluate(call, match="background.js", port=port, timeout=timeout)
+
+
+def _worker_awake(port: int | None = None) -> bool:
+    """Is the extension's service worker running? It only appears as a target while it is."""
     try:
-        return evaluate(call, match="background.js", port=port, timeout=timeout)
-    except BrowserError as e:
-        if "nothing open" not in str(e):
-            raise
-    # A dormant worker is not listed as a target at all, so it has to be woken before it can be
-    # asked anything. Reloading the page does it: the content script messages the extension the
-    # moment it sees an auth header, and that message is what starts the worker.
-    log.info("collector worker is asleep; reloading the page to wake it")
-    evaluate("location.reload(); true", port=port)
-    for _ in range(12):
-        _time.sleep(5)
-        try:
-            return evaluate(call, match="background.js", port=port, timeout=timeout)
-        except BrowserError as e:
-            if "nothing open" not in str(e):
-                raise
-    raise BrowserError("the collector's service worker never woke up")
+        return any(t.get("type") == "service_worker" and "background.js" in (t.get("url") or "")
+                   for t in targets(port))
+    except BrowserError:
+        return False
 
 
 def write_session(payload: dict, port: int | None = None) -> dict:
