@@ -114,6 +114,24 @@ async function collectNow(reason = 'manual') {
       return { error: message };
     }
   }
+  // A stale bearer is the ordinary case, not an exception. fomo's Privy token lives about an
+  // hour and the app only mints a new one while it is being used; a tab left open on a token page
+  // stops making requests, so the token the collector captured quietly expires and every request
+  // after that is a 401. Reloading makes the app sign its own requests again, and the hook picks
+  // up the new token on the way past.
+  if (reply && reply.error && /\b(401|403|430|no token seen)\b/.test(reply.error)) {
+    await setStatus({ ok: false, reason, message: `${reply.error} - reloading to refresh the token` });
+    await chrome.tabs.reload(tab.id);
+    await new Promise((r) => setTimeout(r, 15000));
+    try {
+      reply = await chrome.tabs.sendMessage(tab.id, msg);
+    } catch (e) {
+      await injectInto(tab.id);
+      await new Promise((r) => setTimeout(r, 500));
+      reply = await chrome.tabs.sendMessage(tab.id, msg);
+    }
+  }
+
   if (!reply || reply.error) {
     await setStatus({ ok: false, reason, message: reply ? reply.error : 'no reply' });
     return { error: reply ? reply.error : 'no reply' };
