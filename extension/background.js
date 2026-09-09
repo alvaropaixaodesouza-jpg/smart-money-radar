@@ -212,9 +212,6 @@ adoptOpenTabs();
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'collect') collectNow('alarm'); });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // The page's timer says it is time. That message is also what starts the service worker, which
-  // is the point: an alarm is only supposed to wake it and here demonstrably stopped doing so.
-  if (msg.type === 'wake') { collectNow('page').then(sendResponse); return true; }
   if (msg.type === 'collectNow') { collectNow('manual').then(sendResponse); return true; }
   if (msg.type === 'reschedule') { reschedule().then(() => sendResponse({ ok: true })); return true; }
   if (msg.type === 'token') { setStatus({ tokenSeenAt: Date.now() }); }

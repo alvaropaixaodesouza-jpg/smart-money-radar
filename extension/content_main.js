@@ -17,6 +17,7 @@
   const API = 'https://prod-api.fomo.family';
   const TAG = 'fomo-agent';
   let auth = null;
+  let lastBridge = null;
 
   const post = (type, payload) => window.postMessage({ __fomoAgent: true, type, payload }, '*');
 
@@ -139,48 +140,13 @@
     }
   });
 
-  // --- 4. the schedule, kept here rather than in the extension ---
-  //
-  // chrome.alarms is the obvious home for this and it does not hold. In Manifest V3 the service
-  // worker is torn down when idle and the alarm is meant to wake it; on the collector machine it
-  // stopped waking it after a few hours, twice, with the browser still signed in and nothing
-  // failing. A page timer has no such lifecycle: this tab is always open, and the browser is
-  // started with background timer throttling disabled precisely so this keeps ticking.
-  //
-  // The page collects and hands the result to the extension, which does the one part the page
-  // cannot: posting to a plain-http receiver from an https page.
-  const EVERY_MS = 30 * 60 * 1000;
-  let pokes = 0;
-  let lastBridge = null;
-
-  // The page owns the schedule; the extension still does the work. Handing a whole collection
-  // back through chrome.runtime.sendMessage meant pushing a megabyte of JSON down a channel meant
-  // for control messages, and it vanished without an error. A poke is twenty bytes, it wakes the
-  // worker the same way, and the worker then runs the same collect-and-post it has always run.
-  function tick() {
-    if (!auth) return false;      // nothing to collect with until the app has made a request
-    pokes += 1;
-    post('wake', { at: Date.now() });
-    return true;
-  }
-
-  const opening = setInterval(() => {
-    if (tick()) {
-      clearInterval(opening);
-      setInterval(tick, EVERY_MS);
-    }
-  }, 20000);
-
   // A handle for the outside. The collector lives in a closure, which is right, but it also made
-  // every failure look identical from the server: no data, no error, nothing to ask. This exposes
-  // the three facts that separate "no token yet" from "collection threw" from "never scheduled",
-  // and lets a pass be triggered by hand. Reading it changes nothing.
+  // every failure look identical from the server: no data, no error, nothing to ask. This says
+  // whether the token has been seen yet, which is the difference between "not ready" and "broken".
+  // Reading it changes nothing.
   window.__fomoAgent = {
     get hasToken() { return !!auth; },
-    get pokes() { return pokes; },
     get lastBridge() { return lastBridge; },
-    scheduled: true,
-    tick,
   };
 
   post('ready', {});
