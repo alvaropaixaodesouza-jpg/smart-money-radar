@@ -6,7 +6,7 @@ interface Props {
   title: string;
   description: string;
   /** Which nav item is current */
-  section?: 'signals' | 'fresh' | 'leaderboard' | 'about' | null;
+  section?: 'signals' | 'fresh' | 'exits' | 'leaderboard' | 'about' | null;
   /** Keep this page out of search results (thin or address-specific pages) */
   noindex?: boolean;
 }
@@ -59,6 +59,7 @@ const ogImage = new URL('/og.png', base).href;
       <nav class="tabs">
         <a href="/" aria-current={section === 'signals' ? 'page' : undefined}>signals</a>
         <a href="/fresh" aria-current={section === 'fresh' ? 'page' : undefined}>fresh</a>
+        <a href="/exits" aria-current={section === 'exits' ? 'page' : undefined}>exits</a>
         <a href="/leaderboard" aria-current={section === 'leaderboard' ? 'page' : undefined}>leaderboard</a>
         <a href="/about" aria-current={section === 'about' ? 'page' : undefined}>about</a>
       </nav>

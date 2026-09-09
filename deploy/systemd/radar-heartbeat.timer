@@ -1,0 +1,12 @@
+[Unit]
+Description=FOMO Robinhood Radar - heartbeat every 10 minutes
+
+[Timer]
+# Ten minutes, matching the watchdog. The service at the other end is told to expect a ping at
+# least every 20, so one missed run is not an alarm and two are. Not Persistent: a heartbeat
+# fired late to cover a window the machine was off would be a lie about that window.
+OnBootSec=3min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

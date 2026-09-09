@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+import httpx
+
 from .. import db
 from ..config import settings
 from ..sources.rpc import CHAIN, RobinhoodRPC
@@ -106,3 +108,27 @@ def report(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> dict:
     bad = [c for c in rows if not c["ok"]]
     log.info("health: %d checks, %d failing", len(rows), len(bad))
     return {"checks": rows, "failing": len(bad), "ok": not bad}
+
+
+def heartbeat(ok: bool, url: str | None = None, timeout: float = 8.0) -> str:
+    """Tell the outside world the pipeline is alive, or deliberately stop telling it.
+
+    Healthchecks.io and its kind read silence as failure, so this pings only while everything
+    passes, and posts to `<url>/fail` when it does not. A broken pipeline therefore raises the same
+    alarm as a dead host — which is right, because from a reader's side they are the same event.
+
+    Never raises: a monitoring call that can take the process down with it is worse than no
+    monitoring, and this runs on the same timer as the checks themselves.
+    """
+    url = settings.heartbeat_url if url is None else url
+    if not url:
+        return "no HEARTBEAT_URL set - nothing is watching from outside"
+    target = url if ok else url.rstrip("/") + "/fail"
+    try:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.get(target)
+        return f"pinged {'ok' if ok else 'fail'} ({r.status_code})"
+    except Exception as e:  # noqa: BLE001 - monitoring must never break the thing it monitors
+        log.warning("heartbeat failed: %s", e)
+        return f"heartbeat unreachable: {str(e)[:80]}"
+

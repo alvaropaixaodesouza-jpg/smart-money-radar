@@ -285,15 +285,22 @@ def enrich_tokens_cmd(limit: int = typer.Option(300, "--limit")) -> None:
 @app.command("health")
 def health_cmd(
     push: bool = typer.Option(False, "--push", help="send the report to every bot subscriber"),
+    beat: bool = typer.Option(False, "--heartbeat", help="ping HEARTBEAT_URL while everything passes"),
+    quiet: bool = typer.Option(False, "--quiet", help="print nothing unless something is wrong"),
 ) -> None:
     """What is quietly broken: stale collections, a silent tape, a router that moved."""
-    from .pipeline.health import report
+    from .pipeline.health import heartbeat, report
 
     conn = db.connect()
     try:
         r = report(conn)
-        for c in r["checks"]:
-            typer.echo(f"{'ok ' if c['ok'] else 'BAD'}  {c['name']:<20} {c['detail']}")
+        if not (quiet and r["ok"]):
+            for c in r["checks"]:
+                typer.echo(f"{'ok ' if c['ok'] else 'BAD'}  {c['name']:<20} {c['detail']}")
+        if beat:
+            msg = heartbeat(r["ok"])
+            if not quiet or not r["ok"]:
+                typer.echo(f"heartbeat: {msg}")
         if push:
             from .bot import Telegram, fmt_health, subscribers
 

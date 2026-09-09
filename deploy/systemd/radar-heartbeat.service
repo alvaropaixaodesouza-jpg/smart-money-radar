@@ -1,0 +1,19 @@
+[Unit]
+Description=FOMO Robinhood Radar - tell the outside world the pipeline is alive
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# Exit 1 means a check failed. The heartbeat has already been withheld by then, so a failed unit
+# here is the record of an alarm being raised, not an incident of its own.
+SuccessExitStatus=0 1
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli health --heartbeat --quiet
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

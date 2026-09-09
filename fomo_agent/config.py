@@ -165,6 +165,11 @@ class Settings:
     thesis_window_h: int = field(default_factory=lambda: _int("THESIS_WINDOW_H", 72))
     thesis_max_age_s: int = field(default_factory=lambda: _int("THESIS_MAX_AGE_S", 21600))
     thesis_batch: int = field(default_factory=lambda: _int("THESIS_BATCH", 12))
+    # A dead man's switch. The server pings this URL while the pipeline is healthy, and the service
+    # at the other end shouts when the pings stop. Silence is the alarm, which is the only design
+    # that survives the server itself going down — an internal check cannot report its own host
+    # being unreachable. Empty means nobody is watching from outside.
+    heartbeat_url: str = field(default_factory=lambda: _env("HEARTBEAT_URL", ""))
     holdings_per_pass: int = field(default_factory=lambda: _int("HOLDINGS_PER_PASS", 2000))
     # codex-based discovery: how many fresh tokens per pass get their buyers pulled (1 request each)
     discover_tokens_per_pass: int = field(default_factory=lambda: _int("DISCOVER_TOKENS_PER_PASS", 3))

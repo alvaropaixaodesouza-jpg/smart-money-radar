@@ -13,6 +13,13 @@ export type Signal = {
 };
 
 /** One launch the cohort is entering. `heat` is conviction weighted by how early each buyer was. */
+/** A token the cohort is leaving. `gone` is how many sellers are out entirely. */
+export type Exit = {
+  mint: string; sym: string; liq: number | null;
+  sellers: number; gone: number; usd: number; conviction: number;
+  last_sell: number; who: string[]; scores: number[];
+};
+
 export type Fresh = {
   mint: string; sym: string; chain: string | null;
   created_at: number | null; age_h: number | null;
@@ -107,6 +114,9 @@ export const getFresh = (hours = 24, maxAgeH = 72, minLiquidity = 5000, minBuyer
   get<{ tokens: Fresh[]; drained: number; hours: number; max_age_h: number;
         min_liquidity: number; min_buyers: number }>(
     `/api/fresh?hours=${hours}&max_age_h=${maxAgeH}&min_liquidity=${minLiquidity}&min_buyers=${minBuyers}`);
+export const getExits = (hours = 24, minSellers = 2, minExit = 0.5) =>
+  get<{ hours: number; count: number; exits: Exit[] }>(
+    `/api/exits?hours=${hours}&min_sellers=${minSellers}&min_exit=${minExit}`);
 export const getLeaderboard = (status = 'active', limit = 60) =>
   get<{ status: string; count: number; traders: TraderRow[] }>(`/api/leaderboard?status=${status}&limit=${limit}`);
 export const getTrader = (who: string) => get<Trader>(`/api/trader/${encodeURIComponent(who)}`);

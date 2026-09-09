@@ -1,0 +1,112 @@
+---
+import Base from '../layouts/Base.astro';
+import Meter from '../components/Meter.astro';
+import Search from '../components/Search.astro';
+import Panel from '../components/Panel.astro';
+import { getExits, usd, ago, type Exit } from '../lib/api';
+
+const hours = Number(Astro.url.searchParams.get('hours') ?? 24);
+const feed = await getExits(hours);
+const rows: Exit[] = feed?.exits ?? [];
+const heaviest = rows.length ? Math.max(...rows.map((t) => t.conviction)) : 1;
+const lead = rows[0];
+
+/** Everyone out reads differently from most out, and the difference is the whole signal. */
+const departure = (t: Exit) =>
+  t.gone === t.sellers ? `all ${t.sellers} out entirely`
+    : t.gone ? `${t.gone} of ${t.sellers} out entirely`
+    : `${t.sellers} selling down`;
+---
+<Base
+  title="Exits — where the profitable Robinhood Chain wallets are getting out"
+  description="Tokens that trusted fomo.family wallets have sold most of their position in, ranked by whose money left rather than how many wallets did. The half of the picture an entry feed cannot show."
+  section="exits"
+>
+  <div class="pagehead">
+    <h1 style="font-size:clamp(28px,5vw,44px)">Exits</h1>
+    <span class="badge drop">{rows.length} names</span>
+  </div>
+  <p class="verdict" style="margin-bottom:20px">
+    Every other feed here shows buying. This one shows leaving, which is the half that costs money:
+    a token stays on an entry feed for as long as the buy is inside the window, <b>whether or not
+    the buyer is still there</b>. A sale is not an exit — a wallet appears here once it has sold at
+    least half of what the tape watched it buy, counted in tokens rather than dollars, because
+    dollars move with the price.
+  </p>
+
+  <dl class="strip">
+    <div><dt>Window</dt><dd>{feed?.hours ?? hours}h</dd></div>
+    <div><dt>Names</dt><dd class="c">{rows.length}</dd></div>
+    <div><dt>Sellers</dt><dd>{rows.reduce((n, t) => n + t.sellers, 0)}</dd></div>
+    <div><dt>Fully out</dt><dd class="c">{rows.reduce((n, t) => n + t.gone, 0)}</dd></div>
+    <div><dt>Taken out</dt><dd>{usd(rows.reduce((n, t) => n + t.usd, 0))}</dd></div>
+  </dl>
+
+  {!feed && <p class="empty">The data service is not answering.</p>}
+
+  {feed && rows.length === 0 && (
+    <p class="note">
+      <b>Nobody trusted has left a position in the last {hours}h.</b> Two or more scored wallets
+      have to sell down the same name before it appears here. That is a reading, not a gap — the
+      wallets that bought are still sitting in what they bought.
+    </p>
+  )}
+
+  {lead && (
+    <Panel title="Heaviest departure" meta={`last sale ${ago(lead.last_sell)} ago`}>
+      <div class="lead">
+        <a class="tk" href={`/token/${lead.mint}`}>${lead.sym}</a>
+        <span class="c mono" style="font-size:19px">{departure(lead)}</span>
+        <span class="mono m">{usd(lead.usd)} out · liquidity {usd(lead.liq)}</span>
+      </div>
+      <p class="who mono">{lead.who.slice(0, 8).map((h, i) => (
+        <><a href={`/trader/${h}`}>{h}</a> <span class="m">{lead.scores[i]}</span>{i < Math.min(7, lead.who.length - 1) ? ' · ' : ''}</>
+      ))}{lead.who.length > 8 ? ` +${lead.who.length - 8}` : ''}</p>
+    </Panel>
+  )}
+
+  {rows.length > 0 && (
+    <ul class="signals" style="margin-top:var(--section)">
+      {rows.map((t, i) => (
+        <li>
+          <span class="rank">{String(i + 1).padStart(2, '0')}</span>
+          <a class="tk" href={`/token/${t.mint}`}>${t.sym}</a>
+          <span class="cv c">{usd(t.usd)}</span>
+          <Meter value={t.conviction} max={heaviest} />
+          <p class="who">
+            <span class="c">{departure(t)}</span> ·{' '}
+            {t.who.slice(0, 5).map((h, n) => (
+              <><a href={`/trader/${h}`}>{h}</a>{n < Math.min(4, t.who.length - 1) ? ' · ' : ''}</>
+            ))}{t.who.length > 5 ? ` +${t.who.length - 5}` : ''} · last sale {ago(t.last_sell)} ago
+          </p>
+        </li>
+      ))}
+    </ul>
+  )}
+
+  <p class="note" style="margin-top:var(--section)">
+    <b>What this cannot tell you is why.</b> A wallet taking profit on a name that tripled and a
+    wallet cutting one that broke leave the same trace on the tape. What it does tell you is that
+    the money you were following is no longer in the position — and that an entry feed showing the
+    same token today is describing a purchase that has already been unwound.
+  </p>
+
+  <div style="margin-top:var(--section)"><Search /></div>
+</Base>
+
+<style>
+  /* The lead block is a headline, not a row: the token, what happened to it, and the money, on
+     one baseline. `.signals` below it supplies everything else from the shared sheet. */
+  .lead { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .lead .tk {
+    font-weight: 700; font-size: 26px; letter-spacing: 0.03em; color: #ffffff;
+    text-decoration: none;
+  }
+  .lead .tk:hover { color: #ff003d; }
+  .who {
+    margin: 10px 0 0; font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px; letter-spacing: 0.02em; color: #949494; max-width: none;
+  }
+  .who a { color: #949494; }
+  .who a:hover { color: #ff003d; }
+</style>

@@ -22,6 +22,7 @@ Xvfb, the one piece that would make fomo collection fully unattended.
 | `radar-backup.timer` | sqlite `.backup` nightly, 14 kept | — |
 | `radar-health.timer` | what is quietly broken, pushed to the bot at 07:40 | — |
 | `radar-digest.timer` | the day in one message to every subscriber, 18:00 | — |
+| `radar-heartbeat.timer` | pings `HEARTBEAT_URL` every 10 min **while the checks pass** | — |
 | `radar-xvfb` / `radar-wm` / `radar-browser` | the signed-in Chrome that collects fomo | — |
 | `radar-crx` | serves the extension's update manifest to that Chrome | 127.0.0.1:8098 |
 | `caddy` | the only thing listening publicly | 80, 443 |
@@ -103,3 +104,20 @@ Today that runs at home. Moving it to the server means Chrome under Xvfb with a 
 and the open question is whether Cloudflare accepts a datacentre address — nobody can answer that
 without trying. Everything else already runs here regardless, so if the answer turns out to be no,
 the only cost is that a browser tab stays open at home.
+
+## Knowing it fell over
+
+Everything else here watches the pipeline from inside the machine, which cannot report the machine
+being unreachable. `radar-heartbeat.timer` closes that: it pings `HEARTBEAT_URL` every ten minutes
+**only while every check passes**, and posts to `<url>/fail` when one does not. Silence is the
+alarm, so a dead host and a broken collector raise the same one — which is right, because from a
+reader's side they are the same event.
+
+Set it up once, from outside:
+
+1. Make a check at healthchecks.io (free) or any service that alerts on a missing ping.
+2. Period 20 minutes, grace 10 — one missed run is not an alarm, two are.
+3. Put its URL in the server's `.env` as `HEARTBEAT_URL=` and `systemctl restart radar-heartbeat.timer`.
+
+Until that variable is set the unit runs, finds nothing to ping, and says so. Nothing else changes.
+

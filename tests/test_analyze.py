@@ -539,3 +539,38 @@ def test_an_empty_delivery_is_not_a_collection(tmp_path):
                   (now - 60, '{"periods": {"24h": 150}, "new_users": 3}', rid))
     got = {k["name"]: k for k in checks(c, rpc=None)}
     assert got["fomo collection"]["ok"] is True
+
+
+def test_the_heartbeat_goes_quiet_when_something_is_broken(monkeypatch):
+    """Silence is the alarm, so a failing pipeline must stop pinging rather than ping differently."""
+    from fomo_agent.pipeline import health
+
+    calls = []
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url):
+            calls.append(url)
+            return type("R", (), {"status_code": 200})()
+
+    monkeypatch.setattr(health.httpx, "Client", lambda **kw: FakeClient())
+    assert "pinged ok" in health.heartbeat(True, url="https://hc.example/abc")
+    assert calls == ["https://hc.example/abc"]
+
+    assert "pinged fail" in health.heartbeat(False, url="https://hc.example/abc")
+    assert calls[-1] == "https://hc.example/abc/fail"
+
+    # nobody configured: say so rather than pretending to have pinged
+    assert "nothing is watching" in health.heartbeat(True, url="")
+
+
+def test_a_broken_monitor_never_breaks_the_pipeline(monkeypatch):
+    from fomo_agent.pipeline import health
+
+    class Boom:
+        def __enter__(self): raise OSError("dns is gone")
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(health.httpx, "Client", lambda **kw: Boom())
+    assert "unreachable" in health.heartbeat(True, url="https://hc.example/abc")
