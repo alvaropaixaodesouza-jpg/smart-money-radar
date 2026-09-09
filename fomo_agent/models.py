@@ -62,6 +62,10 @@ class HolderRow(BaseModel):
     balance: float | None = None
     avg_hold_seconds: int | None = None
     is_dev: bool = False
+    # fomo's own id for the position, and the note the trader attached to it. The note is the only
+    # field in this whole system that is stated rather than inferred.
+    trade_id: str | None = None
+    thesis: str | None = None
 
 
 class NewToken(BaseModel):

@@ -454,6 +454,9 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
         "sold_usd": sum(f["usd"] or 0 for f in flow if f["side"] == "sell"),
         "first_trusted_buy": first["ts"] if first else None,
         "trusted_buyers": first["buyers"] if first else 0,
+        # What the cohort *said* about it. Every other number on this page is inferred from the
+        # tape; these are the traders' own words, and only from wallets carrying a verdict.
+        "theses": db.theses_for_token(conn, mint),
         "hours": hours,
     }
 

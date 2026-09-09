@@ -163,6 +163,34 @@ MIGRATIONS: dict[int, str] = {
     -- handle the candle endpoint takes, so without it a token page has no chart.
     ALTER TABLE tokens ADD COLUMN pool_address TEXT;
     """,
+    16: """
+    -- What a trader said about a position, in their own words.
+    --
+    -- Everything else here is inferred: we watch the tape and conclude. A thesis is the one field
+    -- where the trader tells you directly, and it has been arriving all along inside the holders
+    -- response we already ask for — `comment` on each holder — and getting dropped by the parser.
+    --
+    -- Keyed by fomo's trade id so an edited thesis replaces itself rather than accumulating, with
+    -- first_seen_at kept separately because when someone said a thing is most of what it is worth.
+    CREATE TABLE IF NOT EXISTS theses(
+      trade_id TEXT PRIMARY KEY,
+      user_id TEXT,
+      mint TEXT,
+      text TEXT,
+      pnl_usd REAL,
+      cost_usd REAL,
+      is_dev INTEGER DEFAULT 0,
+      first_seen_at INTEGER,
+      seen_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_theses_mint ON theses(mint);
+    CREATE INDEX IF NOT EXISTS idx_theses_user ON theses(user_id);
+
+    -- When we last asked fomo about this token's holders. Stamped on the ask, not the answer, for
+    -- the same reason tokens.checked_at is: a token nobody has written about must not sit at the
+    -- head of the queue forever, starving the ones that would answer.
+    ALTER TABLE tokens ADD COLUMN thesis_at INTEGER;
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -361,6 +389,70 @@ def run_finish(conn: sqlite3.Connection, run_id: int, stats: dict | None = None,
         (now(), json.dumps(stats or {}), error, run_id),
     )
     conn.commit()
+
+
+def upsert_thesis(conn: sqlite3.Connection, **t: Any) -> bool:
+    """Store what a trader wrote about a position. Returns True the first time we see it.
+
+    A thesis can be edited, so the text is overwritten — but `first_seen_at` is not. When someone
+    said a thing is most of what it is worth: a call written before the token moved is evidence,
+    the same words added afterwards are commentary, and only the timestamp separates them.
+    """
+    text = (t.get("text") or "").strip()
+    if not text or not t.get("trade_id"):
+        return False
+    row = conn.execute("SELECT first_seen_at FROM theses WHERE trade_id=?", (t["trade_id"],)).fetchone()
+    conn.execute(
+        "INSERT OR REPLACE INTO theses(trade_id, user_id, mint, text, pnl_usd, cost_usd, is_dev,"
+        "  first_seen_at, seen_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        (t["trade_id"], t.get("user_id"), t.get("mint"), text, t.get("pnl_usd"), t.get("cost_usd"),
+         int(bool(t.get("is_dev"))), (row["first_seen_at"] if row else None) or now(), now()),
+    )
+    return row is None
+
+
+def theses_for_token(conn: sqlite3.Connection, mint: str, limit: int = 12) -> list[dict]:
+    """What the tracked wallets said about this token, best-scored voice first.
+
+    Only traders we have a verdict on: an unscored handle writing "wagmi" is noise, and the whole
+    product is the claim that whose money it is decides whether the words are worth reading.
+    """
+    rows = conn.execute(
+        "SELECT th.text, th.pnl_usd, th.cost_usd, th.is_dev, th.first_seen_at, "
+        "       u.handle, t.address, t.score, t.status "
+        "FROM theses th "
+        "JOIN fomo_users u ON u.user_id = th.user_id "
+        "LEFT JOIN traders t ON t.address = u.onchain_address "
+        "WHERE th.mint = ? AND t.score IS NOT NULL "
+        "ORDER BY t.score DESC, th.first_seen_at DESC LIMIT ?", (mint, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mints_wanting_theses(conn: sqlite3.Connection, limit: int, window_h: int,
+                         max_age_s: int) -> list[dict]:
+    """Which tokens to ask fomo about next, best first.
+
+    The collector can only ask about a handful of names per pass, so the ranking is the same one
+    the product uses everywhere else: whose money is in it, not how many wallets are. Tokens nobody
+    has ever been asked about come first, then the ones with the most conviction behind them.
+    """
+    cutoff = now() - window_h * 3600
+    stale = now() - max_age_s
+    rows = conn.execute(
+        "SELECT tk.mint, tk.chain, COALESCE(tk.symbol, '') symbol, "
+        "       COUNT(DISTINCT t.address) buyers, "
+        "       SUM((t.score / 100.0) * (t.score / 100.0)) conviction "
+        "FROM trades tr "
+        "JOIN traders t ON t.address = tr.address "
+        "JOIN tokens tk ON tk.mint = tr.mint "
+        "WHERE tr.side = 'buy' AND tr.ts >= ? AND t.score IS NOT NULL "
+        "  AND (tk.thesis_at IS NULL OR tk.thesis_at < ?) "
+        "GROUP BY tk.mint "
+        "ORDER BY (tk.thesis_at IS NULL) DESC, conviction DESC LIMIT ?",
+        (cutoff, stale, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def upsert_fomo_position(conn: sqlite3.Connection, **p: Any) -> bool:

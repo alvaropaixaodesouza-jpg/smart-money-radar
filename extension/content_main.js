@@ -121,14 +121,37 @@
       await sleep(gap);
     }
 
-    // if a token page is open, its holders are free to grab
+    // Holders, and with them the theses. Each holder in this answer carries an optional `comment`
+    // — the note the trader wrote about the position — which is the only thing in the whole
+    // pipeline that is stated rather than inferred from the tape.
+    //
+    // Which tokens to ask about is not a decision the page can make: it would need the scores.
+    // The server ranks them and sends the list back in its reply to the previous delivery, so the
+    // request costs nothing extra. The open token page is added because it is free either way.
+    const nets = { solana: 1399811149, robinhood: 4663, base: 8453, bsc: 56, ethereum: 1 };
+    const asks = [];
+    for (const w of opts.mints || []) {
+      if (w && w.mint) asks.push({ address: w.mint, networkId: nets[w.chain] || nets.robinhood });
+    }
     const m = location.pathname.match(/\/tokens\/([^/]+)\/([^/?#]+)/);
-    if (m) {
-      const nets = { solana: 1399811149, robinhood: 4663, base: 8453, bsc: 56, ethereum: 1 };
-      const q = encodeURIComponent(JSON.stringify([{ address: m[2], networkId: nets[m[1]] || 1399811149 }]));
+    if (m && !asks.some((a) => a.address.toLowerCase() === m[2].toLowerCase())) {
+      asks.push({ address: m[2], networkId: nets[m[1]] || nets.solana });
+    }
+
+    // The endpoint takes a list, so a dozen names cost one request rather than a dozen. Kept in
+    // small batches anyway: one oversized query that 400s would lose every name in it.
+    for (let i = 0; i < asks.length; i += 4) {
+      const batch = asks.slice(i, i + 4);
       try {
-        out.holders[m[2]] = await get(`/hodlers/top?tokens=${q}`);
-      } catch (e) { /* optional */ }
+        const answer = await get(`/hodlers/top?tokens=${encodeURIComponent(JSON.stringify(batch))}`);
+        // Split the answer back apart by token rather than filing the whole thing under each
+        // address: the parser would cope either way, but the body we POST would carry every
+        // holder list four times over.
+        for (const tok of (answer && answer.responseObject) || []) {
+          if (tok && tok.tokenAddress) out.holders[tok.tokenAddress] = { responseObject: [tok] };
+        }
+      } catch (e) { /* one bad batch must not sink the collection */ }
+      await sleep(gap);
     }
     return out;
   }

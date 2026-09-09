@@ -263,7 +263,14 @@ def fmt_token(a: dict) -> str:
             f"{analyze.usd(h['pnl']):>10}"
             for h in a["holders"][:8])
         out.append(f"<pre>{esc(body)}</pre>")
-    out.append(f"<code>{esc(a['mint'])}</code>")
+    # What they said. Everything above is inferred from the tape; this is the trader talking, so it
+    # is set as a quotation rather than folded into the readout block.
+    for th in (a.get("theses") or [])[:3]:
+        who = esc(th["handle"] or short(th["address"] or ""))
+        mark = " · dev" if th["is_dev"] else ""
+        out.append(f"\n<b>{who}</b> <i>{th['score']}{mark}</i>\n"
+                   f"<blockquote>{esc(th['text'][:400])}</blockquote>")
+    out.append(f"\n<code>{esc(a['mint'])}</code>")
     return "\n".join(out)
 
 

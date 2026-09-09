@@ -118,9 +118,20 @@ class Handler(BaseHTTPRequestHandler):
         with self._lock:
             conn = db.connect()
             run_id = db.run_start(conn, "fomo_ingest")
+            wants: list = []
             try:
                 stats = import_browser_export(conn, payload)
                 db.run_finish(conn, run_id, stats)
+                # What to ask about next time. The collector cannot know which tokens matter —
+                # that ranking lives here, with the scores — so the answer to a delivery carries
+                # the list. It rides the reply the extension already reads, which is why this
+                # needs no endpoint, no schedule and no second round trip.
+                try:
+                    wants = db.mints_wanting_theses(
+                        conn, settings.thesis_batch, settings.thesis_window_h,
+                        settings.thesis_max_age_s)
+                except Exception:  # noqa: BLE001 - a failed suggestion must not fail a delivery
+                    log.warning("could not pick tokens to ask about", exc_info=True)
             except Exception as e:  # noqa: BLE001 - a bad payload must not kill the server
                 db.run_finish(conn, run_id, error=repr(e)[:500])
                 log.exception("ingest failed")
@@ -128,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
         log.info("ingest: %s", stats)
-        self._send(200, {"ok": True, **stats})
+        self._send(200, {"ok": True, **stats, "wants": {"mints": wants}})
 
 
 def serve(host: str | None = None, port: int | None = None) -> None:

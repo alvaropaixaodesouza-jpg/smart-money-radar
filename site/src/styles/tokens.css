@@ -255,3 +255,17 @@ td.sym a:hover { color: var(--green); text-decoration: none; }
   .roster li { grid-template-columns: 48px 1fr; }
   .roster .pnl { grid-column: 2; text-align: left; }
 }
+
+/* ---------------------------------------------------------------- theses
+
+   A quotation, not a card. Everything else on a token page is a number the tape produced; this is
+   a person talking, so it gets the one thing the rest of the system never uses — a left rule and
+   running text — and no border of its own. */
+
+.theses { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.theses li { border-left: 1px solid var(--carbon); padding-left: 14px; }
+.theses .top { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 6px; }
+.theses .handle { font-weight: 700; font-size: 15px; letter-spacing: 0.03em; color: var(--white); }
+.theses .handle:hover { color: var(--green); text-decoration: none; }
+.theses .top .mono { font-size: 11px; letter-spacing: 0.02em; }
+.theses p { margin: 0; font-size: 15px; color: var(--white); max-width: 68ch; }

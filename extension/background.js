@@ -115,7 +115,11 @@ async function collectNow(reason = 'manual') {
   const known = (await chrome.storage.local.get('knownUserIds')).knownUserIds || [];
   const msg = {
     type: 'collect',
-    payload: { resolveTop: c.resolveTop, withPositions: c.withPositions, knownUserIds: known },
+    payload: {
+      resolveTop: c.resolveTop, withPositions: c.withPositions, knownUserIds: known,
+      // what the server asked for in its reply to the last delivery
+      mints: (await chrome.storage.local.get('wantMints')).wantMints || [],
+    },
   };
   let reply;
   try {
@@ -180,6 +184,14 @@ async function deliver(data, reason) {
     const known = new Set((await chrome.storage.local.get('knownUserIds')).knownUserIds || []);
     Object.keys(data.swaps || {}).forEach((id) => known.add(id));
     await chrome.storage.local.set({ knownUserIds: [...known].slice(-2000) });
+    // The reply says which tokens to ask about next. Parsed defensively: an older receiver, or a
+    // proxy that rewrote the body, must leave the collector working exactly as it did before.
+    try {
+      const wants = JSON.parse(body);
+      if (wants && wants.wants && Array.isArray(wants.wants.mints)) {
+        await chrome.storage.local.set({ wantMints: wants.wants.mints.slice(0, 40) });
+      }
+    } catch (e) { /* not JSON, or not ours: keep whatever list we already had */ }
     await setStatus({ ok: true, reason, message: `sent ${counts.swaps} wallets`, counts, response: body.slice(0, 200) });
     return { ok: true, counts };
   } catch (e) {

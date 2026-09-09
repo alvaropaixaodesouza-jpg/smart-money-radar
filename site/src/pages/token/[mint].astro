@@ -117,6 +117,30 @@ const desc = t.is_quote
           )}
         </section>
 
+        {(t.theses ?? []).length > 0 && (
+          <section>
+            <h3 style="margin-bottom:4px">What they said about it</h3>
+            <p class="subhead">
+              the traders' own words, loudest verdict first · only wallets we have scored
+            </p>
+            <ul class="theses">
+              {t.theses.map((th) => (
+                <li>
+                  <div class="top">
+                    <a class="handle" href={`/trader/${th.handle ?? th.address}`}>{th.handle ?? (th.address ?? '').slice(0, 10)}</a>
+                    <span class={`badge ${(th.score ?? 0) >= 70 ? 'follow' : (th.score ?? 0) >= 40 ? 'watch' : 'drop'}`}>{th.score ?? '—'}</span>
+                    {th.is_dev ? <span class="badge flag">dev</span> : null}
+                    <span class="m mono">{th.first_seen_at ? `${ago(th.first_seen_at)} ago` : ''}</span>
+                    {th.cost_usd ? <span class="m mono">in for {usd(th.cost_usd)}</span> : null}
+                    {th.pnl_usd ? <span class={`mono ${th.pnl_usd >= 0 ? 'g' : 'c'}`}>{usd(th.pnl_usd)}</span> : null}
+                  </div>
+                  <p>{th.text}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section>
           <h3 style="margin-bottom:4px">Who holds it</h3>
           <p class="subhead">balances read off the chain · {holderConviction.toFixed(1)} conviction among holders</p>

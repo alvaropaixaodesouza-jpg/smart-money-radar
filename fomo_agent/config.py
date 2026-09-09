@@ -158,6 +158,13 @@ class Settings:
     # On-chain balances: how long a read stays usable, and how many (wallet, token) pairs one pass
     # re-reads. Forty go per request, so 2000 pairs is 50 free RPC calls.
     holdings_max_age_s: int = field(default_factory=lambda: _int("HOLDINGS_MAX_AGE_S", 3600))
+    # Theses. The collector asks fomo for the holders of tokens the cohort has money in, and the
+    # notes come back inside that answer. Ask about a token again after six hours — an opinion
+    # written at the entry does not change, but new holders keep arriving — and cap the batch,
+    # because the whole point of asking about the right names is not asking about every name.
+    thesis_window_h: int = field(default_factory=lambda: _int("THESIS_WINDOW_H", 72))
+    thesis_max_age_s: int = field(default_factory=lambda: _int("THESIS_MAX_AGE_S", 21600))
+    thesis_batch: int = field(default_factory=lambda: _int("THESIS_BATCH", 12))
     holdings_per_pass: int = field(default_factory=lambda: _int("HOLDINGS_PER_PASS", 2000))
     # codex-based discovery: how many fresh tokens per pass get their buyers pulled (1 request each)
     discover_tokens_per_pass: int = field(default_factory=lambda: _int("DISCOVER_TOKENS_PER_PASS", 3))

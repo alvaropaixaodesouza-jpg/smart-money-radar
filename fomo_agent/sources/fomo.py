@@ -231,6 +231,8 @@ def parse_holders(payload: Any, mint: str) -> list[HolderRow]:
                 balance=h.get("humanAmount"),
                 avg_hold_seconds=h.get("averageHoldTimeSeconds"),
                 is_dev=bool(h.get("isDev")),
+                trade_id=h.get("tradeId"),
+                thesis=(h.get("comment") or None),
             ))
     return out
 

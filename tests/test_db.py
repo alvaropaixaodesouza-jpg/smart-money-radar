@@ -241,3 +241,48 @@ def test_a_later_pass_completes_a_fill_without_overwriting_it(tmp_path):
     row = conn.execute("SELECT usd_value, token_amount FROM trades").fetchone()
     assert row["token_amount"] == 42.0, "the gap is filled"
     assert row["usd_value"] == 100.0, "and what was already recorded is not second-guessed"
+
+
+def test_thesis_keeps_when_it_was_said(tmp_path):
+    """An edited thesis replaces its text but not its date.
+
+    When someone said a thing is most of what it is worth: a call written before the token moved is
+    evidence, the same words added after the move are commentary, and only the timestamp separates
+    them. So `seen_at` follows the edit and `first_seen_at` does not.
+    """
+    conn = db.connect(tmp_path / "t.db")
+    with db.tx(conn):
+        assert db.upsert_thesis(conn, trade_id="t1", user_id="u1", mint="0xaa",
+                                text="early, before the chart existed", cost_usd=5000) is True
+    first = conn.execute("SELECT first_seen_at, seen_at FROM theses WHERE trade_id='t1'").fetchone()
+
+    with db.tx(conn):
+        # a second sighting is not a new thesis
+        assert db.upsert_thesis(conn, trade_id="t1", user_id="u1", mint="0xaa",
+                                text="edited after it ran 40x", cost_usd=5000) is False
+    row = conn.execute("SELECT text, first_seen_at FROM theses WHERE trade_id='t1'").fetchone()
+    assert row["text"] == "edited after it ran 40x"
+    assert row["first_seen_at"] == first["first_seen_at"]
+
+    # nothing to say is not a thesis, and neither is whitespace
+    with db.tx(conn):
+        assert db.upsert_thesis(conn, trade_id="t2", user_id="u1", mint="0xaa", text="   ") is False
+        assert db.upsert_thesis(conn, trade_id="t3", user_id="u1", mint="0xaa", text=None) is False
+    assert conn.execute("SELECT COUNT(*) c FROM theses").fetchone()["c"] == 1
+
+
+def test_theses_only_from_wallets_with_a_verdict(tmp_path):
+    """An unscored handle writing 'wagmi' is noise; the whole product is that whose money it is decides."""
+    conn = db.connect(tmp_path / "t.db")
+    with db.tx(conn):
+        db.upsert_trader(conn, "0x" + "1" * 40, chain="robinhood")
+        conn.execute("UPDATE traders SET score=88, status='active' WHERE address=?", ("0x" + "1" * 40,))
+        db.upsert_fomo_user(conn, "u1", handle="scored")
+        conn.execute("UPDATE fomo_users SET onchain_address=? WHERE user_id='u1'", ("0x" + "1" * 40,))
+        db.upsert_fomo_user(conn, "u2", handle="unscored")
+        db.upsert_thesis(conn, trade_id="t1", user_id="u1", mint="0xaa", text="the scored one")
+        db.upsert_thesis(conn, trade_id="t2", user_id="u2", mint="0xaa", text="the unscored one")
+
+    out = db.theses_for_token(conn, "0xaa")
+    assert [t["handle"] for t in out] == ["scored"]
+    assert out[0]["score"] == 88

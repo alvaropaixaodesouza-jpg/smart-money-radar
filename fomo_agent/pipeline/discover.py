@@ -37,6 +37,27 @@ def _store_fomo_rows(conn: sqlite3.Connection, rows, source: str) -> int:
     return n_new
 
 
+def _store_theses(conn: sqlite3.Connection, rows, mint: str) -> int:
+    """Keep the notes traders attached to their positions, and stamp that we asked about this token.
+
+    The stamp goes on regardless of whether anyone wrote anything, so a token nobody has an opinion
+    about rotates out of the queue instead of being asked again forever.
+    """
+    n_new = 0
+    with db.tx(conn):
+        for r in rows:
+            if not getattr(r, "thesis", None) or not r.fomo_user_id:
+                continue
+            n_new += db.upsert_thesis(
+                conn,
+                trade_id=r.trade_id or f"h:{r.fomo_user_id}:{norm_addr(mint)}",
+                user_id=r.fomo_user_id, mint=norm_addr(mint), text=r.thesis,
+                pnl_usd=r.pnl_usd, cost_usd=r.cost_basis_usd, is_dev=r.is_dev,
+            )
+        conn.execute("UPDATE tokens SET thesis_at=? WHERE mint=?", (db.now(), norm_addr(mint)))
+    return n_new
+
+
 def resolve_execution_wallets(conn: sqlite3.Connection, fomo: FomoClient, limit: int | None = None) -> dict:
     """Record the per-chain addresses fomo reports for a user. **Not trading wallets.**
 
@@ -95,6 +116,7 @@ def discover_holders(conn: sqlite3.Connection, mint: str, fomo: FomoClient | Non
     stats = {"mint": mint, "rows": len(rows), "new_users": _store_fomo_rows(conn, rows, f"holders:{mint}")}
     with db.tx(conn):
         db.upsert_token(conn, norm_addr(mint), triggered_at=db.now())
+    stats["theses"] = _store_theses(conn, rows, mint)
     if resolve:
         stats["resolve"] = resolve_execution_wallets(conn, fomo)
     log.info("holders %s: %s", mint[:10], stats)
@@ -150,12 +172,14 @@ def import_browser_export(conn: sqlite3.Connection, source) -> dict:
                 stats["positions"] += 1
                 stats["new_positions"] += db.upsert_fomo_position(conn, **h)
 
+    stats["theses"] = 0
     for mint, payload in (raw.get("holders") or {}).items():
         rows = parse_holders(payload, mint)
         stats["holders"][mint] = len(rows)
         stats["new_users"] += _store_fomo_rows(conn, rows, f"holders:{mint}")
         with db.tx(conn):
             db.upsert_token(conn, norm_addr(mint), triggered_at=db.now())
+        stats["theses"] += _store_theses(conn, rows, mint)
 
     # The addresses fomo reports are internal accounts with no on-chain swaps (verified against
     # Codex), so the swaps are stored as evidence and pipeline/resolve.py infers the real wallet.

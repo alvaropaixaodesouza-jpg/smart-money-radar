@@ -435,3 +435,22 @@ def test_geckoterminal_token_carries_the_pool_the_chart_is_drawn_from():
     }, "robinhood")
     assert t.pool_address == "0xff0aa5f0", "deepest pool first, network prefix stripped"
     assert parse_token({"attributes": {"address": "0xabc"}}, "robinhood").pool_address is None
+
+
+def test_fomo_holders_carry_the_thesis():
+    """`comment` is the trader's own note on a position, and the parser used to drop it.
+
+    The fixture is derived from the real capture: shape untouched, a comment added to two of the
+    three holders because none of the captured ones had written one. The field name and the fact
+    that it is optional come from docs/fomo-endpoints.md.
+    """
+    mint = "0x385f4f8ae47651ce5f58f5265395a669f8281e18"
+    rows = parse_holders(load("fomo_holders_thesis_sample.json"), mint)
+    assert len(rows) == 3
+    assert rows[0].thesis.startswith("Bought the first dip")
+    assert rows[0].trade_id == "8f846848-7ee9-4434-b6bd-872e7ebd8cab"
+    # whitespace is not an opinion
+    assert rows[1].thesis is None or not rows[1].thesis.strip()
+    assert rows[2].is_dev is True and "biased" in rows[2].thesis
+    # the holders without a note still parse exactly as before
+    assert all(r.mint == mint and r.fomo_user_id for r in rows)

@@ -72,6 +72,15 @@ export type Token = {
   flow: { handle: string | null; score: number | null; side: string; usd: number | null; ts: number }[];
   bought_usd: number; sold_usd: number; first_trusted_buy: number | null;
   trusted_buyers: number; hours: number;
+  theses: Thesis[];
+};
+
+/** A trader's own note on a position. The one thing on a token page that is said, not inferred. */
+export type Thesis = {
+  text: string; handle: string | null; address: string | null;
+  score: number | null; status: string | null;
+  pnl_usd: number | null; cost_usd: number | null;
+  is_dev: number; first_seen_at: number | null;
 };
 
 /** [ts, open, high, low, close, volume] per candle, oldest first. */
