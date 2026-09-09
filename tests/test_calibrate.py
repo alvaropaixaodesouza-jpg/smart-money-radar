@@ -51,7 +51,7 @@ def test_only_what_came_after_counts(tmp_path):
         fill(c, GOOD, OTHER, "sell", 3_000.0, 1000.0, now - 600, "s2")
     r = calibrate(c)
     top = r["bands"][0]
-    assert top["band"] == "active" and top["positions"] == 1
+    assert top["band"] == "active" and top["closed"] == 1
     assert top["pooled_return"] == pytest.approx(3.0), "3k out on 1k in, and nothing from before"
     assert top["win_rate"] == 1.0
 
@@ -66,11 +66,26 @@ def test_dust_does_not_get_a_vote(tmp_path):
     assert calibrate(c, min_usd=1.0)["positions"] == 1
 
 
-def test_an_open_position_is_a_quote_not_a_result(tmp_path):
+def test_an_open_position_counts_only_in_the_marked_reading(tmp_path):
+    """It is a price quote, not a result — so it moves `marked` and must not touch `realized`."""
+    c, now = seed(tmp_path)
+    with db.tx(c):
+        c.execute("UPDATE tokens SET price_usd=8.0, price_at=? WHERE mint=?", (now, OTHER))
+        fill(c, GOOD, OTHER, "buy", 5_000.0, 1000.0, now - 1800, "b2")
+    r = calibrate(c)
+    top = r["bands"][0]
+    assert top["closed"] == 0 and r["positions"] == 0, "nothing has come back yet"
+    assert top["pooled_return"] is None
+    assert top["all"] == 1 and top["marked_return"] == pytest.approx(1.6), "1000 held at $8 on 5k in"
+
+
+def test_a_position_with_no_price_joins_neither_total(tmp_path):
     c, now = seed(tmp_path)
     with db.tx(c):
         fill(c, GOOD, OTHER, "buy", 5_000.0, 1000.0, now - 1800, "b2")
-    assert calibrate(c)["positions"] == 0, "bought and still holding proves nothing yet"
+    top = calibrate(c)["bands"][0]
+    assert top["all"] == 0 and top["unpriced"] == 1
+    assert top["marked_return"] is None
 
 
 def test_the_bands_are_compared_not_just_reported(tmp_path):

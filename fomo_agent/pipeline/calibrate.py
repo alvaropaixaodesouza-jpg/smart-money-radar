@@ -51,14 +51,20 @@ def first_verdicts(conn: sqlite3.Connection) -> dict[str, dict]:
 
 
 def positions_after_verdict(conn: sqlite3.Connection, address: str, since: int) -> list[dict]:
-    """Closed and trimmed positions this wallet opened after it was scored."""
+    """Every position this wallet opened after it was scored, whatever state it is in now.
+
+    Open ones are kept rather than filtered here, because leaving them out is not the conservative
+    choice it looks like. A trader who buys something that runs does not sell it, so the positions
+    that close are systematically the ones that did not work — and a table built only from those
+    measures how well a cohort cuts losses, not whether it picks winners.
+    """
     out = []
     for p in analyze.ledger(conn, address):
         if p["first_ts"] is None or p["first_ts"] < since:
             continue
-        if p["state"] not in ("closed", "trimmed") or p["realized"] is None:
-            continue
-        if not p["bought_usd"]:
+        # `held` and `pre-tape` mean the entry predates our record, so cost is unknowable; without
+        # a cost there is no return to compute either way.
+        if p["state"] not in ("closed", "trimmed", "open") or not p["bought_usd"]:
             continue
         out.append(p)
     return out
@@ -72,8 +78,11 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
     """
     verdicts = first_verdicts(conn)
     bands: dict[str, dict] = {
-        name: {"band": name, "lo": lo, "hi": hi, "wallets": 0, "positions": 0, "wins": 0,
-               "in_usd": 0.0, "out_usd": 0.0, "returns": []}
+        name: {"band": name, "lo": lo, "hi": hi, "wallets": 0,
+               # closed and trimmed, counted at what actually came back
+               "closed": 0, "wins": 0, "in_usd": 0.0, "out_usd": 0.0, "returns": [],
+               # every position, with what is still held marked at the token's current price
+               "all": 0, "unpriced": 0, "in_all": 0.0, "out_all": 0.0}
         for lo, hi, name in BANDS
     }
 
@@ -88,61 +97,83 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
         b = bands[band]
         b["wallets"] += 1
         for p in ps:
-            # what the part that left had cost, against what it brought back
+            # --- realized: what the part that left had cost, against what it brought back
             cost = p["bought_usd"] * min(p["exit_pct"] or 0, 1.0)
-            if cost <= 0:
+            if cost > 0 and p["realized"] is not None:
+                b["closed"] += 1
+                b["in_usd"] += cost
+                b["out_usd"] += p["sold_usd"]
+                b["wins"] += 1 if p["realized"] > 0 else 0
+                b["returns"].append(p["sold_usd"] / cost)
+
+            # --- marked: the whole entry against sales plus what the rest is worth now
+            still_held = p["state"] in ("open", "trimmed")
+            if still_held and p["value"] is None:
+                b["unpriced"] += 1          # cannot be marked, so it joins neither total
                 continue
-            b["positions"] += 1
-            b["in_usd"] += cost
-            b["out_usd"] += p["sold_usd"]
-            b["wins"] += 1 if p["realized"] > 0 else 0
-            b["returns"].append(p["sold_usd"] / cost)
+            b["all"] += 1
+            b["in_all"] += p["bought_usd"]
+            b["out_all"] += p["sold_usd"] + (p["value"] or 0)
 
     for b in bands.values():
-        n = b["positions"]
-        b["win_rate"] = b["wins"] / n if n else None
+        b["win_rate"] = b["wins"] / b["closed"] if b["closed"] else None
         b["median_return"] = statistics.median(b["returns"]) if b["returns"] else None
-        # The number that decides it: every dollar the band put in, against every dollar that came
-        # back. A median cannot see the position that paid for all the others, and in this market
-        # that position is the whole business.
+        # Every dollar the band put in against every dollar that came back. A median cannot see the
+        # position that paid for all the others, and in this market that position is the business.
         b["pooled_return"] = (b["out_usd"] / b["in_usd"]) if b["in_usd"] else None
+        b["marked_return"] = (b["out_all"] / b["in_all"]) if b["in_all"] else None
         b.pop("returns")
 
     ranked = [bands[n] for _, _, n in BANDS]
     return {
         "bands": ranked,
         "scored_wallets": len(verdicts),
-        "positions": sum(b["positions"] for b in ranked),
+        "positions": sum(b["closed"] for b in ranked),
         "min_usd": min_usd,
-        # The claim the product makes, reduced to one boolean: did the top band come out ahead of
-        # the bottom one on pooled return. Null when either band has nothing to say yet.
+        # The claim the product makes, reduced to one boolean per reading: did the top band come
+        # out ahead of the bottom one. Null where either band has nothing to say yet.
         "separates": (
             None if not (ranked[0]["pooled_return"] and ranked[-1]["pooled_return"])
             else ranked[0]["pooled_return"] > ranked[-1]["pooled_return"]
+        ),
+        "separates_marked": (
+            None if not (ranked[0]["marked_return"] and ranked[-1]["marked_return"])
+            else ranked[0]["marked_return"] > ranked[-1]["marked_return"]
         ),
     }
 
 
 def report(result: dict) -> str:
     """The table, plus the caveat. Never print one without the other."""
-    out = [f"Positions opened *after* the verdict that assigned the band, closed since, "
-           f"over ${result['min_usd']:.0f}.", ""]
-    out.append(f"{'band':<9}{'wallets':>8}{'closed':>8}{'win':>7}{'median':>9}{'pooled':>9}"
-               f"{'in':>12}{'out':>12}")
+    out = [f"Positions opened *after* the verdict that assigned the band, over "
+           f"${result['min_usd']:.0f}. Two readings, because neither alone is honest.", ""]
+    out.append(f"{'band':<9}{'wallets':>8}{'closed':>8}{'win':>7}{'median':>9}{'realized':>10}"
+               f"{'  ':>3}{'all':>7}{'marked':>9}")
     for b in result["bands"]:
         win = f"{b['win_rate']:.0%}" if b["win_rate"] is not None else "—"
         med = f"{b['median_return']:.2f}x" if b["median_return"] is not None else "—"
         pool = f"{b['pooled_return']:.2f}x" if b["pooled_return"] is not None else "—"
-        out.append(f"{b['band']:<9}{b['wallets']:>8}{b['positions']:>8}{win:>7}{med:>9}{pool:>9}"
-                   f"{analyze.usd(b['in_usd']):>12}{analyze.usd(b['out_usd']):>12}")
+        mark = f"{b['marked_return']:.2f}x" if b["marked_return"] is not None else "—"
+        out.append(f"{b['band']:<9}{b['wallets']:>8}{b['closed']:>8}{win:>7}{med:>9}{pool:>10}"
+                   f"{'  ':>3}{b['all']:>7}{mark:>9}")
+    out.append("")
+    out.append("realized — closed and trimmed positions only, at what actually came back.")
+    out.append("marked   — every position, with what is still held valued at today's price.")
     out.append("")
     if result["separates"] is None:
         out.append("Not enough closed positions to say anything yet. That is the honest answer.")
     elif result["separates"]:
-        out.append("The top band returned more per dollar than the bottom one.")
+        out.append("Realized: the top band returned more per dollar than the bottom one.")
     else:
-        out.append("The top band did NOT return more per dollar than the bottom one. "
-                   "The score is not earning its place.")
-    out.append("Small counts mean nothing; open positions are excluded; wallets that stopped "
-               "trading stop contributing.")
+        out.append("Realized: the top band did NOT beat the bottom one. The score is not earning "
+                   "its place.")
+    if result["separates_marked"] is not None:
+        out.append(("Marked: so did it." if result["separates_marked"]
+                    else "Marked: it did NOT, once open positions are counted."))
+    out.append("")
+    out.append("Why both: a trader who buys something that runs does not sell it, so the positions "
+               "that close are systematically the ones that did not work. Realized measures how "
+               "well a cohort cuts losses. Marked measures whether it picks winners, and pays for "
+               "that by trusting a price quote.")
+    out.append("Small counts mean nothing; wallets that stopped trading stop contributing.")
     return "\n".join(out)
