@@ -229,38 +229,42 @@ def avatar(name: str, side: int = 512, solid: bool = False) -> None:
     save(im, name, side, side)
 
 
-def banner(name: str, w: int, h: int, note: str = "") -> None:
+def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True) -> None:
     """Wide artwork: description picture, /start photo, link preview.
 
     One left edge for everything below the lockup — a grid built from hairlines cannot afford two
     ragged margins — and the readout strip sits on the baseline the rule establishes.
+
+    Without the footnote the whole block drops by `dy` so the remaining content stays optically
+    centred rather than clinging to the top of an empty card.
     """
     im, d = canvas(w, h)
     W, H = w * SS, h * SS
     pad = W * 0.055
     inner = W - pad * 2
+    dy = 0.0 if footnote else H * 0.055
 
     m = H * 0.32
-    mark(d, pad, H * 0.14, m)
+    mark(d, pad, H * 0.14 + dy, m)
 
     tx = pad + m + W * 0.032
     big = H * 0.125
     f7, f3 = sans(big, 700), sans(big, 300)
     track = big * 0.055
-    base = H * 0.14 + big * 0.92
+    base = H * 0.14 + dy + big * 0.92
     draw_runs(d, tx, base, [("FOMO ", f7), ("ROBINHOOD", f3)], WHITE, track)
     draw_runs(d, tx, base + big * 1.24, [("RADAR", f7)], WHITE, track)
 
     fm, tm = mono_fit("WHO THE GOOD TRADERS ARE BUYING, WHILE IT IS STILL EARLY",
                       inner, H * 0.042)
-    draw_runs(d, pad, H * 0.60,
+    draw_runs(d, pad, H * 0.60 + dy,
               [("WHO THE GOOD TRADERS ARE BUYING, WHILE IT IS STILL EARLY", fm)], WHITE, tm)
 
     # the hairline the whole system is built from
-    d.line([pad, H * 0.685, W - pad, H * 0.685], fill=CARBON, width=max(1, round(H / 320)))
+    d.line([pad, H * 0.685 + dy, W - pad, H * 0.685 + dy], fill=CARBON, width=max(1, round(H / 320)))
 
     # the readout strip: the verdict vocabulary in the three colours it is published in
-    row = H * 0.795
+    row = H * 0.795 + dy
     x = pad
     for text, colour in (("FOLLOW", GREEN), ("WATCH", YELLOW), ("DROP", CRIMSON)):
         x = pill(d, x, row, text, colour, H * 0.040) + W * 0.020
@@ -274,15 +278,16 @@ def banner(name: str, w: int, h: int, note: str = "") -> None:
         fn, tn = mono_fit(note, room, H * 0.040)
         draw_runs(d, W - pad - run_width([(note, fn)], tn), row, [(note, fn)], GRAPHITE, tn)
 
-    small = "ROBINHOOD CHAIN 4663   ·   READ-ONLY RESEARCH   ·   NEVER TRADES"
-    fs, ts = mono_fit(small, inner, H * 0.034)
-    draw_runs(d, pad, H * 0.935, [(small, fs)], CARBON, ts)
+    if footnote:
+        small = "ROBINHOOD CHAIN 4663   ·   READ-ONLY RESEARCH   ·   NEVER TRADES"
+        fs, ts = mono_fit(small, inner, H * 0.034)
+        draw_runs(d, pad, H * 0.935, [(small, fs)], CARBON, ts)
     save(im, name, w, h)
 
 
 if __name__ == "__main__":
     avatar("tg-avatar-512.png")
     avatar("tg-avatar-solid-512.png", solid=True)
-    banner("tg-description-640x360.png", 640, 360)
+    banner("tg-description-640x360.png", 640, 360, footnote=False)
     banner("tg-start-1280x640.png", 1280, 640, note="/signals  /fresh  /token  /trader")
     banner("og-1200x630.png", 1200, 630, note="193.233.209.98")
