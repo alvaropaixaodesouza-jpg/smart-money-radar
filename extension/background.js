@@ -185,11 +185,30 @@ async function seedOnStart() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => { reschedule(); seedOnStart(); });
-chrome.runtime.onStartup.addListener(() => { reschedule(); seedOnStart(); });
+/** Put the content scripts into a tab that was already open when this version arrived.
+ *
+ * A manifest's content_scripts only run on navigation, so installing or updating the extension
+ * leaves every open tab running the previous version's - or, on a fresh install, none at all. The
+ * collector's tab is open permanently by design, so without this an update silently disables the
+ * thing it was updating.
+ */
+async function adoptOpenTabs() {
+  const tab = await fomoTab();
+  if (!tab) return;
+  try {
+    await injectInto(tab.id);
+  } catch (e) {
+    // A tab mid-navigation refuses the injection and will get the scripts from the manifest anyway.
+    console.warn('[fomo-agent] could not adopt the open tab:', e && e.message);
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => { reschedule(); adoptOpenTabs(); seedOnStart(); });
+chrome.runtime.onStartup.addListener(() => { reschedule(); adoptOpenTabs(); seedOnStart(); });
 // The service worker also starts on demand after Chrome restarts a session, where neither event
 // above fires; a seed left waiting then would sit until the next alarm.
 seedOnStart();
+adoptOpenTabs();
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'collect') collectNow('alarm'); });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
