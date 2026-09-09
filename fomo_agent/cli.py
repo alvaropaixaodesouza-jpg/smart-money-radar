@@ -310,6 +310,24 @@ def health_cmd(
     raise typer.Exit(0 if r["ok"] else 1)
 
 
+@app.command("calibrate")
+def calibrate_cmd(
+    min_usd: float = typer.Option(100.0, "--min-usd", help="ignore positions smaller than this"),
+    json_out: bool = typer.Option(False, "--json", help="print the raw numbers instead"),
+) -> None:
+    """Did the score predict anything? Measured only on positions opened after the verdict."""
+    import json
+
+    from .pipeline.calibrate import calibrate, report
+
+    conn = db.connect()
+    try:
+        r = calibrate(conn, min_usd=min_usd)
+        typer.echo(json.dumps(r, indent=2) if json_out else report(r))
+    finally:
+        conn.close()
+
+
 @app.command("backfill")
 def backfill_cmd(
     days: int = typer.Option(30, "--days", help="how far back to walk"),
