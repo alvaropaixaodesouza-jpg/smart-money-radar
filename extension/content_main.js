@@ -149,30 +149,21 @@
   // The page collects and hands the result to the extension, which does the one part the page
   // cannot: posting to a plain-http receiver from an https page.
   const EVERY_MS = 30 * 60 * 1000;
-  let busy = false;
-  let collected = 0;
+  let pokes = 0;
 
-  async function tick() {
-    // The token is learned by watching the app's own requests, so the first minutes after a load
-    // have nothing to collect with. Waiting out a whole period for that would mean a browser that
-    // just restarted sits idle for half an hour.
-    if (busy || !auth) return false;
-    busy = true;
-    try {
-      post('autocollect', await collect({ resolveTop: 25, withPositions: true }));
-      collected += 1;
-      return true;
-    } catch (e) {
-      console.warn(`[${TAG}] scheduled collection failed:`, (e && e.message) || e);
-      return false;
-    } finally {
-      busy = false;
-    }
+  // The page owns the schedule; the extension still does the work. Handing a whole collection
+  // back through chrome.runtime.sendMessage meant pushing a megabyte of JSON down a channel meant
+  // for control messages, and it vanished without an error. A poke is twenty bytes, it wakes the
+  // worker the same way, and the worker then runs the same collect-and-post it has always run.
+  function tick() {
+    if (!auth) return false;      // nothing to collect with until the app has made a request
+    pokes += 1;
+    post('wake', { at: Date.now() });
+    return true;
   }
 
-  // Try often until the first one lands, then settle into the real interval.
-  const opening = setInterval(async () => {
-    if (await tick()) {
+  const opening = setInterval(() => {
+    if (tick()) {
       clearInterval(opening);
       setInterval(tick, EVERY_MS);
     }
@@ -184,8 +175,7 @@
   // and lets a pass be triggered by hand. Reading it changes nothing.
   window.__fomoAgent = {
     get hasToken() { return !!auth; },
-    get collections() { return collected; },
-    get busy() { return busy; },
+    get pokes() { return pokes; },
     scheduled: true,
     tick,
   };

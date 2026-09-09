@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "fomo-agent collector",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Collects your own fomo.family data in your own browser and forwards it to a local fomo-agent receiver. Read-only.",
   "permissions": [
     "storage",
