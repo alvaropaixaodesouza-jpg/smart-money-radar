@@ -308,3 +308,29 @@ def test_a_hot_launch_is_pushed_once_and_not_again_by_the_other_feed(conn, monke
 
     # the signal feed knows the same token; the dedup is per token, not per feed
     assert bot.broadcast(conn, FakeTelegram())["sent"] == 0
+
+
+def test_a_launch_with_no_known_open_time_does_not_claim_to_be_first(conn):
+    """`lead_minutes` is None when we never learned when the pool opened.
+
+    Printing 0 there would read as "they were in at the very start" — the opposite of unknown, and
+    the most flattering possible misreading of a gap in our own data.
+    """
+    d = {"hours": 24, "counts": {"active": 1}, "joined": [], "joined_n": 0, "theses": [],
+         "signals": [], "exits": [],
+         "fresh": [{"sym": "PONS", "heat": 3.2, "buyers": 4, "lead_minutes": None}],
+         "health": {"ok": True, "checks": []}}
+    text = bot.fmt_digest(d)
+    assert "launch time unknown" in text and "0m after" not in text
+
+    d["fresh"][0]["lead_minutes"] = 7.4
+    assert "first in 7m after the pool opened" in bot.fmt_digest(d)
+
+
+def test_a_quiet_day_says_so_in_one_line(conn):
+    d = {"hours": 24, "counts": {"active": 169, "watch": 153, "dropped": 52}, "joined": [],
+         "joined_n": 0, "signals": [], "fresh": [], "exits": [], "theses": [],
+         "health": {"ok": True, "checks": []}}
+    text = bot.fmt_digest(d)
+    assert "Nothing moved" in text and "That is information too" in text
+    assert "169 follow" in text, "the roster is still worth stating"

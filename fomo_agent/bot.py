@@ -214,8 +214,11 @@ def fmt_digest(d: dict) -> str:
     if d["fresh"]:
         out.append("<b>Launches they entered</b>")
         for t in d["fresh"]:
-            out.append(f"  ${esc(t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, "
-                       f"first {t['lead_minutes']:.0f}m after the pool opened")
+            # A token whose pool-open time we never learned has no lead to report. Say so rather
+            # than printing a zero, which would read as "they were first" — the opposite of unknown.
+            lead = (f"first in {t['lead_minutes']:.0f}m after the pool opened"
+                    if t.get("lead_minutes") is not None else "launch time unknown")
+            out.append(f"  ${esc(t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, {lead}")
     if d["signals"]:
         out.append("\n<b>Bought</b>")
         for s in d["signals"]:
