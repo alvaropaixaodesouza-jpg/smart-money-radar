@@ -206,6 +206,38 @@ def parse_leaderboard(payload: Any, period: str) -> list[TraderRow]:
     return out
 
 
+# The keys a thesis body has been seen under, most likely first. `comment` is documented as
+# optional and turned out not to be a string at all but an object — the note plus its metadata —
+# so this reads the text out of whichever field holds it and refuses to guess at the rest.
+THESIS_KEYS = ("text", "comment", "body", "content", "thesis", "message", "description")
+_warned_shapes: set[str] = set()
+
+
+def thesis_text(raw: Any) -> str | None:
+    """The note a trader attached to a position, out of a field whose shape fomo may change.
+
+    Returns None for anything unrecognised rather than raising. A field we cannot read is a
+    missing thesis; it must never be a rejected collection, which is what it was once.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if isinstance(raw, dict):
+        for k in THESIS_KEYS:
+            v = raw.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        # Say what we saw, once per shape, so the next collection names the field for us instead
+        # of another round of guessing.
+        shape = ",".join(sorted(raw))
+        if shape not in _warned_shapes:
+            _warned_shapes.add(shape)
+            log.warning("thesis field carries no text under %s; keys were: %s",
+                        "/".join(THESIS_KEYS), shape)
+    return None
+
+
 def parse_holders(payload: Any, mint: str) -> list[HolderRow]:
     ro = _resp(payload)
     tokens = ro if isinstance(ro, list) else []
@@ -232,7 +264,7 @@ def parse_holders(payload: Any, mint: str) -> list[HolderRow]:
                 avg_hold_seconds=h.get("averageHoldTimeSeconds"),
                 is_dev=bool(h.get("isDev")),
                 trade_id=h.get("tradeId"),
-                thesis=(h.get("comment") or None),
+                thesis=thesis_text(h.get("comment")),
             ))
     return out
 

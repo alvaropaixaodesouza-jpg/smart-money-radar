@@ -174,12 +174,20 @@ def import_browser_export(conn: sqlite3.Connection, source) -> dict:
 
     stats["theses"] = 0
     for mint, payload in (raw.get("holders") or {}).items():
-        rows = parse_holders(payload, mint)
-        stats["holders"][mint] = len(rows)
-        stats["new_users"] += _store_fomo_rows(conn, rows, f"holders:{mint}")
-        with db.tx(conn):
-            db.upsert_token(conn, norm_addr(mint), triggered_at=db.now())
-        stats["theses"] += _store_theses(conn, rows, mint)
+        # Per token, and soft. A collection carries three leaderboards, hundreds of swaps and a
+        # dozen holder lists; one token whose payload we cannot parse must cost us that token, not
+        # the delivery. It cost the whole delivery once — an hour of collection lost to a field
+        # that turned out not to be a string — and the browser has no way to retry.
+        try:
+            rows = parse_holders(payload, mint)
+            stats["holders"][mint] = len(rows)
+            stats["new_users"] += _store_fomo_rows(conn, rows, f"holders:{mint}")
+            with db.tx(conn):
+                db.upsert_token(conn, norm_addr(mint), triggered_at=db.now())
+            stats["theses"] += _store_theses(conn, rows, mint)
+        except Exception as e:  # noqa: BLE001
+            log.warning("holders payload for %s could not be read: %s", mint[:10], e)
+            stats.setdefault("holder_errors", []).append(f"{mint[:10]}: {str(e)[:120]}")
 
     # The addresses fomo reports are internal accounts with no on-chain swaps (verified against
     # Codex), so the swaps are stored as evidence and pipeline/resolve.py infers the real wallet.

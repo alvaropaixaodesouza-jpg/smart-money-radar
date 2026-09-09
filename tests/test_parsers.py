@@ -454,3 +454,40 @@ def test_fomo_holders_carry_the_thesis():
     assert rows[2].is_dev is True and "biased" in rows[2].thesis
     # the holders without a note still parse exactly as before
     assert all(r.mint == mint and r.fomo_user_id for r in rows)
+
+
+def test_a_thesis_that_is_not_a_string_does_not_sink_the_collection():
+    """`comment` is documented as optional and turned out to be an object, not a string.
+
+    Pydantic rejected the row, the exception escaped the holders loop, and the receiver answered
+    500 — so a whole collection was lost to one field. A shape we cannot read is a missing thesis.
+    """
+    from fomo_agent.sources.fomo import thesis_text
+
+    assert thesis_text(None) is None
+    assert thesis_text("  written early  ") == "written early"
+    assert thesis_text("   ") is None
+    # the real shape: the note plus its metadata
+    assert thesis_text({"id": "9b08", "text": "still early", "likes": 24, "newerThesis": 0}) \
+        == "still early"
+    assert thesis_text({"id": "9b08", "comment": "under another name"}) == "under another name"
+    # unrecognised, and unrecognised is not fatal
+    assert thesis_text({"id": "9b08", "likes": 24}) is None
+    assert thesis_text(12345) is None
+
+
+def test_one_unreadable_token_costs_only_that_token(tmp_path):
+    from fomo_agent import db
+    from fomo_agent.pipeline.discover import import_browser_export
+
+    conn = db.connect(tmp_path / "ingest.db")
+    payload = {
+        "leaderboards": {"24h": load("fomo_leaderboard_sample.json")},
+        "holders": {
+            "0x385f4f8ae47651ce5f58f5265395a669f8281e18": load("fomo_holders_thesis_sample.json"),
+            "0xbroken": {"responseObject": "this is not a list of tokens"},
+        },
+    }
+    stats = import_browser_export(conn, payload)
+    assert stats["periods"]["24h"] > 0, "the leaderboard still landed"
+    assert stats["theses"] >= 1, "the good token still yielded its theses"
