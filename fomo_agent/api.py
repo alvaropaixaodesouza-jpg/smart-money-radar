@@ -253,6 +253,29 @@ def signals(
     return {"hours": hours, "count": len(rows), "signals": rows}
 
 
+@app.get("/api/exits", tags=["signals"])
+def exits(
+    hours: int = Query(6, ge=1, le=720),
+    limit: int = Query(40, ge=1, le=100),
+    min_sellers: int = Query(2, ge=1, le=50),
+    min_exit: float = Query(0.5, ge=0.05, le=1.0),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    """Tokens the trusted wallets are leaving, heaviest departure first.
+
+    The mirror of /api/signals, and the half nobody publishes. An entry feed cannot tell you that
+    the wallets you copied have gone — a token sits on it as long as the buy is inside the window,
+    whether or not the buyer is still there.
+
+    A sale is not an exit: a wallet counts once it has sold `min_exit` of what the tape watched it
+    buy, measured in tokens rather than dollars because dollars move with the price. `gone` is how
+    many of the sellers are out entirely.
+    """
+    rows = analyze.exits(conn, chain(), hours=hours, min_sellers=min_sellers,
+                         min_exit=min_exit, limit=limit)
+    return {"hours": hours, "count": len(rows), "exits": rows}
+
+
 @app.get("/api/tape", tags=["signals"])
 def tape(
     limit: int = Query(60, ge=1, le=200),

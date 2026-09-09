@@ -4,6 +4,7 @@ import json
 import pytest
 
 from fomo_agent import db
+from fomo_agent.pipeline import analyze
 from fomo_agent.pipeline.analyze import (analyze_token, analyze_trader, conviction, find_trader,
                                          format_token, format_trader)
 from fomo_agent.sources.rpc import USDG
@@ -437,3 +438,78 @@ def test_health_puts_the_failures_first(conn):
     oks = [c["ok"] for c in r["checks"]]
     assert oks == sorted(oks), "worst first, so the first line is the one that matters"
     assert r["failing"] == sum(1 for c in r["checks"] if not c["ok"])
+
+
+# ---------------------------------------------------------------- exits
+
+
+@pytest.fixture()
+def leaving(tmp_path):
+    """One token, four wallets, four different ways of not being in it any more."""
+    c = db.connect(tmp_path / "exits.db")
+    now = db.now()
+    LEFT, TRIM, PRE, LOW = ("0x" + x * 40 for x in "abcd")
+    with db.tx(c):
+        db.upsert_token(c, TOKEN, chain="robinhood", symbol="PONS", liquidity_usd=500_000)
+        for addr, handle, score in ((LEFT, "left", 88), (TRIM, "trim", 74),
+                                    (PRE, "pre", 80), (LOW, "low", 30)):
+            db.upsert_trader(c, addr, chain="robinhood", fomo_handle=handle, score=score,
+                             status="active")
+        rows = [
+            # sold all but a dust remainder of what we watched it buy: an exit (CLOSED_AT is 0.98)
+            (LEFT, "buy", 10_000.0, 1000.0, 7200), (LEFT, "sell", 26_000.0, 990.0, 900),
+            # shaved a tenth off a winner: portfolio management, not an exit
+            (TRIM, "buy", 10_000.0, 1000.0, 7200), (TRIM, "sell", 3_000.0, 100.0, 900),
+            # sold more than the tape ever saw it buy: it was in before we were, size unknowable
+            (PRE, "buy", 500.0, 50.0, 7200), (PRE, "sell", 40_000.0, 900.0, 900),
+            # left too, but nobody is copying a wallet scoring 30
+            (LOW, "buy", 10_000.0, 1000.0, 7200), (LOW, "sell", 20_000.0, 950.0, 900),
+        ]
+        for i, (addr, side, usd, amt, ago) in enumerate(rows):
+            db.insert_trade(c, sig=f"0xex{i}", address=addr, chain="robinhood", mint=TOKEN,
+                            side=side, usd_value=usd, token_amount=amt, ts=now - ago, source="rpc")
+    return c, {"left": LEFT, "trim": TRIM, "pre": PRE, "low": LOW}
+
+
+def test_a_trim_is_not_an_exit(leaving):
+    c, w = leaving
+    # on its own, one departure is not a signal
+    assert analyze.exits(c, hours=6, min_sellers=2) == []
+    out = analyze.exits(c, hours=6, min_sellers=1)
+    assert len(out) == 1
+    t = out[0]
+    assert t["sym"] == "PONS"
+    assert t["who"] == ["left"], "the trim, the pre-tape wallet and the 30 are all excluded"
+    assert t["sellers"] == 1 and t["gone"] == 1
+    assert t["conviction"] == pytest.approx(0.7744)
+
+
+def test_exit_needs_the_position_to_be_mostly_gone(leaving):
+    c, w = leaving
+    # drop the bar low enough and the trim counts, which is exactly what min_exit is for
+    out = analyze.exits(c, hours=6, min_sellers=1, min_exit=0.05)
+    assert sorted(out[0]["who"]) == ["left", "trim"]
+    assert out[0]["gone"] == 1, "only one of them is actually out"
+
+
+def test_a_sale_outside_the_window_is_not_news(leaving):
+    c, _ = leaving
+    assert analyze.exits(c, hours=0, min_sellers=1) == []
+
+
+def test_the_balance_settles_it(tmp_path):
+    """The tape says trimmed, the chain says empty. The chain wins."""
+    c = db.connect(tmp_path / "bal.db")
+    now = db.now()
+    addr = "0x" + "e" * 40
+    with db.tx(c):
+        db.upsert_token(c, TOKEN, chain="robinhood", symbol="PONS")
+        db.upsert_trader(c, addr, chain="robinhood", fomo_handle="empty", score=90, status="active")
+        db.insert_trade(c, sig="0xb1", address=addr, chain="robinhood", mint=TOKEN, side="buy",
+                        usd_value=10_000.0, token_amount=1000.0, ts=now - 7200, source="rpc")
+        db.insert_trade(c, sig="0xb2", address=addr, chain="robinhood", mint=TOKEN, side="sell",
+                        usd_value=9_000.0, token_amount=600.0, ts=now - 600, source="rpc")
+        c.execute("INSERT INTO holdings(address, token, amount, ts) VALUES(?,?,?,?)",
+                  (addr, TOKEN, 0.0, now))
+    out = analyze.exits(c, hours=6, min_sellers=1)
+    assert out and out[0]["gone"] == 1, "a zero balance is closed however partial the tape looks"

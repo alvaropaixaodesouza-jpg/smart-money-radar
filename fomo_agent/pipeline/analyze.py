@@ -55,6 +55,71 @@ def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
     )]
 
 
+def exits(conn: sqlite3.Connection, chain: str | None = None, hours: int = 6,
+          min_sellers: int = 2, min_exit: float = 0.5, limit: int = 40) -> list[dict]:
+    """Tokens the trusted wallets are leaving, heaviest departure first.
+
+    The mirror of `signals`, and arguably the more useful half. Everyone publishes entries; the
+    moment that costs a follower money is the one where the wallets they copied quietly left, and
+    an entry feed cannot show it — a token stays on it for as long as the buy is inside the window,
+    whether or not the buyer is still there.
+
+    A sale is not an exit. Trimming a tenth off a winner is portfolio management; leaving is
+    getting out, so a wallet counts only once it has sold `min_exit` of what the tape watched it
+    buy, measured in tokens rather than dollars because dollars move with the price. The on-chain
+    balance settles it where we have one: nothing left is `closed`, whatever the tape thinks.
+
+    Wallets that were in a name before our tape starts are excluded rather than guessed at — their
+    entry size is unknown, so what fraction they have sold is unknowable too.
+    """
+    cutoff = db.now() - hours * 3600
+    # in the order the placeholders appear: the window sum, the score floor, the optional chain,
+    # then the window again inside the sub-select that narrows this to tokens with recent selling
+    params: list = [cutoff, TRUSTED, *( [chain] if chain else [] ), cutoff]
+    rows = [dict(r) for r in conn.execute(
+        "SELECT tr.mint mint, COALESCE(tk.symbol, substr(tr.mint,1,8)) sym, "
+        "  tk.liquidity_usd liq, tr.address addr, t.score score, t.fomo_handle handle, "
+        "  SUM(CASE WHEN tr.side='sell' AND tr.ts >= ? THEN COALESCE(tr.usd_value,0) END) out_usd, "
+        "  MAX(CASE WHEN tr.side='sell' THEN tr.ts END) last_sell, "
+        "  SUM(CASE WHEN tr.side='buy'  THEN tr.token_amount ELSE 0 END) bought_amt, "
+        "  SUM(CASE WHEN tr.side='sell' THEN tr.token_amount ELSE 0 END) sold_amt, "
+        "  SUM(tr.token_amount IS NULL) sizeless, h.amount balance "
+        "FROM trades tr JOIN traders t ON t.address = tr.address "
+        "LEFT JOIN tokens tk ON tk.mint = tr.mint "
+        "LEFT JOIN holdings h ON h.address = tr.address AND h.token = tr.mint "
+        f"WHERE t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        "  AND tr.mint IN (SELECT DISTINCT mint FROM trades WHERE side='sell' AND ts >= ?)"
+        + NOT_QUOTE.format(col="tr.mint") +
+        " GROUP BY tr.mint, tr.address HAVING out_usd > 0",
+        params,
+    )]
+
+    by_mint: dict[str, dict] = {}
+    for r in rows:
+        sizeless = bool(r["sizeless"])
+        bought = None if sizeless else r["bought_amt"]
+        sold = None if sizeless else r["sold_amt"]
+        state, exit_pct = position_state(bought, sold, r["balance"])
+        if state not in ("closed", "trimmed") or not exit_pct or exit_pct < min_exit:
+            continue
+        t = by_mint.setdefault(r["mint"], {
+            "mint": r["mint"], "sym": r["sym"], "liq": r["liq"],
+            "sellers": 0, "usd": 0.0, "conviction": 0.0, "last_sell": 0,
+            "who": [], "scores": [], "gone": 0,
+        })
+        t["sellers"] += 1
+        t["usd"] += r["out_usd"] or 0
+        t["conviction"] += (r["score"] / 100.0) ** 2
+        t["last_sell"] = max(t["last_sell"], r["last_sell"] or 0)
+        t["gone"] += 1 if state == "closed" else 0
+        t["who"].append(r["handle"] or r["addr"][:10])
+        t["scores"].append(r["score"])
+
+    out = [t for t in by_mint.values() if t["sellers"] >= min_sellers]
+    out.sort(key=lambda t: (t["conviction"], t["usd"]), reverse=True)
+    return out[:limit]
+
+
 # ---------------------------------------------------------------- fresh launches
 
 def earliness(entered_ts: int, launched_ts: int | None) -> float:

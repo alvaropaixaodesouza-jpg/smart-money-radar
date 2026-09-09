@@ -181,6 +181,23 @@ def fmt_signals(sigs: list[dict], hours: int, now: int | None = None) -> str:
     return "\n".join(out)
 
 
+def fmt_exits(leaving: list[dict], hours: int, now: int | None = None) -> str:
+    """Where the cohort is getting out. The mirror of fmt_signals, and the half nobody publishes."""
+    if not leaving:
+        return (f"Nobody trusted has left a position in the last {hours}h.\n\n"
+                "Which is its own answer: the wallets that bought are still sitting in it.")
+    out = [f"<b>LEAVING · {hours}h · Robinhood Chain</b>",
+           "<i>wallets that have sold most of what we watched them buy</i>", ""]
+    for i, t in enumerate(leaving, 1):
+        gone = f", {t['gone']} out entirely" if t["gone"] else ""
+        out.append(f"{i:>2}. <b>${esc(t['sym'])}</b>  conviction {t['conviction']:.1f}"
+                   f"  ·  {t['sellers']} selling{gone}")
+        out.append(f"    {analyze.usd(t['usd'])} out · "
+                   f"<i>{who_line(t.get('who'), t.get('scores'), 4)}</i>")
+    out.append("\nA sale is not an exit — every wallet here has sold at least half its position.")
+    return "\n".join(out)
+
+
 def fmt_fresh(feed: dict, now: int | None = None) -> str:
     """The launches the cohort is entering, hottest first."""
     tokens = feed.get("tokens") or []
@@ -338,6 +355,7 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 
 /signals — what trusted wallets are buying now
 /fresh — launches they are entering right now
+/exits — where they are getting out
 /top — the scored leaderboard
 /watch, /dropped — the other two verdicts
 /subscribe — get launches and signals pushed as they happen
@@ -488,6 +506,10 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None
         return fmt_fresh(analyze.fresh(conn, chain, hours=hours, limit=10))
+    if cmd == "/exits":
+        hours = int(args[0]) if args and args[0].isdigit() else 6
+        chain = settings.dex_chains[0] if settings.dex_chains else None
+        return fmt_exits(analyze.exits(conn, chain, hours=hours, limit=10), hours)
     if cmd in ("/top", "/watch", "/dropped"):
         status = {"/top": "active", "/watch": "watch", "/dropped": "dropped"}[cmd]
         n = int(args[0]) if args and args[0].isdigit() else 15
