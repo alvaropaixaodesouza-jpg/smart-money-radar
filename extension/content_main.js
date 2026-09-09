@@ -178,6 +178,18 @@
     }
   }, 20000);
 
+  // A handle for the outside. The collector lives in a closure, which is right, but it also made
+  // every failure look identical from the server: no data, no error, nothing to ask. This exposes
+  // the three facts that separate "no token yet" from "collection threw" from "never scheduled",
+  // and lets a pass be triggered by hand. Reading it changes nothing.
+  window.__fomoAgent = {
+    get hasToken() { return !!auth; },
+    get collections() { return collected; },
+    get busy() { return busy; },
+    scheduled: true,
+    tick,
+  };
+
   post('ready', {});
   console.log(`[${TAG}] collector injected`);
 })();
