@@ -513,3 +513,29 @@ def test_the_balance_settles_it(tmp_path):
                   (addr, TOKEN, 0.0, now))
     out = analyze.exits(c, hours=6, min_sellers=1)
     assert out and out[0]["gone"] == 1, "a zero balance is closed however partial the tape looks"
+
+
+def test_an_empty_delivery_is_not_a_collection(tmp_path):
+    """The extension posts whatever it managed to fetch, which can be nothing at all.
+
+    A signed-out browser, an expired bearer or a broken collect() all still write a run row, and
+    the health check used to read that as a healthy collection — the exact silent failure the
+    check exists to catch.
+    """
+    from fomo_agent.pipeline.health import checks
+
+    c = db.connect(tmp_path / "h.db")
+    now = db.now()
+    with db.tx(c):
+        rid = db.run_start(c, "fomo_ingest")
+        c.execute("UPDATE runs SET finished_at=?, stats_json=? WHERE id=?",
+                  (now - 60, '{"periods": {}, "new_users": 0}', rid))
+    got = {k["name"]: k for k in checks(c, rpc=None)}
+    assert got["fomo collection"]["ok"] is False, "a delivery carrying no leaderboard proves nothing"
+
+    with db.tx(c):
+        rid = db.run_start(c, "fomo_ingest")
+        c.execute("UPDATE runs SET finished_at=?, stats_json=? WHERE id=?",
+                  (now - 60, '{"periods": {"24h": 150}, "new_users": 3}', rid))
+    got = {k["name"]: k for k in checks(c, rpc=None)}
+    assert got["fomo collection"]["ok"] is True

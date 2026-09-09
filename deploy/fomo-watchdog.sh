@@ -22,7 +22,11 @@ STALE_MIN=${1:-45}
 age=$("$PY" - "$DB" <<'EOF'
 import sqlite3, sys, time
 c = sqlite3.connect(sys.argv[1])
-row = c.execute("SELECT MAX(finished_at) FROM runs WHERE kind = 'fomo_ingest'").fetchone()
+# A delivery that brought nothing is not a collection: the extension posts whatever it managed
+# to fetch, so a signed-out browser or a broken collect() still writes a run row. Requiring a
+# leaderboard in the stats is what stops this watchdog guarding an empty pipe.
+row = c.execute("SELECT MAX(finished_at) FROM runs WHERE kind = 'fomo_ingest' "
+                "AND error IS NULL AND stats_json LIKE '%\"24h\":%'").fetchone()
 print(9999 if not row or not row[0] else int((time.time() - row[0]) / 60))
 EOF
 )

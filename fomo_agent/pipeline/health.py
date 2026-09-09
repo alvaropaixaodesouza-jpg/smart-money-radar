@@ -63,7 +63,13 @@ def checks(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> list[di
     """Every check, worst first. `ok` False is something a person has to do."""
     one = lambda sql, *a: conn.execute(sql, a).fetchone()[0]  # noqa: E731
 
-    fomo_age = _age_h(one("SELECT MAX(finished_at) FROM runs WHERE kind = 'fomo_ingest'"))
+    # A delivery that brought nothing is not a collection. The extension posts whatever it managed
+    # to fetch, so a signed-out browser, an expired bearer or a broken collect() all still produce
+    # a run row — and this check would go on reporting a healthy collection while nothing at all
+    # came in. Requiring a leaderboard in the payload is what makes the check mean what it says.
+    fomo_age = _age_h(one(
+        "SELECT MAX(finished_at) FROM runs WHERE kind = 'fomo_ingest' AND error IS NULL "
+        "AND stats_json LIKE '%\"24h\":%'"))
     fills_age = _age_h(one("SELECT MAX(ts) FROM trades"))
     holdings_age = _age_h(one("SELECT MAX(ts) FROM holdings"))
     unscored = one("SELECT COUNT(*) FROM traders WHERE score IS NULL AND status IN "
