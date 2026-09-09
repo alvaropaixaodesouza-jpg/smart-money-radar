@@ -151,7 +151,16 @@ async function reschedule() {
   await chrome.alarms.clear('collect');
   // Chrome's own floor for alarms is 30s; 1 minute is as fast as this is ever worth running,
   // since a single pass already takes ~20s of paced requests.
-  if (c.enabled) chrome.alarms.create('collect', { periodInMinutes: Math.max(1, Number(c.intervalMinutes) || 30) });
+  // delayInMinutes as well as periodInMinutes, so a browser that has just started collects within
+  // the minute instead of waiting out a whole period. That matters because the watchdog restarts
+  // this browser precisely when collection has stalled - waiting another half hour after being
+  // restarted for being late would be its own kind of funny.
+  if (c.enabled) {
+    chrome.alarms.create('collect', {
+      delayInMinutes: 0.5,
+      periodInMinutes: Math.max(1, Number(c.intervalMinutes) || 30),
+    });
+  }
 }
 
 /** A session waiting to be handed over should apply now, not at the next collection.
