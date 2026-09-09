@@ -14,7 +14,7 @@ tar --exclude='.venv' --exclude='node_modules' --exclude='dist' --exclude='.git'
     --exclude='.astro' --exclude='__pycache__' --exclude='.pytest_cache' \
     --exclude='*.egg-info' --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' \
     --exclude='*scored*.json' --exclude='*.har' --exclude='fomo_state' \
-    --exclude='radar.html' --exclude='report.md' --exclude='.env' \
+    --exclude='radar.html' --exclude='report.md' --exclude='.env' --exclude='.fonts' \
     -czf /tmp/radar-app.tgz .
 
 echo "==> uploading"

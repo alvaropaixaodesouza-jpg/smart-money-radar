@@ -24,3 +24,6 @@ curl.txt
 # deploy key and any local server notes
 *.pem
 id_*
+
+# fetched once for assets/brand/make_brand.py, not worth versioning
+assets/brand/.fonts/

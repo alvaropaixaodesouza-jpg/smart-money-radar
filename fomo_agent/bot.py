@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html
 import logging
+import pathlib
 import time
 
 import httpx
@@ -52,6 +53,7 @@ class Telegram:
             proxy=settings.telegram_proxy or None,
         )
         self.requests = 0
+        self._file_ids: dict[str, str] = {}
 
     def call(self, method: str, **params) -> object:
         self.requests += 1
@@ -69,6 +71,32 @@ class Telegram:
     def send(self, chat_id, text: str, preview: bool = False) -> object:
         return self.call("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
                          disable_web_page_preview=not preview)
+
+    def photo(self, chat_id, path: pathlib.Path, caption: str) -> object:
+        """Send a local image with a caption, uploading it at most once.
+
+        Telegram hands back a file_id for anything it has stored, and accepts that id in place of
+        the bytes forever after — so the banner crosses the wire on the first /start of a process
+        and never again.
+        """
+        self.requests += 1
+        url = API.format(token=self.token, method="sendPhoto")
+        params = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+        known = self._file_ids.get(str(path))
+        if known:
+            r = self.http.post(url, json={**params, "photo": known})
+        else:
+            with open(path, "rb") as fh:
+                r = self.http.post(url, data=params, files={"photo": fh})
+        r.raise_for_status()
+        body = r.json()
+        if not body.get("ok"):
+            raise TelegramError(f"sendPhoto: {body.get('description')}")
+        result = body.get("result") or {}
+        sizes = result.get("photo") or []
+        if sizes and not known:
+            self._file_ids[str(path)] = sizes[-1]["file_id"]
+        return result
 
     def updates(self, offset: int, timeout: int | None = None) -> list:
         return self.call("getUpdates", offset=offset, allowed_updates=["message"],
@@ -294,6 +322,10 @@ def fmt_leaderboard(board: list[dict], status: str) -> str:
     return "\n".join(out)
 
 
+# The /start masthead, rendered by assets/brand/make_brand.py from the same mark the site uses.
+START_BANNER = pathlib.Path(__file__).resolve().parent.parent / "assets" / "brand" / "tg-start-1280x640.png"
+CAPTION_LIMIT = 1024   # Telegram's, on a photo caption
+
 HELP = """<b>FOMO ROBINHOOD RADAR</b>
 <i>which fomo.family traders on Robinhood Chain actually know what they are doing</i>
 
@@ -487,6 +519,11 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
             "Send a 0x… address for a token, a handle for a trader, or /signals.")
 
 
+def is_start(text: str) -> bool:
+    """`/start`, `/start@thebot`, and the deep-linked `/start ref=x` Telegram sends from a link."""
+    return text.strip().split(" ")[0].split("@")[0] == "/start"
+
+
 def handle_update(conn, tg: Telegram, update: dict) -> bool:
     msg = update.get("message") or {}
     chat = (msg.get("chat") or {}).get("id")
@@ -498,6 +535,17 @@ def handle_update(conn, tg: Telegram, update: dict) -> bool:
     except Exception as e:  # noqa: BLE001 - a bad question must not kill the bot
         log.exception("handling %r failed", msg.get("text"))
         answer = f"That broke something: <code>{esc(type(e).__name__)}</code>. Try /help."
+
+    # The first thing a new chat sees is the masthead, with the help as its caption — one message,
+    # not two. Anything at all going wrong here falls back to the text: a missing file or a
+    # rejected upload must not be the reason someone's first /start answers nothing.
+    if is_start(msg["text"]) and START_BANNER.exists() and len(answer) <= CAPTION_LIMIT:
+        try:
+            tg.photo(chat, START_BANNER, answer)
+            return True
+        except Exception:  # noqa: BLE001
+            log.warning("start banner failed, sending the text alone", exc_info=True)
+
     tg.send(chat, answer)
     return True
 

@@ -23,6 +23,7 @@ class FakeTelegram:
 
     def __init__(self, fail_for=()):
         self.sent = []
+        self.photos = []
         self.fail_for = set(fail_for)
 
     def send(self, chat_id, text, preview=False):
@@ -30,6 +31,12 @@ class FakeTelegram:
             raise RuntimeError("Forbidden: bot was blocked by the user")
         self.sent.append((str(chat_id), text))
         return {"message_id": len(self.sent)}
+
+    def photo(self, chat_id, path, caption):
+        if "photo" in self.fail_for:
+            raise RuntimeError("Bad Request: PHOTO_INVALID_DIMENSIONS")
+        self.photos.append((str(chat_id), path, caption))
+        return {"message_id": len(self.photos), "photo": [{"file_id": "abc"}]}
 
     def me(self):
         return {"username": "fomoradar_bot"}
@@ -153,6 +160,29 @@ def test_a_broken_question_does_not_kill_the_bot(conn, monkeypatch):
     tg = FakeTelegram()
     assert bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}, "text": "ace"}})
     assert "ValueError" in tg.sent[0][1]
+
+
+def test_start_leads_with_the_masthead(conn):
+    """The first thing a new chat sees is the banner, with the help as its caption — one message."""
+    tg = FakeTelegram()
+    assert bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}, "text": "/start"}})
+    assert tg.sent == []
+    chat, path, caption = tg.photos[0]
+    assert (chat, path) == ("7", bot.START_BANNER)
+    assert "FOMO ROBINHOOD RADAR" in caption and len(caption) <= bot.CAPTION_LIMIT
+
+
+def test_a_failed_banner_still_answers(conn):
+    """A missing file or a rejected upload must not be why someone's first /start says nothing."""
+    tg = FakeTelegram(fail_for=["photo"])
+    assert bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}, "text": "/start"}})
+    assert "FOMO ROBINHOOD RADAR" in tg.sent[0][1]
+
+
+def test_help_is_text_only(conn):
+    tg = FakeTelegram()
+    assert bot.handle_update(conn, tg, {"message": {"chat": {"id": 7}, "text": "/help"}})
+    assert tg.photos == [] and "FOMO ROBINHOOD RADAR" in tg.sent[0][1]
 
 
 def test_updates_without_text_are_ignored(conn):

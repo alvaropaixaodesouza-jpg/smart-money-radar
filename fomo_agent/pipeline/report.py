@@ -15,7 +15,7 @@ def _h(ts: int | None) -> str:
 def build_report(conn: sqlite3.Connection, hours: int = 24) -> str:
     now = db.now()
     since = now - hours * 3600
-    out = [f"# fomo-agent report — {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC\n"]
+    out = [f"# FOMO Robinhood Radar — {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC\n"]
 
     counts = conn.execute("SELECT status, COUNT(*) c FROM traders GROUP BY status").fetchall()
     out.append("**Traders:** " + ", ".join(f"{r['status']}={r['c']}" for r in counts) + "\n")
