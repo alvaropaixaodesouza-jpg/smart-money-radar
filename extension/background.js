@@ -4,6 +4,10 @@
  * A collection needs an open fomo.family tab: the fetches deliberately happen in the page, which is
  * what keeps them identical to the app's own requests.
  */
+// A page the app fetches authenticated data on, which the leaderboard - counterintuitively - is
+// not. Any token page will do; this one is large and long-lived.
+const TOKEN_PAGE = 'https://fomo.family/tokens/robinhood/0x39dbed3a2bd333467115de45665cc57f813c4571';
+
 const DEFAULTS = {
   endpoint: 'http://127.0.0.1:8787/ingest',
   token: '',
@@ -86,6 +90,21 @@ async function collectNow(reason = 'manual') {
   }
   // Whatever the handover did, say so. A silent failure here looks exactly like "nothing was
   // waiting", and the two need different fixes.
+  // Reload first, always. fomo's bearer lives about an hour and the app only mints one while it
+  // is working: a tab left sitting makes no requests, so the captured token expires and every
+  // request after that is a 401 while the page still looks perfectly signed in.
+  //
+  // Which page matters, and not in the way you would guess. Measured on the collector: a token
+  // page makes 57 calls to prod-api, all of them bearing the token. The leaderboard page makes
+  // none at all - it never touches that host - so a tab parked there can never learn a token,
+  // however signed in it is. TOKEN_PAGE is therefore a token page on purpose.
+  if (!tab.url || !/\/tokens\//.test(tab.url)) {
+    await chrome.tabs.update(tab.id, { url: TOKEN_PAGE });
+  } else {
+    await chrome.tabs.reload(tab.id);
+  }
+  await new Promise((r) => setTimeout(r, 15000));   // let the app sign a few requests of its own
+
   const seeded = await takeSeed(tab);
   await setStatus({
     seed: !seeded ? 'nothing waiting'

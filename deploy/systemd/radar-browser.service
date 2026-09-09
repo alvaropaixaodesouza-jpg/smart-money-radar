@@ -18,6 +18,10 @@ WorkingDirectory=/opt/fomoradar
 # sets no navigator.webdriver - it is how the server asks this browser a question and gets an
 # answer, rather than synthesising keystrokes and photographing the result.
 #
+# The URL is a token page rather than the front page or the leaderboard, and that is load-bearing:
+# measured here, a token page makes 57 authenticated calls to prod-api and the leaderboard makes
+# none, so a tab parked on the leaderboard can never learn the bearer the collector needs.
+#
 # Deliberately NOT headless and with no automation flags: headless Chrome announces itself in the
 # user agent, and --enable-automation sets navigator.webdriver, which is exactly what Google's
 # sign-in refuses. This is an ordinary Chrome that happens to have no physical monitor.
@@ -30,7 +34,7 @@ ExecStart=/usr/bin/google-chrome \
   --disable-renderer-backgrounding \
   --window-size=1280,900 --window-position=0,0 \
   --password-store=basic \
-  https://fomo.family/
+  https://fomo.family/tokens/robinhood/0x39dbed3a2bd333467115de45665cc57f813c4571
 Restart=always
 RestartSec=10
 # Chrome writes only inside its own profile; everything else on the box stays read-only to it.
