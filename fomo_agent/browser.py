@@ -120,7 +120,7 @@ def state(port: int | None = None) -> dict:
     return evaluate(SIGNED_IN, port=port) or {}
 
 
-def collect(port: int | None = None, timeout: float = 240.0) -> dict:
+def collect(port: int | None = None, timeout: float = 30.0) -> dict:
     """Make the collector run now, from here rather than from Chrome's own alarm.
 
     The extension schedules itself with `chrome.alarms`, and in Manifest V3 that is a request
@@ -134,7 +134,7 @@ def collect(port: int | None = None, timeout: float = 240.0) -> dict:
     """
     import time as _time
 
-    call = "collectNow('server').then(r => JSON.stringify(r || {}))"
+    call = "collectNow('server'); true"
     if not _worker_awake(port):
         # A dormant Manifest V3 worker is not listed as a target at all, so there is nothing to
         # call. Reloading the page wakes it: the content script messages the extension the moment
@@ -151,7 +151,12 @@ def collect(port: int | None = None, timeout: float = 240.0) -> dict:
                 break
         else:
             raise BrowserError("the collector's service worker never woke up")
-    return evaluate(call, match="background.js", port=port, timeout=timeout)
+    # Started, not awaited. A pass takes minutes of deliberately paced requests, and holding a
+    # devtools socket open across it only invents a second thing that can time out. Whether it
+    # worked is a question for the receiver's log and the health check, which is where anyone
+    # would look anyway.
+    evaluate(call, match="background.js", port=port, timeout=timeout)
+    return {"started": True}
 
 
 def _worker_awake(port: int | None = None) -> bool:
