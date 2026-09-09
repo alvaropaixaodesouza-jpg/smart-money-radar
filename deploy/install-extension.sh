@@ -11,6 +11,7 @@
 set -euo pipefail
 
 SRC=/opt/fomoradar/app/extension
+PY=/opt/fomoradar/venv/bin/python
 DEST=/opt/fomoradar/ext
 POLICY=/etc/opt/chrome/policies/managed/fomoradar.json
 
@@ -88,6 +89,32 @@ echo "==> policy written to $POLICY"
 cp /opt/fomoradar/app/deploy/systemd/radar-crx.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now radar-crx
-systemctl restart radar-browser
+
+# Chrome checks an update manifest on its own schedule - hours - so restarting the browser is not
+# enough to pick up a version packed a minute ago. Without this the script reports installing a
+# version it did not install, which is worse than failing: three fixes in a row were tested
+# against code that was never there.
+echo "==> forcing a clean install of $VERSION"
+systemctl stop radar-browser || true
+sleep 2
+rm -rf "/opt/fomoradar/chrome-profile/Default/Extensions/$ID"
+"$PY" - "$ID" <<'PYEOF' || true
+import json, pathlib, sys
+p = pathlib.Path('/opt/fomoradar/chrome-profile/Default/Preferences')
+if p.exists():
+    d = json.loads(p.read_text())
+    d.get('extensions', {}).get('settings', {}).pop(sys.argv[1], None)
+    p.write_text(json.dumps(d))
+PYEOF
+chown -R radar:radar /opt/fomoradar/chrome-profile
+systemctl start radar-browser
+
+# Say what actually landed, not what was asked for.
+for _ in $(seq 1 20); do
+  sleep 5
+  got=$(ls -d "/opt/fomoradar/chrome-profile/Default/Extensions/$ID/"*/ 2>/dev/null | head -1)
+  [ -n "$got" ] && break
+done
+echo "==> installed: ${got:-NOTHING}"
 echo "$ID" > "$DEST/extension-id.txt"
 echo "==> restarted. id is in $DEST/extension-id.txt"
