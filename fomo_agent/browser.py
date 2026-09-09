@@ -78,6 +78,11 @@ def evaluate(expression: str, match: str = "fomo.family", port: int | None = Non
 
     async def run() -> Any:
         async with websockets.connect(ws_url, max_size=64 * 1024 * 1024) as ws:
+            # Attaching to a service worker pauses it until it is told to carry on, and a paused
+            # worker answers nothing - the evaluate simply never returns. Pages ignore both of
+            # these, so they are sent unconditionally rather than branching on target type.
+            await ws.send(json.dumps({"id": 90, "method": "Runtime.enable"}))
+            await ws.send(json.dumps({"id": 91, "method": "Runtime.runIfWaitingForDebugger"}))
             await ws.send(json.dumps({
                 "id": 1, "method": "Runtime.evaluate",
                 "params": {"expression": expression, "awaitPromise": True,
