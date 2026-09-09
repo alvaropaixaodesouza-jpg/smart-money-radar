@@ -124,6 +124,7 @@
   window.addEventListener('message', async (ev) => {
     const d = ev.data;
     if (ev.source !== window || !d || !d.__fomoAgentReq) return;
+    if (d.type === 'bridged') { lastBridge = d.payload; return; }
     if (d.type === 'ping') return post('pong', { hasToken: !!auth });
     if (d.type === 'seed') {
       let wrote = null;
@@ -150,6 +151,7 @@
   // cannot: posting to a plain-http receiver from an https page.
   const EVERY_MS = 30 * 60 * 1000;
   let pokes = 0;
+  let lastBridge = null;
 
   // The page owns the schedule; the extension still does the work. Handing a whole collection
   // back through chrome.runtime.sendMessage meant pushing a megabyte of JSON down a channel meant
@@ -176,6 +178,7 @@
   window.__fomoAgent = {
     get hasToken() { return !!auth; },
     get pokes() { return pokes; },
+    get lastBridge() { return lastBridge; },
     scheduled: true,
     tick,
   };

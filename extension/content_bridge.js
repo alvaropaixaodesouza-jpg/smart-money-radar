@@ -16,8 +16,15 @@ window.addEventListener('message', (ev) => {
     }
     return;
   }
-  // An autocollect carries a whole collection back to the worker, which is also what wakes it.
-  chrome.runtime.sendMessage({ type: d.type, payload: d.payload }).catch(() => {});
+  // Report the outcome back into the page. This is the one hop nothing could see: a message that
+  // fails here disappears with a swallowed rejection, and from the server the symptom is a
+  // collector that says it ran and a receiver that says nothing arrived.
+  chrome.runtime.sendMessage({ type: d.type, payload: d.payload })
+    .then(() => window.postMessage({ __fomoAgent: true, type: 'bridged', payload: { of: d.type } }, '*'))
+    .catch((e) => window.postMessage({
+      __fomoAgent: true, type: 'bridged',
+      payload: { of: d.type, error: (e && e.message) || String(e) },
+    }, '*'));
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
