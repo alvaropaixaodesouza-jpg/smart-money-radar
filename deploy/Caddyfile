@@ -1,10 +1,13 @@
 # FOMO Robinhood Radar
 #
-# No domain yet, so this answers on the bare IP over plain HTTP. When a domain points here,
-# replace the `:80` line with the hostname and Caddy fetches a certificate on its own —
-# nothing else in this file has to change.
+# One canonical host, fomoradar.app. Caddy fetches and renews the certificate on its own; nothing
+# here has to know about Let's Encrypt.
+#
+# `.app` is on the HSTS preload list, which means browsers refuse to speak plain HTTP to it at all.
+# That is a feature and it has one consequence worth remembering: until the certificate exists the
+# domain does not load, and that reads exactly like a broken server.
 
-:80 {
+fomoradar.app {
 	encode zstd gzip
 
 	# the API and its generated documentation
@@ -38,4 +41,16 @@
 	log {
 		format json
 	}
+}
+
+# Everything that is not the canonical host is sent to it. Two addresses serving the same pages
+# would split every inbound link and give search engines two of everything to choose between —
+# and the canonical tag in the HTML says fomoradar.app, so the server should agree with it.
+www.fomoradar.app {
+	redir https://fomoradar.app{uri} permanent
+}
+
+# The bare IP kept working for months and people have it. It answers, and then it moves them on.
+http://193.233.209.98 {
+	redir https://fomoradar.app{uri} permanent
 }
