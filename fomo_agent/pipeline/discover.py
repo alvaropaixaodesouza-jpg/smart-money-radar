@@ -172,6 +172,12 @@ def import_browser_export(conn: sqlite3.Connection, source) -> dict:
                 stats["positions"] += 1
                 stats["new_positions"] += db.upsert_fomo_position(conn, **h)
 
+    # What the collector *tried* to ask about, and what each ask returned. Without these a
+    # collection that asked for thirteen tokens and delivered one is indistinguishable from a
+    # collection that only ever asked for one — which is exactly how a broken batch survived twenty
+    # passes unnoticed.
+    stats["asked"] = len(raw.get("asked") or [])
+    stats["holder_errors"] = raw.get("holderErrors") or {}
     stats["theses"] = 0
     for mint, payload in (raw.get("holders") or {}).items():
         # Per token, and soft. A collection carries three leaderboards, hundreds of swaps and a
@@ -187,7 +193,8 @@ def import_browser_export(conn: sqlite3.Connection, source) -> dict:
             stats["theses"] += _store_theses(conn, rows, mint)
         except Exception as e:  # noqa: BLE001
             log.warning("holders payload for %s could not be read: %s", mint[:10], e)
-            stats.setdefault("holder_errors", []).append(f"{mint[:10]}: {str(e)[:120]}")
+            # same map the collector fills in: what went wrong, keyed by the token it went wrong on
+            stats["holder_errors"][mint] = f"unreadable here: {str(e)[:100]}"
 
     # The addresses fomo reports are internal accounts with no on-chain swaps (verified against
     # Codex), so the swaps are stored as evidence and pipeline/resolve.py infers the real wallet.

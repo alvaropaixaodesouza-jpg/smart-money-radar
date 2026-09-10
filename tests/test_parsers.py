@@ -491,3 +491,22 @@ def test_one_unreadable_token_costs_only_that_token(tmp_path):
     stats = import_browser_export(conn, payload)
     assert stats["periods"]["24h"] > 0, "the leaderboard still landed"
     assert stats["theses"] >= 1, "the good token still yielded its theses"
+
+
+def test_the_collection_records_what_it_asked_for(tmp_path):
+    """A pass that asked for thirteen tokens and delivered one must not look like a pass that
+    asked for one. That gap hid a broken batch through twenty collections."""
+    from fomo_agent import db
+    from fomo_agent.pipeline.discover import import_browser_export
+
+    conn = db.connect(tmp_path / "asked.db")
+    good = "0x385f4f8ae47651ce5f58f5265395a669f8281e18"
+    stats = import_browser_export(conn, {
+        "asked": [good, "0xsilent", "0xrefused"],
+        "holders": {good: load("fomo_holders_thesis_sample.json")},
+        "holderErrors": {"0xsilent": "answered with nothing", "0xrefused": "400"},
+    })
+    assert stats["asked"] == 3, "three were asked for"
+    assert len(stats["holders"]) == 1, "one answered"
+    assert set(stats["holder_errors"]) == {"0xsilent", "0xrefused"}
+

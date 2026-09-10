@@ -94,7 +94,7 @@
     // NB: /trades needs a tokenAddress and answers 400 without one. Per-token positions come
     // from topHoldings inside the leaderboard response instead, at no extra request.
     const gap = opts.gapMs ?? 350;
-    const out = { exportedAt: Math.floor(Date.now() / 1000), leaderboards: {}, swaps: {}, trades: {}, tradeErrors: {}, holders: {} };
+    const out = { exportedAt: Math.floor(Date.now() / 1000), leaderboards: {}, swaps: {}, trades: {}, tradeErrors: {}, holders: {}, holderErrors: {}, asked: [] };
 
     for (const p of periods) {
       out.leaderboards[p] = await get(`/v2/leaderboard/${p}`);
@@ -138,19 +138,26 @@
       asks.push({ address: m[2], networkId: nets[m[1]] || nets.solana });
     }
 
-    // The endpoint takes a list, so a dozen names cost one request rather than a dozen. Kept in
-    // small batches anyway: one oversized query that 400s would lose every name in it.
-    for (let i = 0; i < asks.length; i += 4) {
-      const batch = asks.slice(i, i + 4);
+    // One token per request. The endpoint's parameter is shaped like a list and asking it for four
+    // names at once quietly returned nothing for any of them - twenty collections in a row came
+    // back carrying exactly one token, the one that happened to land alone in the final batch. A
+    // request per name costs 350ms each and is the shape that demonstrably answers.
+    //
+    // What each ask did is recorded, because the failure above was invisible from the server: a
+    // collection that asked for thirteen names and delivered one looked identical to a collection
+    // that only ever asked for one.
+    out.asked = asks.map((a) => a.address);
+    for (const a of asks) {
       try {
-        const answer = await get(`/hodlers/top?tokens=${encodeURIComponent(JSON.stringify(batch))}`);
-        // Split the answer back apart by token rather than filing the whole thing under each
-        // address: the parser would cope either way, but the body we POST would carry every
-        // holder list four times over.
-        for (const tok of (answer && answer.responseObject) || []) {
+        const answer = await get(`/hodlers/top?tokens=${encodeURIComponent(JSON.stringify([a]))}`);
+        const toks = (answer && answer.responseObject) || [];
+        if (!toks.length) out.holderErrors[a.address] = 'answered with nothing';
+        for (const tok of toks) {
           if (tok && tok.tokenAddress) out.holders[tok.tokenAddress] = { responseObject: [tok] };
         }
-      } catch (e) { /* one bad batch must not sink the collection */ }
+      } catch (e) {
+        out.holderErrors[a.address] = String((e && e.message) || e).slice(0, 120);
+      }
       await sleep(gap);
     }
     return out;
