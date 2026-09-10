@@ -93,6 +93,9 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+# Our own site renders on the server and reaches the API over loopback, so CORS never applied to
+# it. The only clients a restriction can reach are third-party browsers, which is the audience this
+# API exists for — so it stays open, and the rate limiter above is what guards it.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.api_cors_origins) or ["*"],

@@ -16,6 +16,8 @@ const canonical = new URL(Astro.url.pathname, base).href;
 // Crawlers need an absolute URL and a raster: Telegram, Twitter and Slack all refuse SVG.
 // site/public/og.png is written by assets/brand/make_brand.py from the same mark as everything else.
 const ogImage = new URL('/og.png', base).href;
+// No repository yet, and a link to github.com itself is worse than no link at all.
+const repo = import.meta.env.PUBLIC_REPO_URL ?? '';
 ---
 <!doctype html>
 <html lang="en">
@@ -73,7 +75,7 @@ const ogImage = new URL('/og.png', base).href;
       <span>FOMO Robinhood Radar · research, not financial advice</span>
       <span>Robinhood Chain · 4663</span>
       <a href="/docs">API</a>
-      <a href="https://github.com/">source</a>
+      {repo && <a href={repo}>source</a>}
     </footer>
   </div>
 </body>

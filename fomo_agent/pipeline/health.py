@@ -84,9 +84,9 @@ def checks(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> list[di
         router_alive(conn, rpc),
         # The hint belongs on the failure only: a passing check that ends with a warning is how a
         # report trains people to skim past it.
-        {"name": "fomo collection", "ok": fomo_age is not None and fomo_age < 3,
+        {"name": "fomo collection", "ok": fomo_age is not None and fomo_age < 1.5,
          "detail": (f"last collection {fomo_age:.1f}h ago" if fomo_age is not None
-                    else "never collected") + ("" if fomo_age is not None and fomo_age < 3
+                    else "never collected") + ("" if fomo_age is not None and fomo_age < 1.5
                     else " - the browser on the server is probably signed out")},
         {"name": "on-chain tape", "ok": fills_age is not None and fills_age < 6,
          "detail": f"newest fill {fills_age:.1f}h ago" if fills_age is not None else "no fills"},

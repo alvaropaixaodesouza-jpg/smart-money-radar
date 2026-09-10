@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /search
 
-Sitemap: https://fomoradar.xyz/sitemap.xml
+Sitemap: https://fomoradar.app/sitemap.xml
