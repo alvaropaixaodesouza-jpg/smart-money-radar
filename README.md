@@ -5,6 +5,8 @@ their fills on-chain, and asks Claude which of them actually know what they are 
 a live site, a Telegram bot and an HTTP API over one database: a signal feed, a token analyzer, a
 trader analyzer, and a leaderboard ranked by judgement rather than by headline PnL.
 
+**Live: [fomoradar.app](https://fomoradar.app) · [@fomoradarRH_bot](https://t.me/fomoradarRH_bot)**
+
 ```bash
 pip install -e .
 cp .env.example .env          # nothing is required to start; see "Keys" below

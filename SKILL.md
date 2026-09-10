@@ -35,7 +35,7 @@ ssh -i ~/.ssh/fomoradar root@193.233.209.98 'cd /opt/fomoradar/app && /opt/fomor
 ```
 
 The same data is already published, so prefer reading it over re-deriving it: the site at
-http://193.233.209.98 (`/`, `/fresh`, `/leaderboard`, `/search`, `/trader/<who>`, `/token/<mint>`), the API at
+https://fomoradar.app (`/`, `/fresh`, `/leaderboard`, `/search`, `/trader/<who>`, `/token/<mint>`), the API at
 `/api/*` (`leaderboard`, `signals`, `fresh`, `tape`, `activity`, `stats`, `distribution`, `search`,
 `token/{mint}`, `token/{mint}/chart`, `trader/{who}`, `health`), and the bot **@fomoradarRH_bot**
 (`/status`, `/health`, `/signals`, `/fresh`, `/token`, `/trader`, `/subscribe`).
