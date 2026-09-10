@@ -33,7 +33,12 @@ const cfg = async () => {
 
 async function setStatus(patch) {
   const prev = (await chrome.storage.local.get('status')).status || {};
-  await chrome.storage.local.set({ status: { ...prev, ...patch, at: Date.now() } });
+  // Every status carries the version of the code that wrote it. Twice now a fix has been deployed,
+  // unpacked into the profile, confirmed present on disk — and not been the code Chrome was
+  // actually running, which is indistinguishable from the fix not working. A version somebody can
+  // read from outside is the difference between "installed" and "running".
+  const version = chrome.runtime.getManifest().version;
+  await chrome.storage.local.set({ status: { ...prev, ...patch, version, at: Date.now() } });
 }
 
 async function injectInto(tabId) {
@@ -265,6 +270,7 @@ async function adoptOpenTabs() {
   }
 }
 
+setStatus({ reason: 'startup', message: 'service worker started' });
 chrome.runtime.onInstalled.addListener(() => { reschedule(); adoptOpenTabs(); seedOnStart(); });
 chrome.runtime.onStartup.addListener(() => { reschedule(); adoptOpenTabs(); seedOnStart(); });
 // The service worker also starts on demand after Chrome restarts a session, where neither event
