@@ -379,10 +379,15 @@ def backfill_cmd(
 @app.command("browser")
 def browser_cmd(
     seed: bool = typer.Option(False, "--seed", help="write the waiting session into the browser"),
+    collect: bool = typer.Option(False, "--collect", help="make it collect now, without waiting for its alarm"),
 ) -> None:
     """Ask the collector browser what it sees, and optionally hand it a waiting session."""
     from . import browser
 
+    if collect:
+        typer.echo(f"collect: {browser.collect_now()}")
+        typer.echo("the collection takes about a minute; watch `journalctl -u radar-receive`")
+        raise typer.Exit(0)
     if seed:
         path = settings.seed_path
         if not path.exists():

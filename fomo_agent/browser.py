@@ -159,6 +159,24 @@ def state(port: int | None = None) -> dict:
     return evaluate(SIGNED_IN, port=port) or {}
 
 
+def collect_now(port: int | None = None) -> str:
+    """Make the collector collect, now, by asking the page to poke the service worker.
+
+    The extension normally runs itself off a `chrome.alarms` period. That alarm stopped firing once
+    — five hours of it, with the watchdog restarting the browser every ten minutes and achieving
+    nothing, while a single poke through this path collected everything waiting. So this is the
+    intervention that actually works, and the watchdog reaches for it before it reaches for a
+    restart: a browser that is signed in and holding a live token does not need to be killed.
+
+    The page cannot call chrome.runtime itself — that lives in the isolated world — so the message
+    goes out as a window event and content_bridge.js relays it. Returns immediately; the collection
+    takes about a minute, and the receiver's log is where it lands.
+    """
+    poke = ('(window.postMessage({__fomoAgent: true, type: "collectNow", payload: {}}, "*"), '
+            '"poked")')
+    return evaluate(poke, port=port)
+
+
 def write_session(payload: dict, port: int | None = None) -> dict:
     """Put a session exported from another browser into this one, then reload.
 
