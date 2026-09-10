@@ -167,7 +167,7 @@ class Settings:
     # because the whole point of asking about the right names is not asking about every name.
     thesis_window_h: int = field(default_factory=lambda: _int("THESIS_WINDOW_H", 72))
     thesis_max_age_s: int = field(default_factory=lambda: _int("THESIS_MAX_AGE_S", 21600))
-    thesis_batch: int = field(default_factory=lambda: _int("THESIS_BATCH", 12))
+    thesis_batch: int = field(default_factory=lambda: _int("THESIS_BATCH", 6))
     # Pools dated per enrichment pass. A launch time never changes, so this queue only
     # shrinks: 120 a pass at thirty per request clears a backlog of three thousand in a day.
     date_refresh_limit: int = field(default_factory=lambda: _int("DATE_REFRESH_LIMIT", 120))

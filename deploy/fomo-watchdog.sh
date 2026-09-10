@@ -21,9 +21,9 @@ set -euo pipefail
 DB=/opt/fomoradar/fomo_agent.db
 PY=/opt/fomoradar/venv/bin/python
 APP=/opt/fomoradar/app
-STALE_MIN=${1:-45}
+STALE_MIN=${1:-160}   # the collector runs every 2h; 160 is one missed pass
 # How stale before a poke is judged to have failed and the browser is restarted instead.
-HARD_MIN=${2:-90}
+HARD_MIN=${2:-300}   # two missed passes, and a poke has not helped
 
 age=$("$PY" - "$DB" <<'EOF'
 import sqlite3, sys, time

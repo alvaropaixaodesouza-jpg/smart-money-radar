@@ -71,7 +71,7 @@ cat > "$POLICY" <<JSON
       "$ID": {
         "endpoint": "http://127.0.0.1:8787/ingest",
         "token": "$TOKEN",
-        "intervalMinutes": 30,
+        "intervalMinutes": 120,
         "enabled": true,
         "withPositions": true
       }

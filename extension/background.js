@@ -11,8 +11,13 @@ const TOKEN_PAGE = 'https://fomo.family/tokens/robinhood/0x39dbed3a2bd333467115d
 const DEFAULTS = {
   endpoint: 'http://127.0.0.1:8787/ingest',
   token: '',
-  intervalMinutes: 30,
-  resolveTop: 25,
+  // Two hours, not thirty minutes. At the old cadence one account made roughly 1400 authenticated
+  // calls a day - three leaderboards and two dozen wallet lookups every half hour, forever, on the
+  // dot. That is what a scraper looks like from the other side, and on 2026-09-10 the account was
+  // restricted for it. Twelve passes a day keeps every feed current: traders do not change rank by
+  // the minute, and the on-chain tape, which does, comes from the chain rather than from here.
+  intervalMinutes: 120,
+  resolveTop: 8,
   withPositions: true,
   enabled: true,
 };
@@ -118,10 +123,15 @@ async function collectNow(reason = 'manual') {
   });
   // knownUserIds lets the page skip wallets we already resolved, so repeat runs stay cheap
   const known = (await chrome.storage.local.get('knownUserIds')).knownUserIds || [];
+  const pass = (((await chrome.storage.local.get('passCount')).passCount || 0) + 1) % 1000;
+  await chrome.storage.local.set({ passCount: pass });
   const msg = {
     type: 'collect',
     payload: {
       resolveTop: c.resolveTop, withPositions: c.withPositions, knownUserIds: known,
+      // 24h moves constantly and is worth every pass. 7d and 30d barely move, so they take turns:
+      // at a two-hour cadence each is still refreshed twice a day, for a third fewer requests.
+      periods: ['24h', (pass % 2 ? '7d' : '30d')],
       // what the server asked for in its reply to the last delivery
       mints: (await chrome.storage.local.get('wantMints')).wantMints || [],
     },
@@ -228,9 +238,12 @@ async function reschedule() {
   // this browser precisely when collection has stalled - waiting another half hour after being
   // restarted for being late would be its own kind of funny.
   if (c.enabled) {
+    // A little jitter. Firing at exactly :00 and :30 for weeks is itself a tell, and it costs
+    // nothing to arrive at an ordinary-looking time instead.
+    const period = Math.max(1, Number(c.intervalMinutes) || 120);
     chrome.alarms.create('collect', {
       delayInMinutes: 0.5,
-      periodInMinutes: Math.max(1, Number(c.intervalMinutes) || 30),
+      periodInMinutes: period + (Math.random() * period * 0.15),
     });
   }
 }
