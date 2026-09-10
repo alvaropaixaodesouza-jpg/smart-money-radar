@@ -318,6 +318,19 @@ def health_cmd(
     raise typer.Exit(0 if r["ok"] else 1)
 
 
+@app.command("fomo-api")
+def fomo_api_cmd(
+    windows: str = typer.Option("24h,7d", "--windows", help="leaderboard windows, 1 credit each"),
+    thesis_pages: int = typer.Option(None, "--thesis-pages", help="50 notes a page, 5 credits each"),
+) -> None:
+    """Collect the fomo half over HTTP instead of through the browser."""
+    from .pipeline.collect_api import collect
+
+    got = _run("fomoapi", collect, tuple(w.strip() for w in windows.split(",") if w.strip()),
+               thesis_pages)
+    typer.echo(got)
+
+
 @app.command("digest")
 def digest_cmd(
     hours: int = typer.Option(24, "--hours", help="window the digest covers"),

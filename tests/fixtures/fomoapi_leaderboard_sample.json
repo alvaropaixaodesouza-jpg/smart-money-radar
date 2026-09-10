@@ -1,0 +1,222 @@
+{
+ "window": "24h",
+ "source": "fomo-live",
+ "capturedAt": "2026-09-10T15:48:51.586Z",
+ "count": 4,
+ "traders": [
+  {
+   "rank": 1,
+   "handle": "PoorGoat_",
+   "displayName": "PoorGoat\ud83d\udc9b\ud83d\udc08",
+   "pnlUsd": 333127,
+   "volumeUsd": 1516626,
+   "trades": 3202,
+   "followers": 507636,
+   "holdings": 116,
+   "wallets": {
+    "solana": "HDixbrzwwLXczhDBk1JVrurPQsuLE8FUKnW2pucSXN3o",
+    "evm": "0x9ce0cb4a193acbce0dca3283972341aed6f3f614",
+    "verified": true
+   },
+   "avatar": "https://prod-fomo-profile-pics.s3.amazonaws.com/9f9d7ee2e587acaa358bb13a04118b9c_small.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+   "topTokens": [
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump_thumb_91c7c8bee740.png",
+     "tokenAddress": "Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump",
+     "networkId": 1399811149,
+     "humanAmount": 27433332.034046,
+     "price": 0.0601618548066,
+     "value": 1650440.1386935243,
+     "pnl": 1612527.8395383167
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump_thumb_1489ea350df9.png",
+     "tokenAddress": "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump",
+     "networkId": 1399811149,
+     "humanAmount": 3754834.11926,
+     "price": 0.160299653688,
+     "value": 601898.6089732645,
+     "pnl": 601827.6911701086
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/56_0x6ff45323817d1d53bbb8a8dfba9245ae74057777_thumb_81ee20be68fc.png",
+     "tokenAddress": "0x6ff45323817d1d53bbb8a8dfba9245ae74057777",
+     "networkId": 56,
+     "humanAmount": 28359396.565923233,
+     "price": 0.00822056440873,
+     "value": 233130.2460628883,
+     "pnl": 224159.05901088828
+    }
+   ],
+   "clan": {
+    "id": "1eec89a1-5679-48a1-9ce6-338bd76328eb",
+    "name": "Conviction Capital",
+    "icon": "https://prod-fomo-profile-pics.s3.amazonaws.com/e3eb6f92ddc420d86220c2576616da80.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+    "role": null
+   },
+   "twitter": null,
+   "createdAt": "2025-11-11T13:50:41.428Z",
+   "description": "Road to 8 Figs \ud83d\udc9b\ud83d\udc08\nFind me on X @poorgoat_\nI WILL NEVER ENDORSE A POORGOAT COIN\nNever blindly follow anyone\u2019s trades - including mine.\nTRILLION. DOLLAR. CATE.",
+   "following": 32,
+   "verified": false
+  },
+  {
+   "rank": 2,
+   "handle": "bigwarzeth",
+   "displayName": "BIGWARZ",
+   "pnlUsd": 230596,
+   "volumeUsd": 902529,
+   "trades": 881,
+   "followers": 15469,
+   "holdings": 29,
+   "wallets": {
+    "solana": "FRT8YuLJ9q8PPX2o4RUiJ9hWL427hNmMJ2M6JdgGgzwK",
+    "evm": null,
+    "verified": true
+   },
+   "avatar": "https://prod-fomo-profile-pics.s3.amazonaws.com/5aa4378c3cf334bdcd04f3ce5fe7c76c_small.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+   "topTokens": [
+    {
+     "imageUrl": "https://token-media.defined.fi/56_0xfa6d9b504848606eb9aec04ccc161d169b3f2159_thumb_83d03ee205d0.png",
+     "tokenAddress": "0xfa6d9b504848606eb9aec04ccc161d169b3f2159",
+     "networkId": 56,
+     "humanAmount": 25125432.302131623,
+     "price": 0.0161786590324,
+     "value": 406495.8022578365,
+     "pnl": 411033.26717408537
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/56_0x7fb4758cb0c617c0bab1baf80525fab958637777_thumb_7de7b9cfe844.png",
+     "tokenAddress": "0x7fb4758cb0c617c0bab1baf80525fab958637777",
+     "networkId": 56,
+     "humanAmount": 29814037.466994077,
+     "price": 0.000538544137039,
+     "value": 16056.175079310739,
+     "pnl": 16926.56504619283
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/4663_0x86202ef2ecf0fb70a3b74794cd5bdc5a91bb0f97_thumb_61c93b397ff9.png",
+     "tokenAddress": "0x86202ef2ecf0fb70a3b74794cd5bdc5a91bb0f97",
+     "networkId": 4663,
+     "humanAmount": 28950635.888265084,
+     "price": 0.000320778722011,
+     "value": 9286.747981643466,
+     "pnl": 8969.412166043467
+    }
+   ],
+   "clan": null,
+   "twitter": null,
+   "createdAt": "2026-01-21T11:57:14.272Z",
+   "description": "find plays early & sit on hands,\ndo not copy-trade without doing your own research.",
+   "following": 0,
+   "verified": false
+  },
+  {
+   "rank": 3,
+   "handle": "JarlBalgruuf__",
+   "displayName": "Jarl Balgruuf",
+   "pnlUsd": 154075,
+   "volumeUsd": 707229,
+   "trades": 577,
+   "followers": 704,
+   "holdings": 2,
+   "wallets": {
+    "solana": "Et9jbvxvwKrKW5ZYJudU6HxLpHfCBVR4dR3yzWDqH1Zo",
+    "evm": "0x8e8183e3cd3864be277a3f91136ca5750c511ca0",
+    "verified": true
+   },
+   "avatar": "https://prod-fomo-profile-pics.s3.amazonaws.com/6f9cebbf4650774521a4db85df3dceeb_small.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+   "topTokens": [
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_E4Ap4icMLwKot8rkkTbq5JkS5kZxt5XCE3yfxbzYBjHx_thumb_f5500d4e2137.png",
+     "tokenAddress": "E4Ap4icMLwKot8rkkTbq5JkS5kZxt5XCE3yfxbzYBjHx",
+     "networkId": 1399811149,
+     "humanAmount": 22133803.512536664,
+     "price": 0.0109880665361,
+     "value": 243207.70569271676,
+     "pnl": 259556.89747871665
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_AvkWkhbVpZWLaTZ1GeKhpm87Avejcn18NZqo6rGvsbp_thumb_2d5e24c03a04.png",
+     "tokenAddress": "AvkWkhbVpZWLaTZ1GeKhpm87Avejcn18NZqo6rGvsbp",
+     "networkId": 1399811149,
+     "humanAmount": 3.72529029846e-09,
+     "price": 4.94059131567e-05,
+     "value": 0,
+     "pnl": -185.81239599999986
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_A4BreBGdt4ia1x9HG3ZJAiZQq2XgRD1KSXUt3Cy8ngod_thumb_a02cdf3b2f82.png",
+     "tokenAddress": "A4BreBGdt4ia1x9HG3ZJAiZQq2XgRD1KSXUt3Cy8ngod",
+     "networkId": 1399811149,
+     "humanAmount": 30099003.897478,
+     "price": 6.55702677093e-05,
+     "value": 1973.5997433408963,
+     "pnl": -52.91020165910248
+    }
+   ],
+   "clan": null,
+   "twitter": null,
+   "createdAt": "2026-08-16T00:35:46.265Z",
+   "description": "Jarl of Whiterun Hold.",
+   "following": 0,
+   "verified": false
+  },
+  {
+   "rank": 4,
+   "handle": "boosteryting",
+   "displayName": "Jack",
+   "pnlUsd": 150570,
+   "volumeUsd": 1617927,
+   "trades": 3015,
+   "followers": 59130,
+   "holdings": 21,
+   "wallets": {
+    "solana": "EVqxB3F6iUBeWsTpBFQqWwxpqUS8s4NrzgxBvQ2VRbTq",
+    "evm": null,
+    "verified": true
+   },
+   "avatar": "https://prod-fomo-profile-pics.s3.amazonaws.com/851b7c6256e6d19066c66864957481a0_small.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+   "topTokens": [
+    {
+     "imageUrl": "https://token-media.defined.fi/1399811149_Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump_thumb_91c7c8bee740.png",
+     "tokenAddress": "Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump",
+     "networkId": 1399811149,
+     "humanAmount": 10366539.62251,
+     "price": 0.0601618548066,
+     "value": 623670.2516163125,
+     "pnl": 568363.8136040756
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/56_0xf40592daacb3e5abf358789f5688c0b4f64d7777_thumb_506b6eec95b2.png",
+     "tokenAddress": "0xf40592daacb3e5abf358789f5688c0b4f64d7777",
+     "networkId": 56,
+     "humanAmount": 11133120.95556997,
+     "price": 0.00900183630364,
+     "value": 100218.53239066499,
+     "pnl": 177652.8298318196
+    },
+    {
+     "imageUrl": "https://token-media.defined.fi/56_0x6ff45323817d1d53bbb8a8dfba9245ae74057777_thumb_81ee20be68fc.png",
+     "tokenAddress": "0x6ff45323817d1d53bbb8a8dfba9245ae74057777",
+     "networkId": 56,
+     "humanAmount": 19557426.734622326,
+     "price": 0.00822056440873,
+     "value": 160773.08614098086,
+     "pnl": 159471.5464681265
+    }
+   ],
+   "clan": {
+    "id": "1eec89a1-5679-48a1-9ce6-338bd76328eb",
+    "name": "Conviction Capital",
+    "icon": "https://prod-fomo-profile-pics.s3.amazonaws.com/e3eb6f92ddc420d86220c2576616da80.jpg?k=253MD-EfiVuntLMciMYNtc5Pg",
+    "role": null
+   },
+   "twitter": null,
+   "createdAt": "2026-02-27T14:47:41.600Z",
+   "description": "first fartcoin then fapcoin\n-2017 anon",
+   "following": 28,
+   "verified": false
+  }
+ ]
+}

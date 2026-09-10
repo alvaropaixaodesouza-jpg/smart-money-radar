@@ -31,6 +31,10 @@ class Settings:
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     codex_api_key: str = field(default_factory=lambda: _env("CODEX_API_KEY"))
     fomo_session: str = field(default_factory=lambda: _env("FOMO_SESSION"))
+    # fomoapi.io: the fomo half over plain HTTP, with no browser and no account of ours to lose.
+    # Free key is 1,000 credits a month, 3,000 once a card is on file. A pass costs two.
+    fomoapi_key: str = field(default_factory=lambda: _env("FOMOAPI_KEY"))
+    fomoapi_thesis_pages: int = field(default_factory=lambda: _int("FOMOAPI_THESIS_PAGES", 1))
     fomo_auth_kind: str = field(default_factory=lambda: _env("FOMO_AUTH_KIND", "cookie"))
     # fomo endpoints are filled ONLY from docs/fomo-endpoints.md (phase 0). Empty = adapter disabled.
     fomo_base_url: str = field(default_factory=lambda: _env("FOMO_BASE_URL", "https://prod-api.fomo.family"))

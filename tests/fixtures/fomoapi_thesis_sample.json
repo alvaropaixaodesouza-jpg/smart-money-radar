@@ -1,0 +1,93 @@
+{
+ "key": "recent",
+ "kind": "theses",
+ "capturedAt": "2026-09-10T15:52:34.589+00:00",
+ "at": "2026-09-10T15:52:34.589Z",
+ "theses": [
+  {
+   "ts": "2026-09-10T15:51:34.627Z",
+   "name": null,
+   "text": "its always funny seeing the people that sold hours",
+   "chain": "robinhood",
+   "token": {
+    "symbol": "GAGE",
+    "address": "0x7163ae1b5aea2f09ebc609c52b4dcac0a7a4bc2d"
+   },
+   "equity": null,
+   "handle": "paidbyclips",
+   "source": "feed",
+   "networkId": 4663,
+   "realizedPnlUsd": null,
+   "unrealizedPnlUsd": null
+  },
+  {
+   "ts": "2026-09-10T15:50:52.062Z",
+   "name": null,
+   "text": "Let me keep loading up at these prices",
+   "chain": "robinhood",
+   "token": {
+    "symbol": "MEME",
+    "address": "0x385f4f8ae47651ce5f58f5265395a669f8281e18"
+   },
+   "equity": null,
+   "handle": "paperdstudio",
+   "source": "feed",
+   "networkId": 4663,
+   "realizedPnlUsd": null,
+   "unrealizedPnlUsd": null
+  },
+  {
+   "ts": "2026-09-10T15:47:54.086Z",
+   "name": null,
+   "text": "Let him cook! \ud83d\udc35\ud83c\udf73",
+   "chain": "robinhood",
+   "token": {
+    "symbol": "AA",
+    "address": "0xe2dae1c072b9f66bed999873b94798b2152af7e1"
+   },
+   "equity": null,
+   "handle": "Elitez",
+   "source": "feed",
+   "networkId": 4663,
+   "realizedPnlUsd": null,
+   "unrealizedPnlUsd": null
+  },
+  {
+   "ts": "2026-09-10T15:47:30.879Z",
+   "name": null,
+   "text": "Jeets out, back to ath!",
+   "chain": "robinhood",
+   "token": {
+    "symbol": "JUGGERNAUT",
+    "address": "0xd7321801caae694090694ff55a9323139f043b88"
+   },
+   "equity": null,
+   "handle": "bot101",
+   "source": "feed",
+   "networkId": 4663,
+   "realizedPnlUsd": null,
+   "unrealizedPnlUsd": null
+  },
+  {
+   "ts": "2026-09-10T15:43:04.244Z",
+   "name": null,
+   "text": "go ride your bike and give thanks",
+   "chain": "robinhood",
+   "token": {
+    "symbol": "ZZZ",
+    "address": "0x7dbf38976f6d3b9c529e7d9484a71898b409ee6a"
+   },
+   "equity": null,
+   "handle": "coltrain",
+   "source": "feed",
+   "networkId": 4663,
+   "realizedPnlUsd": null,
+   "unrealizedPnlUsd": null
+  }
+ ],
+ "refreshedFrom": "alert-ring",
+ "chain": "robinhood",
+ "count": 5,
+ "minEquity": 0,
+ "minLikes": 0
+}
