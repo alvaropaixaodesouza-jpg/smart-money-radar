@@ -87,7 +87,7 @@ app = FastAPI(
     version="0.1.0",
     summary="Which fomo.family traders on Robinhood Chain actually know what they are doing.",
     description=(
-        "Read-only research over Robinhood Chain. Every trader here was resolved from a fomo "
+        "Research over Robinhood Chain. Every trader here was resolved from a fomo "
         "profile to a real on-chain wallet, tracked, and judged by Claude. Nothing on this API "
         "places a trade, and none of it is financial advice."
     ),

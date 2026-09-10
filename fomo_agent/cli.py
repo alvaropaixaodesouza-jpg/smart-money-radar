@@ -1,4 +1,4 @@
-"""CLI: discover / new-tokens / track / score / report / run. Read-only research tool; never trades."""
+"""CLI: discover / new-tokens / track / score / report / run."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,7 @@ from . import db
 from .config import settings
 
 app = typer.Typer(
-    help="FOMO Robinhood Radar: discover, track and score Robinhood Chain traders (research only).",
+    help="FOMO Robinhood Radar: discover, track and score Robinhood Chain traders.",
     no_args_is_help=True)
 
 

@@ -1,13 +1,13 @@
 ---
 name: fomo-agent
-description: FOMO Robinhood Radar — a research watchlist of Robinhood Chain memecoin traders discovered through fomo.family. Use when the user asks who the good traders are, who moved between active/watch/dropped, what the cohort is buying or holding right now, to analyse a token or a trader, to score or rescore wallets in chat, or to check what is quietly broken in the pipeline. Read-only; never trades.
+description: FOMO Robinhood Radar — a research watchlist of Robinhood Chain memecoin traders discovered through fomo.family. Use when the user asks who the good traders are, who moved between active/watch/dropped, what the cohort is buying or holding right now, to analyse a token or a trader, to score or rescore wallets in chat, or to check what is quietly broken in the pipeline.
 ---
 
 # FOMO Robinhood Radar
 
-Reads the SQLite database the pipeline builds and runs its CLI. It **never** trades, signs, or moves
-funds, and it holds no key that could. Everything below is research output about public on-chain
-activity.
+Reads the SQLite database the pipeline builds and runs its CLI. Everything below is research
+output about public on-chain activity: what other wallets have already done, and how well they have
+done it.
 
 ## When to trigger
 

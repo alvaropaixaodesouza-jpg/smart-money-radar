@@ -442,7 +442,7 @@ Or just send me:
 · a token address → who holds it and at what cost
 · a trader handle → the verdict and their book
 
-Read-only research. Never trades. Not financial advice."""
+Research, not financial advice."""
 
 
 # ---------------------------------------------------------------- subscriptions

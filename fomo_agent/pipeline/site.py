@@ -424,7 +424,7 @@ footer b{color:var(--muted); font-weight:500}
 <footer>
   <span>Generated <b>__GENERATED__</b></span>
   <span>Sources <b>fomo.family, robinhoodtrenches, Codex</b></span>
-  <span>Read-only research tool. Never trades. Not financial advice.</span>
+  <span>Research, not financial advice.</span>
 </footer>
 </div>
 

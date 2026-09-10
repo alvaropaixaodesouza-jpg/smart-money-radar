@@ -1,6 +1,6 @@
 # FOMO Robinhood Radar
 
-Read-only research tool: discovers Robinhood Chain memecoin traders (fomo.family + fresh-token holders), tracks their wallets on-chain, scores them with Claude, and serves signals / tokens / traders through a site, a Telegram bot and an HTTP API. Never trades.
+Discovers Robinhood Chain memecoin traders (fomo.family + fresh-token holders), tracks their wallets on-chain, scores them with Claude, and serves signals / tokens / traders through a site, a Telegram bot and an HTTP API. The signals are meant to be acted on — an execution engine is planned — so nothing here should describe itself as read-only.
 
 **Naming.** The product is *FOMO Robinhood Radar* — the chain belongs in the name, on every page title and in the repo, because that is what people search for. The Python package stays `fomo_agent`: renaming it would touch every import for no user-visible gain. The CLI answers to both `fomo-radar` and `fomo-agent`.
 

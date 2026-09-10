@@ -5,8 +5,6 @@ their fills on-chain, and asks Claude which of them actually know what they are 
 a live site, a Telegram bot and an HTTP API over one database: a signal feed, a token analyzer, a
 trader analyzer, and a leaderboard ranked by judgement rather than by headline PnL.
 
-**Read-only. It never signs or sends a transaction, and it holds no keys that could.**
-
 ```bash
 pip install -e .
 cp .env.example .env          # nothing is required to start; see "Keys" below

@@ -1,7 +1,7 @@
 # fomo-agent collector (Chrome extension)
 
 Collects your own fomo.family data in your own browser and posts it to a local fomo-agent receiver.
-Read-only: it never places a trade and never sends anything anywhere except to `127.0.0.1`.
+It reads only your own fomo data, and sends it nowhere except `127.0.0.1`.
 
 ## Why an extension
 

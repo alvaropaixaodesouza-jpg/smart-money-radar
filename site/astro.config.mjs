@@ -6,7 +6,7 @@ import node from '@astrojs/node';
 export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
-  site: process.env.PUBLIC_SITE_URL || 'https://fomoradar.xyz',
+  site: process.env.PUBLIC_SITE_URL || 'https://fomoradar.app',
   server: { port: Number(process.env.PORT ?? 4321), host: true },
   devToolbar: { enabled: false },
 });

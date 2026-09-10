@@ -57,7 +57,7 @@ class Settings:
     # robinhoodtrenches.com: third-party public API over fomo traders on Robinhood Chain
     trenches_base_url: str = field(default_factory=lambda: _env("TRENCHES_BASE_URL", "https://robinhoodtrenches.com"))
     trenches_user_agent: str = field(default_factory=lambda: _env(
-        "TRENCHES_USER_AGENT", "fomo-agent/0.1 (read-only research; https://github.com/)"))
+        "TRENCHES_USER_AGENT", "fomo-agent/0.1 (research; https://github.com/)"))
     trenches_min_interval_s: float = field(default_factory=lambda: _float("TRENCHES_MIN_INTERVAL_S", 900))
     trenches_include_stocks: bool = field(
         default_factory=lambda: _env("TRENCHES_INCLUDE_STOCKS", "false").lower() in ("1", "true", "yes"))

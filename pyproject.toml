@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fomo-robinhood-radar"
 version = "0.1.0"
-description = "FOMO Robinhood Radar: find the fomo.family traders worth watching on Robinhood Chain, track their fills on-chain, score them with Claude. Read-only, never trades."
+description = "FOMO Robinhood Radar: find the fomo.family traders worth watching on Robinhood Chain, track their fills on-chain, score them with Claude."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
