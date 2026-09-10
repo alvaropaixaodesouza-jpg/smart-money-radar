@@ -17,6 +17,7 @@
   const API = 'https://prod-api.fomo.family';
   const TAG = 'fomo-agent';
   let auth = null;
+  let appHeaders = null;   // the last set the app itself sent to the API
   let authAt = 0;
   let lastBridge = null;
 
@@ -37,7 +38,17 @@
         apiCalls += 1;
         const h = new Headers((init && init.headers) || (input instanceof Request ? input.headers : undefined));
         const a = h.get('authorization');
-        if (a) authCalls += 1;
+        if (a) {
+          authCalls += 1;
+          // Mirror the headers the app actually sends rather than guessing them. This used to send
+          // a hardcoded x-supported-chains list, which is a hostage to fortune: the day fomo
+          // changes that list, every one of our calls is refused while the app beside us works
+          // perfectly, and the symptom is a flat 403 with nothing to read. Copying whatever the
+          // app just sent means a new required header arrives for free.
+          const snap = {};
+          h.forEach((v, k) => { if (!/^(host|content-length|cookie)$/i.test(k)) snap[k] = v; });
+          appHeaders = snap;
+        }
         if (a && a !== auth) {
           auth = a;
           authAt = Date.now();
@@ -73,15 +84,15 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function get(path) {
-    const r = await origFetch(API + path, {
-      headers: {
-        accept: '*/*',
-        authorization: auth,
-        'content-type': 'application/json',
-        'x-supported-chains': '1,56,143,4663,8453,1399811149',
-      },
-      credentials: 'include',
-    });
+    // Defaults only cover the first call, before the app has made one we could copy.
+    const headers = {
+      accept: '*/*',
+      'content-type': 'application/json',
+      'x-supported-chains': '1,56,143,4663,8453,1399811149',
+      ...(appHeaders || {}),
+      authorization: auth,
+    };
+    const r = await origFetch(API + path, { headers, credentials: 'include' });
     if (!r.ok) throw new Error(`${path} -> ${r.status}`);
     return r.json();
   }
@@ -208,6 +219,7 @@
   // Reading it changes nothing.
   window.__fomoAgent = {
     get hasToken() { return !!auth; },
+    get headers() { return appHeaders ? Object.keys(appHeaders).sort() : null; },
     get tokenAgeMin() { return authAt ? Math.round((Date.now() - authAt) / 60000) : null; },
     get seen() { return { apiCalls, authCalls, xhrCalls }; },
     get lastBridge() { return lastBridge; },
