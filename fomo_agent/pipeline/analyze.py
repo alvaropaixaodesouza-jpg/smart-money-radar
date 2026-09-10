@@ -253,10 +253,6 @@ def leaderboard(conn: sqlite3.Connection, limit: int = 25, status: str = "active
     )]
 
 
-def token_symbol(conn: sqlite3.Connection, mint: str) -> str:
-    row = conn.execute("SELECT symbol FROM tokens WHERE mint=?", (mint,)).fetchone()
-    return (row["symbol"] if row and row["symbol"] else mint[:10])
-
 
 # ---------------------------------------------------------------- the book
 

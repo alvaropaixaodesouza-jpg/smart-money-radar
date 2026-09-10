@@ -32,7 +32,7 @@ const age = (h: number | null) => (h === null ? '—' : h < 1 ? `${Math.round(h 
   </div>
   <p class="verdict" style="margin-bottom:20px">
     The signal feed ranks everything the cohort is holding. This one only lists names it has
-    <b>just started</b> buying — no trusted wallet touched them before {hours}h ago — and weighs
+    <b>just started</b> buying (no trusted wallet touched them before {hours}h ago) and weighs
     each buyer by how soon after the pool opened they arrived.
   </p>
 
@@ -142,14 +142,14 @@ const age = (h: number | null) => (h === null ? '—' : h < 1 ? `${Math.round(h 
     <p class="note">
       <b>Heat</b> is the sum of each buyer's (score/100)², scaled by how early they were: full
       weight at the launch, half an hour later, a tenth after ten hours. On a token that opened
-      this morning, <i>when</i> somebody bought is most of what their buy says — a wallet scoring
+      this morning, <i>when</i> somebody bought is most of what their buy says. A wallet scoring
       88 entering four minutes in took a different risk from the same wallet entering the next day
       on a chart everyone could see.
     </p>
     <p class="note">
       <b>{feed?.drained ?? 0} more had trusted buying and are not listed</b>, because less than
       {' '}{usd(feed?.min_liquidity ?? 5000)} of liquidity is left in the pool. That is a rug that
-      already happened rather than a signal — on a live window the token with the most trusted
+      already happened rather than a signal. On a live window the token with the most trusted
       buyers of all, seventeen of them, had twenty-nine dollars left in it.
     </p>
   </div>

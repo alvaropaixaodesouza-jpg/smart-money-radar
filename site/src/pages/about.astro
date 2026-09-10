@@ -6,12 +6,12 @@ const s = await getStats();
 <Base title="About — FOMO Robinhood Radar" section="about"
       description="How FOMO Robinhood Radar resolves a fomo.family profile to a real Robinhood Chain wallet, tracks it for free, and judges whether the result is skill or one lucky bag.">
   <div class="pagehead"><h1>About</h1></div>
-  <p class="subhead">what this is, how it works, and what it will not do</p>
+  <p class="subhead">what this is and how it works</p>
 
   <p style="font-size:16px;margin-bottom:25px">
-    The fomo.family leaderboard shows a number. It does not show whether skill or a single lucky
-    ticket produced it, which wallet the person actually trades from, or what they are buying now.
-    This closes all three — and runs on nothing but public endpoints.
+    The fomo.family leaderboard shows a number. It does not show whether that number came from
+    skill or one lucky ticket, which wallet the person actually trades from, or what they are
+    buying today. This fills in all three, on nothing but public endpoints.
   </p>
 
   <h3 style="margin:0 0 12px">Three things that took a while to learn</h3>
@@ -54,7 +54,7 @@ const s = await getStats();
     <p class="note"><b>USDG and WETH are quote assets</b>, never positions. Feeds built on raw DEX
     data rank the stablecoin every trade passes through as the most-bought token on the chain.</p>
     <p class="note"><b>A score judges process, not price.</b> It is an opinion about whether a
-    result looks repeatable — not a prediction, and never a recommendation.</p>
+    result looks repeatable. It is not a prediction.</p>
   </div>
 
   {s && <dl class="strip">

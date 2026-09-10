@@ -27,11 +27,11 @@ const departure = (t: Exit) =>
     <span class="badge drop">{rows.length} names</span>
   </div>
   <p class="verdict" style="margin-bottom:20px">
-    Every other feed here shows buying. This one shows leaving, which is the half that costs money:
-    a token stays on an entry feed for as long as the buy is inside the window, <b>whether or not
-    the buyer is still there</b>. A sale is not an exit — a wallet appears here once it has sold at
-    least half of what the tape watched it buy, counted in tokens rather than dollars, because
-    dollars move with the price.
+    Every other feed here shows buying. This one shows leaving. A token sits on an entry feed for
+    as long as the buy is inside the window, <b>whether or not the buyer is still there</b>. One
+    sale on its own is not an exit, so a wallet appears here once it has sold at least half of what
+    the tape watched it buy, counted in tokens rather than dollars, because dollars move with the
+    price.
   </p>
 
   <dl class="strip">
@@ -85,10 +85,10 @@ const departure = (t: Exit) =>
   )}
 
   <p class="note" style="margin-top:var(--section)">
-    <b>What this cannot tell you is why.</b> A wallet taking profit on a name that tripled and a
-    wallet cutting one that broke leave the same trace on the tape. What it does tell you is that
-    the money you were following is no longer in the position — and that an entry feed showing the
-    same token today is describing a purchase that has already been unwound.
+    <b>This cannot tell you why.</b> A wallet taking profit on a name that tripled and a wallet
+    cutting one that broke leave the same trace. What it does tell you is that the money you were
+    following has left, and that an entry feed still showing the token is describing a purchase
+    that has already been unwound.
   </p>
 
   <div style="margin-top:var(--section)"><Search /></div>

@@ -164,7 +164,6 @@ fomo-radar score [--address <wallet>] [--deep] [--force] [--show-context]
 fomo-radar token <address> [--hours 48]          # whose money is in this token
 fomo-radar trader <handle-or-address>            # one trader in full
 fomo-radar report [--hours 24] [--out report.md]
-fomo-radar page --out radar.html [--hours 48]
 fomo-radar run [--once]                          # polling loop
 fomo-radar receive                               # local endpoint for the browser extension
 fomo-radar trenches [--window 7d] [--tape 10]

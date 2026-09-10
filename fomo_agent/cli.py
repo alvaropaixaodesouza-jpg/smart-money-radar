@@ -496,20 +496,6 @@ def score(
 
 
 @app.command()
-def page(
-    out: Path = typer.Option(Path("radar.html"), "--out"),
-    chain: Optional[str] = typer.Option(None, "--chain", help="only this chain, e.g. robinhood"),
-    hours: int = typer.Option(48, "--hours", help="signal window"),
-) -> None:
-    """Render signals, tokens and traders as one standalone HTML page."""
-    from .pipeline.site import build
-
-    conn = db.connect()
-    typer.echo(build(conn, out, chain, hours))
-    conn.close()
-
-
-@app.command()
 def token(
     mint: str = typer.Argument(..., help="contract address of the token"),
     hours: int = typer.Option(48, "--hours", help="window for the flow section"),
@@ -596,13 +582,12 @@ def report(
 
 @app.command()
 def run(once: bool = typer.Option(False, "--once", help="single pass of every step, then exit")) -> None:
-    """Polling loop: discover / new-tokens / resolve / track / score / page / report."""
+    """Polling loop: discover / new-tokens / resolve / track / score / report."""
     from .pipeline import discover as d
     from .pipeline import holdings as hd
     from .pipeline import new_tokens as nt
     from .pipeline import resolve as rs
     from .pipeline import score as sc
-    from .pipeline import site
     from .pipeline import track as tr
     from .pipeline.discover import safe_fomo
     from .pipeline.report import build_report
@@ -628,7 +613,6 @@ def run(once: bool = typer.Option(False, "--once", help="single pass of every st
         # as the fills we happened to watch
         ("holdings", settings.track_interval, lambda c: hd.mark_holdings(c)),
         ("score", settings.track_interval * 10, lambda c: sc.score_all(c)),
-        ("page", settings.track_interval, lambda c: site.build(c, Path("radar.html"))),
         ("report", settings.report_interval, do_report),
     ]
     last: dict[str, float] = {k: 0.0 for k, _, _ in steps}

@@ -20,9 +20,9 @@ const traders = board?.traders ?? [];
 const bandOf = (i: number) => (i >= 7 ? 'follow' : i >= 4 ? 'watch' : 'drop');
 
 const blurb: Record<string, string> = {
-  active: 'A large figure with a repeatable pattern behind it — several winners at a real cost basis, not one unpriceable bag.',
+  active: 'A large figure with a repeatable pattern behind it: several winners at a real cost basis, not one unpriceable bag.',
   watch: 'Promising, but the evidence is thin: too few closed trades, or a result that rests on one position nobody can value.',
-  dropped: 'No edge, or a record that contradicts the headline — losses larger than wins, or automated inventory cycling.',
+  dropped: 'No edge, or a record that contradicts the headline: losses larger than wins, or a wallet cycling inventory.',
   all: 'Every scored wallet, best first.',
 };
 ---
