@@ -42,8 +42,22 @@ if [ "$age" -lt "$STALE_MIN" ]; then
   exit 0
 fi
 
+# Back off between pokes. This runs every ten minutes, and a collection that fails for a reason a
+# poke cannot fix - fomo returning 403 to every request, say - would otherwise be answered by six
+# forced collections an hour, each pulling three leaderboards and two dozen wallet calls. That is
+# more traffic than the normal schedule, aimed at an endpoint that is already refusing us, and it
+# is how a soft rate limit becomes a long one. Measured once, on 2026-09-10, by doing exactly that.
+STAMP=/opt/fomoradar/ext/.last-poke
+POKE_GAP_MIN=${3:-20}
+last=$(( ( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ) / 60 ))
+
 if [ "$age" -lt "$HARD_MIN" ]; then
+  if [ "$last" -lt "$POKE_GAP_MIN" ]; then
+    echo "fomo last collected ${age}m ago, but poked ${last}m ago - waiting rather than pushing"
+    exit 0
+  fi
   echo "fomo last collected ${age}m ago (limit ${STALE_MIN}m) - poking the collector"
+  touch "$STAMP"
   cd "$APP" && timeout 60 "$PY" -m fomo_agent.cli browser --collect && exit 0
   echo "the poke did not go through; falling back to a restart"
 fi

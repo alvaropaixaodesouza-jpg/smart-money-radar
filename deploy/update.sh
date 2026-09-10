@@ -60,7 +60,11 @@ for u in radar-api radar-site radar-bot; do printf '   %-12s %s\n' "$u" "$(syste
 REMOTE
 
 echo "==> checking"
+# The bare IP now redirects to the canonical host, so checking it would only ever prove that the
+# redirect works. Ask the address the site itself claims to be.
+SITE=$(ssh -i "$KEY" "$HOST" "sed -n 's/^PUBLIC_SITE_URL=//p' $APP/.env | tail -1")
+SITE=${SITE:-http://${HOST#*@}}
 for p in / /leaderboard /api/health; do
-  printf '   %s  %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "http://${HOST#*@}$p")" "$p"
+  printf '   %s  %s%s\n' "$(curl -s -o /dev/null -w '%{http_code}' "$SITE$p")" "$SITE" "$p"
 done
 echo "==> done"
