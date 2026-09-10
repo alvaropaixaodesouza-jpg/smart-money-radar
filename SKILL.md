@@ -56,7 +56,7 @@ Run from the repo root with the venv python (`.venv/Scripts/python` on Windows).
 | Fill the tape from before tracking | `cli backfill --days 30` |
 | Name and price unknown tokens | `cli enrich-tokens` |
 | Turn collected fomo users into wallets | `cli resolve` |
-| Ask the collector browser what it sees | `cli browser` |
+| Read fomo: board, verified wallets, notes | `cli fomo-api` |
 | Refresh everything once | `cli run --once` |
 
 Direct SQL is fine (tables: `traders`, `tokens`, `trades`, `holdings`, `fomo_users`, `fomo_swaps`,
@@ -217,10 +217,12 @@ concluding the cohort went quiet.
 
 - Robinhood Chain (id 4663) by default. Solana and Base still work but need a Codex or Helius key,
   and several Codex queries are plan-gated (`filterWallets`, `detailedWalletStats`, `balances`).
-- **fomo has no server-reachable API.** Data arrives through the Chrome extension in `extension/`,
-  which posts to `cli receive`. The collector browser runs unattended on the server (Xvfb + a
-  policy-installed CRX, every 30 minutes); when a collection goes stale it is almost always the Privy
-  bearer, which the app only mints while a token page is actually loading.
+- **fomo's own API is not server-reachable** — Cloudflare refuses every non-browser client. fomo
+  data comes from fomoapi.io over HTTP (`cli fomo-api`, `FOMOAPI_KEY`), on a free key of 1,000
+  credits a month that the schedule spends about 30 a day of. When a collection goes stale, the two
+  explanations are a rejected key and an exhausted month, and `cli health` names both. The older
+  route — a signed-in Chrome on the server posting through `extension/` — is still in the tree and
+  switched off; it ended when fomo restricted the account it depended on.
 - The RPC will answer about any block range but refuses expensive ones, and how expensive depends on
   how hot the blocks are. `backfill` treats the width as a negotiation: halve on "timed out", pause
   and retry on 429, newest window first so an interrupted run has already filled what matters most.

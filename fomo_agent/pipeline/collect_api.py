@@ -11,18 +11,22 @@ The wallets that arrive verified are linked directly. Where one contradicts a wa
 nothing is overwritten: the conflict is recorded, because two claims on the same trader is a thing
 to look at rather than a thing to resolve by whichever source spoke last.
 
-Budget, at the two-hour cadence: two leaderboards a pass is 24 credits a day, and a page of theses
-every six hours is 20 more. Call it 45 against a free month of 1,000, or 3,000 once a card is on
-file. Sized so an ordinary week never comes close.
+Budget is the constraint that shapes the schedule. A free key is 1,000 credits a month, which is
+32 a day, and the two calls are not worth the same: the first live pass bought 18 new traders and
+125 verified wallets for 2 credits, and 16 notes for 5. So the 24h board runs every two hours
+(12 a day), and the 7d board and one page of notes every eight (18 a day) — 30 a day, 900 a month,
+with the guard below as the backstop rather than the plan.
 """
 from __future__ import annotations
 
+import calendar
 import logging
 import sqlite3
+import time
 
 from .. import db
 from ..config import settings
-from ..sources.fomoapi import FomoApi, OutOfCredits
+from ..sources.fomoapi import CREDITS, FomoApi, OutOfCredits
 
 log = logging.getLogger(__name__)
 
@@ -114,13 +118,44 @@ def store_theses(conn: sqlite3.Connection, rows: list[dict]) -> dict:
     return stats
 
 
+def spent_this_month(conn: sqlite3.Connection, at: int | None = None) -> float:
+    """Credits already spent since the first of the month, from the run log.
+
+    Every pass writes what it cost into its own `runs` row, so the ledger already exists and does
+    not need a second table. It resets with the calendar month because that is when the plan does.
+    """
+    t = time.gmtime(at or db.now())
+    start = calendar.timegm((t.tm_year, t.tm_mon, 1, 0, 0, 0, 0, 0, 0))
+    row = conn.execute(
+        "SELECT COALESCE(SUM(json_extract(stats_json, '$.credits')), 0) FROM runs "
+        "WHERE kind = 'fomoapi' AND started_at >= ?", (start,)).fetchone()
+    return float(row[0] or 0.0)
+
+
 def collect(conn: sqlite3.Connection, windows: tuple[str, ...] = ("24h", "7d"),
-            thesis_pages: int | None = None, api: FomoApi | None = None) -> dict:
-    """A full pass: the boards, the wallets they carry, and a page of theses."""
+            thesis_pages: int | None = None, api: FomoApi | None = None,
+            cap: int | None = None) -> dict:
+    """A full pass: the boards, the wallets they carry, and a page of theses.
+
+    The month's budget is checked before each call rather than discovered at the first 402. On a
+    free key that matters: a pass that runs out halfway leaves the boards collected and the notes
+    missing, every two hours, silently, until somebody happens to look. Here the boards are bought
+    first and the notes only if what remains covers them, so the thing that degrades under pressure
+    is the cheapest thing to lose.
+    """
     api = api or FomoApi()
-    stats: dict = {"windows": {}, "credits": 0.0, "requests": 0}
+    cap = settings.fomoapi_monthly_credits if cap is None else cap
+    spent = spent_this_month(conn)
+    stats: dict = {"windows": {}, "credits": 0.0, "requests": 0, "month_spent": spent}
+
+    def afford(cost: float) -> bool:
+        return not cap or spent + api.credits + cost <= cap
+
     try:
         for window in windows:
+            if not afford(CREDITS["leaderboard"]):
+                stats["budget_stop"] = f"{spent + api.credits:.0f}/{cap} credits used this month"
+                break
             rows = api.leaderboard(window)
             stats["windows"][window] = len(rows)
             stats["new_users"] = stats.get("new_users", 0) + store_rows(
@@ -129,6 +164,9 @@ def collect(conn: sqlite3.Connection, windows: tuple[str, ...] = ("24h", "7d"),
                 stats[k] = stats.get(k, 0) + v
 
         pages = settings.fomoapi_thesis_pages if thesis_pages is None else thesis_pages
+        if pages and not afford(CREDITS["thesis"] * pages):
+            stats["budget_stop"] = f"{spent + api.credits:.0f}/{cap} credits used this month"
+            pages = 0
         if pages:
             stats["theses"] = store_theses(conn, api.theses(pages=pages))
     except OutOfCredits as e:
@@ -138,5 +176,8 @@ def collect(conn: sqlite3.Connection, windows: tuple[str, ...] = ("24h", "7d"),
     finally:
         stats["credits"] = api.credits
         stats["requests"] = api.requests
+        stats["month_spent"] = round(spent + api.credits, 1)
+    if stats.get("budget_stop"):
+        log.warning("fomoapi: %s — skipping the rest of the pass", stats["budget_stop"])
     log.info("fomoapi collection: %s", stats)
     return stats

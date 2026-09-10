@@ -1,0 +1,10 @@
+[Unit]
+Description=Read the 7d board and the notes every eight hours
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=8h
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

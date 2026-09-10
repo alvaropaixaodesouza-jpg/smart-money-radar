@@ -18,6 +18,7 @@ import httpx
 from .. import db
 from ..config import settings
 from ..sources.rpc import CHAIN, RobinhoodRPC
+from .collect_api import spent_this_month
 
 log = logging.getLogger(__name__)
 
@@ -65,13 +66,15 @@ def checks(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> list[di
     """Every check, worst first. `ok` False is something a person has to do."""
     one = lambda sql, *a: conn.execute(sql, a).fetchone()[0]  # noqa: E731
 
-    # A delivery that brought nothing is not a collection. The extension posts whatever it managed
-    # to fetch, so a signed-out browser, an expired bearer or a broken collect() all still produce
-    # a run row — and this check would go on reporting a healthy collection while nothing at all
-    # came in. Requiring a leaderboard in the payload is what makes the check mean what it says.
+    # A delivery that brought nothing is not a collection. Either route writes a run row whatever
+    # happened — a signed-out browser, a rejected key, an exhausted month — and without the second
+    # clause this check would go on reporting a healthy collection while nothing at all came in.
+    # Requiring a leaderboard in the payload is what makes the check mean what it says.
     fomo_age = _age_h(one(
-        "SELECT MAX(finished_at) FROM runs WHERE kind = 'fomo_ingest' AND error IS NULL "
-        "AND stats_json LIKE '%\"24h\":%'"))
+        "SELECT MAX(finished_at) FROM runs WHERE kind IN ('fomoapi', 'fomo_ingest') "
+        "AND error IS NULL AND stats_json LIKE '%\"24h\":%'"))
+    month = spent_this_month(conn)
+    cap = settings.fomoapi_monthly_credits
     fills_age = _age_h(one("SELECT MAX(ts) FROM trades"))
     holdings_age = _age_h(one("SELECT MAX(ts) FROM holdings"))
     unscored = one("SELECT COUNT(*) FROM traders WHERE score IS NULL AND status IN "
@@ -87,7 +90,12 @@ def checks(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> list[di
         {"name": "fomo collection", "ok": fomo_age is not None and fomo_age < 3,
          "detail": (f"last collection {fomo_age:.1f}h ago" if fomo_age is not None
                     else "never collected") + ("" if fomo_age is not None and fomo_age < 3
-                    else " - the browser on the server is probably signed out")},
+                    else " - check `journalctl -u radar-fomo`; a rejected key and an exhausted "
+                         "month both look like this")},
+        # The one failure that arrives on a schedule rather than by surprise, so it is worth
+        # saying while there is still time to do something about it.
+        {"name": "fomoapi budget", "ok": not cap or month < cap * 0.9,
+         "detail": f"{month:.0f} of {cap} credits used this month"},
         {"name": "on-chain tape", "ok": fills_age is not None and fills_age < 6,
          "detail": f"newest fill {fills_age:.1f}h ago" if fills_age is not None else "no fills"},
         {"name": "holdings", "ok": holdings_age is not None and holdings_age < 6,

@@ -23,8 +23,9 @@ Xvfb, the one piece that would make fomo collection fully unattended.
 | `radar-health.timer` | what is quietly broken, pushed to the bot at 07:40 | — |
 | `radar-digest.timer` | the day in one message to every subscriber, 18:00 | — |
 | `radar-heartbeat.timer` | pings `HEARTBEAT_URL` every 10 min **while the checks pass** | — |
-| `radar-xvfb` / `radar-wm` / `radar-browser` | the signed-in Chrome that collects fomo | — |
-| `radar-crx` | serves the extension's update manifest to that Chrome | 127.0.0.1:8098 |
+| `radar-fomo.timer` | the 24h fomo board over HTTP, every 2 h, 1 credit | — |
+| `radar-fomo-slow.timer` | the 7d board and a page of notes, every 8 h, 6 credits | — |
+| `radar-xvfb` / `radar-wm` / `radar-browser` / `radar-crx` | the signed-in Chrome that used to collect fomo — **disabled**, see below | — |
 | `caddy` | the only thing listening publicly | 80, 443 |
 
 Nothing but Caddy is reachable from outside. `ufw` allows 22, 80 and 443 and nothing else.
@@ -94,16 +95,24 @@ journalctl -u radar-collect -n 40 --no-pager
 systemctl list-timers 'radar-*'
 ```
 
-## The one thing that is not automatic
+## The browser that is no longer running
 
-fomo.family is behind Cloudflare, which refuses every non-browser client. Its data therefore comes
-from a real logged-in browser: the Chrome extension in `extension/` posts collections to
-`fomo-radar receive`.
+fomo.family sits behind Cloudflare, which refuses every non-browser client, so for months its data
+came from a real logged-in Chrome on this box: Xvfb for a display, a window manager, a VNC server
+to sign in through, and a policy-installed extension posting collections to `fomo-radar receive`.
 
-Today that runs at home. Moving it to the server means Chrome under Xvfb with a persistent profile,
-and the open question is whether Cloudflare accepts a datacentre address — nobody can answer that
-without trying. Everything else already runs here regardless, so if the answer turns out to be no,
-the only cost is that a browser tab stays open at home.
+On 2026-09-10 fomo restricted the account it ran as. Nothing clever was being done — three
+leaderboards and two dozen wallet lookups every thirty minutes — but that is what a scraper looks
+like from the other side, and no proxy fixes an account-level block. Collection moved to fomoapi.io
+over HTTP the same day.
+
+The stack is disabled rather than removed. It held about 750 MB of Chrome for a page it was no
+longer allowed to read, and it comes back with one command if the account is ever unrestricted:
+
+```
+systemctl enable --now radar-xvfb radar-wm radar-browser radar-vnc radar-novnc radar-crx
+systemctl enable --now radar-fomo-watchdog.timer
+```
 
 ## Knowing it fell over
 

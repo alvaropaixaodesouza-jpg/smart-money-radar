@@ -1,0 +1,16 @@
+[Unit]
+Description=FOMO Robinhood Radar - the 7d board and a page of notes
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# Six credits, and both halves move slowly: a week's pnl barely shifts in eight hours, and a
+# page of notes is fifty across the whole chain rather than one token's worth.
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli fomo-api --windows 7d --thesis-pages 1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

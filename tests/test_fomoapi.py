@@ -5,7 +5,8 @@ import pathlib
 import pytest
 
 from fomo_agent import db
-from fomo_agent.pipeline.collect_api import link_wallets, store_rows, store_theses
+from fomo_agent.pipeline.collect_api import (collect, link_wallets, spent_this_month,
+                                             store_rows, store_theses)
 from fomo_agent.sources.fomoapi import parse_leaderboard, parse_theses
 
 FIX = pathlib.Path(__file__).parent / "fixtures"
@@ -126,3 +127,69 @@ def test_an_edited_thesis_replaces_itself(conn):
     assert store_theses(conn, [{**base, "text": "edited"}])["new"] == 0
     assert conn.execute("SELECT text FROM theses").fetchone()[0] == "edited"
     assert conn.execute("SELECT COUNT(*) FROM theses").fetchone()[0] == 1
+
+
+# ---------------------------------------------------------------- the monthly budget
+
+
+class FakeApi:
+    """Counts what was asked for, so a test can see what the guard let through."""
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls, self.credits, self.requests = [], 0.0, 0
+
+    def leaderboard(self, window="24h", limit=150):
+        self.calls.append(window)
+        self.credits += 1
+        self.requests += 1
+        return parse_leaderboard(self.payload, window)
+
+    def theses(self, chain="robinhood", pages=1):
+        self.calls.append("thesis")
+        self.credits += 5 * pages
+        self.requests += pages
+        return []
+
+
+def test_the_month_is_counted_from_our_own_run_log(conn):
+    """The ledger already exists — every pass records what it spent — so there is no second table
+    to keep in step with it."""
+    with db.tx(conn):
+        for at, credits in ((db.now() - 40 * 86400, 500.0), (db.now() - 3600, 7.0),
+                            (db.now() - 60, 2.0)):
+            conn.execute("INSERT INTO runs(kind, started_at, stats_json) VALUES(?,?,?)",
+                         ("fomoapi", at, json.dumps({"credits": credits})))
+        conn.execute("INSERT INTO runs(kind, started_at, stats_json) VALUES(?,?,?)",
+                     ("track", db.now(), json.dumps({"credits": 999.0})))
+    got = spent_this_month(conn)
+    assert got == 9.0, "last month's 500 and another job's 999 are both somebody else's"
+
+
+def test_a_pass_that_cannot_afford_the_notes_still_buys_the_boards(conn):
+    """The cheapest thing to lose is what degrades first, rather than whichever call happened to
+    come last before the 402."""
+    with db.tx(conn):
+        conn.execute("INSERT INTO runs(kind, started_at, stats_json) VALUES(?,?,?)",
+                     ("fomoapi", db.now() - 60, json.dumps({"credits": 996.0})))
+    api = FakeApi(load("fomoapi_leaderboard_sample.json"))
+    out = collect(conn, windows=("24h", "7d"), thesis_pages=1, api=api, cap=1000)
+    assert api.calls == ["24h", "7d"], "both boards, and no thesis page"
+    assert out["budget_stop"] and out["credits"] == 2.0 and out["month_spent"] == 998.0
+
+
+def test_an_exhausted_month_spends_nothing_at_all(conn):
+    with db.tx(conn):
+        conn.execute("INSERT INTO runs(kind, started_at, stats_json) VALUES(?,?,?)",
+                     ("fomoapi", db.now() - 60, json.dumps({"credits": 1000.0})))
+    api = FakeApi(load("fomoapi_leaderboard_sample.json"))
+    out = collect(conn, windows=("24h", "7d"), thesis_pages=1, api=api, cap=1000)
+    assert api.calls == [] and out["credits"] == 0.0
+    assert out["month_spent"] == 1000.0
+
+
+def test_a_pass_inside_the_budget_buys_everything(conn):
+    api = FakeApi(load("fomoapi_leaderboard_sample.json"))
+    out = collect(conn, windows=("24h", "7d"), thesis_pages=1, api=api, cap=1000)
+    assert api.calls == ["24h", "7d", "thesis"]
+    assert "budget_stop" not in out and out["month_spent"] == 7.0

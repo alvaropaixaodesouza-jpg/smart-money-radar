@@ -67,8 +67,8 @@ and token with a median dollar error of 0.00%.
 | `geckoterminal` | trending and top-volume pools per chain (`GECKO_FEEDS`) | free, ~30 rpm |
 | `dexscreener` | tokens that bought a profile or boost, and name/price lookups 30 at a time | free, 60 rpm |
 
-**fomo.family itself** is collected in a browser — see below. It supplies the leaderboard, the
-30-day PnL that drives scoring, and per-token open positions.
+**fomo.family itself** comes over HTTP from fomoapi.io — see below. It supplies the leaderboard,
+the PnL that drives scoring, each trader's verified wallet, and the notes they write on positions.
 
 ### Quote assets are not signals
 
@@ -156,7 +156,7 @@ fomo-radar new-tokens                            # store fresh tokens, trigger h
 fomo-radar enrich-tokens                         # resolve names and liquidity for bare addresses
 fomo-radar discover --trenches                   # import the trenches roster (free, resolved)
 fomo-radar discover --add <wallet> [--chain base]
-fomo-radar discover --leaderboard                # fomo leaderboard 24h/7d/30d (browser collection)
+fomo-radar fomo-api --windows 24h,7d             # fomo leaderboard + verified wallets + notes
 fomo-radar discover --mint <mint> --makers       # buyers of a token -> candidates (Codex)
 fomo-radar resolve [--handle <name>]             # infer execution wallets
 fomo-radar track [--address <wallet>] [--show]
@@ -165,7 +165,7 @@ fomo-radar token <address> [--hours 48]          # whose money is in this token
 fomo-radar trader <handle-or-address>            # one trader in full
 fomo-radar report [--hours 24] [--out report.md]
 fomo-radar run [--once]                          # polling loop
-fomo-radar receive                               # local endpoint for the browser extension
+fomo-radar receive                               # local endpoint for the browser extension (retired)
 fomo-radar trenches [--window 7d] [--tape 10]
 fomo-radar fomo-import <file>
 ```
@@ -189,27 +189,47 @@ Every source fails soft: one API being down never stops the loop.
 
 ## Getting fomo data
 
-fomo's API cannot be called from a server — Cloudflare rejects every non-browser client at the edge
-with `430 {"error":"unauthorized"}`, including the exact cURL Chrome generates with a fresh token,
-and its Privy bearer expires hourly. So fomo data is collected *in* a browser:
+fomo's own API cannot be called from a server. Cloudflare rejects every non-browser client at the
+edge with `430 {"error":"unauthorized"}` — including the exact cURL that Chrome generates with a
+fresh token — and the Privy bearer expires hourly.
 
-- **Automatic** — load `extension/` as an unpacked Chrome extension and run `fomo-radar receive`.
-  It collects on a schedule from your logged-in tab and posts straight into the database.
-  See [extension/README.md](extension/README.md).
-- **Manual** — paste `scripts/fomo_export.js` into the DevTools console, then
-  `fomo-radar fomo-import <downloaded file>`.
+**fomoapi.io** (`FOMOAPI_KEY`) sells the same data over plain HTTP and is what runs today:
 
-Both produce the same payload and go through the same parsers.
+```
+fomo-radar fomo-api --windows 24h --thesis-pages 0   # the hot board, 1 credit
+fomo-radar fomo-api --windows 7d  --thesis-pages 1   # the slow board and 50 notes, 6 credits
+```
+
+The leaderboard carries each trader's verified Solana and EVM wallets in the row, so the wallet
+this project used to infer from swap timing arrives for free — and arrives for the quiet traders it
+could never infer at all. Checked against 101 wallets resolved independently: 101 agreements and no
+disagreements. A verified wallet fills a gap but never overwrites one we inferred differently; that
+conflict is written down instead.
+
+A free key is 1,000 credits a month. The schedule spends about 30 a day and `collect()` checks the
+month's spend before each call, buying the boards first and the notes only if what remains covers
+them, so an exhausted month degrades instead of stopping.
+
+What this does not replace is the tape. fomoapi's swap endpoint is a window on the last hundred
+fills per trader with no way past it; ours is read straight off chain 4663 and has 109,669 fills in
+it. The two are not competing.
+
+**Through a browser** is the older route, still in the tree and no longer running: `extension/` is
+a Chrome MV3 extension that collects from a logged-in tab and posts to `fomo-radar receive`, and
+`scripts/fomo_export.js` does the same by hand through the DevTools console. Both produce the same
+payload and go through the same parsers. It worked for months and cost a Xvfb display, a VNC
+server, a packed extension with its own signing key, and a login done by hand through a remote
+desktop — and it ended the day fomo restricted the account behind it.
 
 ## Layout
 
 ```
 fomo_agent/
   sources/     one module per external API, each with pure parse_* functions
-  pipeline/    discover -> resolve -> track -> score -> site
+  pipeline/    discover -> resolve -> track -> score -> analyze
   db.py        sqlite, versioned migrations, no ORM
   config.py    every threshold and interval, read from .env
-extension/     Chrome MV3 extension that collects fomo from a logged-in tab
+extension/     Chrome MV3 extension that collected fomo from a logged-in tab (retired)
 tests/         offline: every source is exercised through a stored fixture
 docs/STATUS.md current state and the work list
 docs/robinhood-chain.md what chain 4663 actually looks like, measured

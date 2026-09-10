@@ -28,6 +28,23 @@ APP=/opt/fomoradar/app
 cp "$APP/.env" /tmp/.env.keep
 tar -xzf /tmp/radar-app.tgz -C "$APP"
 
+# Unpacking over a directory adds and replaces; it never removes. So a file deleted in the repo
+# lived on here indefinitely, and the server went on importing modules that no longer exist
+# anywhere else - 1,165 lines of them, plus a test file whose absence locally is why the two
+# machines disagreed about how many tests this project has. Anything under a directory the repo
+# owns entirely, and not in the archive just unpacked, is gone from the repo and goes from here.
+tar -tzf /tmp/radar-app.tgz | sed 's#^\./##' | grep -v '/$' | LC_ALL=C sort > /tmp/shipped.txt
+for d in fomo_agent tests deploy docs extension site/src site/public; do
+  [ -d "$APP/$d" ] || continue
+  ( cd "$APP" && find "$d" -type f ) | LC_ALL=C sort > /tmp/present.txt
+  LC_ALL=C comm -13 /tmp/shipped.txt /tmp/present.txt | while read -r f; do
+    case "$f" in *__pycache__*) ;; *) echo "   deleted in the repo, removing: $f";; esac
+    rm -f "$APP/$f"
+  done
+done
+rm -f /tmp/shipped.txt /tmp/present.txt
+find "$APP/fomo_agent" "$APP/tests" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
 # Windows line endings do not survive contact with a shell. The repo is edited on a Windows box,
 # git converts on checkout, and any tool that writes a file with platform newlines puts them back
 # - which is how install-extension.sh once failed with `set: pipefail: invalid option name`, a
@@ -41,6 +58,30 @@ find "$APP/deploy" -type f \( -name '*.sh' -o -name '*.service' -o -name '*.time
 install -o radar -g radar -m 600 /tmp/.env.keep "$APP/.env"
 rm -f /tmp/.env.keep /tmp/radar-app.tgz
 chown -R radar:radar "$APP"
+
+# Unit files ship in the repo but run from /etc/systemd/system, and until now every one of them
+# had to be copied across by hand - which is how a fix lands in the tree and never reaches the
+# machine. Anything already installed is refreshed here. Anything shipped but not installed is
+# named rather than quietly enabled: starting a unit is a decision, not a deploy step.
+changed=""
+for f in "$APP"/deploy/systemd/*.service "$APP"/deploy/systemd/*.timer; do
+  u=$(basename "$f")
+  if [ ! -f "/etc/systemd/system/$u" ]; then
+    echo "   shipped, not installed: $u"
+  elif ! cmp -s "$f" "/etc/systemd/system/$u"; then
+    cp "$f" "/etc/systemd/system/$u"
+    changed="$changed $u"
+    echo "   updated $u"
+  fi
+done
+if [ -n "$changed" ]; then
+  systemctl daemon-reload
+  # A reload re-reads a timer but does not re-arm one that is already running, so a changed
+  # interval would take effect at the next reboot and nowhere else.
+  for u in $changed; do
+    case "$u" in *.timer) systemctl is-active --quiet "$u" && systemctl restart "$u";; esac
+  done
+fi
 
 cd "$APP"
 sudo -u radar /opt/fomoradar/venv/bin/pip install -q -e ".[api,dev]"

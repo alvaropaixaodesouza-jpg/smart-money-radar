@@ -1,0 +1,17 @@
+[Unit]
+Description=FOMO Robinhood Radar - the 24h board over HTTP
+
+[Service]
+Type=oneshot
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# One credit. Buys the hot board and, on every row, the trader's own verified wallet - which
+# is what the resolver used to spend a dozen swap lookups guessing at, and could not get at
+# all for a trader who trades quietly.
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli fomo-api --windows 24h --thesis-pages 0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar

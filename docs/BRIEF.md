@@ -170,9 +170,11 @@ public, and closing it is the next piece of work.
 
 ### It costs nothing to run
 
-No paid API. No indexer subscription. No node. The chain's own RPC, GeckoTerminal's free tier, and
-one browser. **$0 a month**, and that is a design property rather than a temporary state: every
-time a paid source was tried, a free one turned out to answer better on this chain.
+No indexer subscription. No node. No paid tape. The chain's own RPC reads 109,669 fills for
+nothing, GeckoTerminal prices them on a free tier, and the fomo side runs on a free fomoapi.io key
+— 1,000 credits a month against a schedule that spends about 30 a day. **$0 a month**, and that is
+a design property rather than a temporary state: every time a paid source was tried, a free one
+turned out to answer better on this chain.
 
 ---
 
