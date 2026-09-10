@@ -150,9 +150,31 @@ def who_line(handles, scores, limit: int = 6) -> str:
     return " · ".join(pairs) + tail
 
 
+def token_link(mint: str | None, label: str) -> str:
+    """A token as a tappable name.
+
+    It used to point at DexScreener, which does not index Robinhood Chain and answers 403 — a dead
+    link on every message the bot has ever sent. Our own token page is the one that has an answer:
+    it draws the chart itself, lists who holds it and at what cost, and now carries what they said
+    about it. Falls back to plain text when no site address is configured, rather than to a link
+    that goes nowhere.
+    """
+    if not mint or not settings.public_site_url:
+        return f"<b>${esc(label)}</b>"
+    return f'<a href="{settings.public_site_url}/token/{esc(mint)}"><b>${esc(label)}</b></a>'
+
+
+def token_lines(mint: str) -> list[str]:
+    """The contract, tappable to copy, and the two places worth opening it in."""
+    links = [f'<a href="https://fomo.family/tokens/robinhood/{esc(mint)}">fomo</a>']
+    if settings.public_site_url:
+        links.insert(0, f'<a href="{settings.public_site_url}/token/{esc(mint)}">breakdown</a>')
+    return [f"<code>{esc(mint)}</code>", " · ".join(links) + f" · /token_{esc(mint)}"]
+
+
 def fmt_signal(s: dict, now: int | None = None) -> str:
-    sym, mint = esc(s["sym"]), s["mint"]
-    out = [f"◤ <b>${sym}</b> · conviction {s['conviction']:.1f}", ""]
+    mint = s["mint"]
+    out = [f"◤ {token_link(mint, s['sym'])} · conviction {s['conviction']:.1f}", ""]
     out.append(rows([
         ("buyers 60+", str(s["buyers"])),
         ("average score", f"{s['avg_score']:.0f}"),
@@ -161,9 +183,8 @@ def fmt_signal(s: dict, now: int | None = None) -> str:
         ("liquidity", analyze.usd(s["liq"])),
     ]))
     out.append(who_line(s.get("who"), s.get("scores")))
-    out.append(f"\n<code>{esc(mint)}</code>")
-    out.append(f'<a href="https://dexscreener.com/robinhood/{esc(mint)}">chart</a> · '
-               f"/token_{esc(mint)}")
+    out.append("")
+    out.extend(token_lines(mint))
     return "\n".join(out)
 
 
@@ -174,7 +195,7 @@ def fmt_signals(sigs: list[dict], hours: int, now: int | None = None) -> str:
     out = [f"<b>SIGNALS · {hours}h · Robinhood Chain</b>",
            "<i>ranked by conviction, not by headcount</i>", ""]
     for i, s in enumerate(sigs, 1):
-        out.append(f"{i:>2}. <b>${esc(s['sym'])}</b>  conviction {s['conviction']:.1f}"
+        out.append(f"{i:>2}. {token_link(s.get('mint'), s['sym'])}  conviction {s['conviction']:.1f}"
                    f"  ·  {s['buyers']} buyers, avg {s['avg_score']:.0f}")
         out.append(f"    <i>{who_line(s.get('who'), s.get('scores'), 4)}</i>")
     out.append("\nSend a token address for the full breakdown.")
@@ -190,7 +211,7 @@ def fmt_exits(leaving: list[dict], hours: int, now: int | None = None) -> str:
            "<i>wallets that have sold most of what we watched them buy</i>", ""]
     for i, t in enumerate(leaving, 1):
         gone = f", {t['gone']} out entirely" if t["gone"] else ""
-        out.append(f"{i:>2}. <b>${esc(t['sym'])}</b>  conviction {t['conviction']:.1f}"
+        out.append(f"{i:>2}. {token_link(t.get('mint'), t['sym'])}  conviction {t['conviction']:.1f}"
                    f"  ·  {t['sellers']} selling{gone}")
         out.append(f"    {analyze.usd(t['usd'])} out · "
                    f"<i>{who_line(t.get('who'), t.get('scores'), 4)}</i>")
@@ -218,11 +239,11 @@ def fmt_digest(d: dict) -> str:
             # than printing a zero, which would read as "they were first" — the opposite of unknown.
             lead = (f"first in {t['lead_minutes']:.0f}m after the pool opened"
                     if t.get("lead_minutes") is not None else "launch time unknown")
-            out.append(f"  ${esc(t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, {lead}")
+            out.append(f"  {token_link(t.get('mint'), t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, {lead}")
     if d["signals"]:
         out.append("\n<b>Bought</b>")
         for s in d["signals"]:
-            out.append(f"  ${esc(s['sym'])}  conviction {s['conviction']:.1f} · "
+            out.append(f"  {token_link(s.get('mint'), s['sym'])}  conviction {s['conviction']:.1f} · "
                        f"{s['buyers']} wallets · {analyze.usd(s['usd'])}")
     if d["exits"]:
         out.append("\n<b>Left</b>")
@@ -260,9 +281,12 @@ def fmt_fresh(feed: dict, now: int | None = None) -> str:
            "<i>only what the cohort has just started buying, weighted by how early</i>", ""]
     for i, t in enumerate(tokens, 1):
         lead = t.get("lead_minutes")
-        when = "?" if lead is None else (f"{lead:.0f}m" if lead < 90 else f"{lead / 60:.1f}h")
-        out.append(f"{i:>2}. <b>${esc(t['sym'])}</b>  heat {t['heat']:.2f}"
-                   f"  \u00b7  {t['buyers']} in, first {when} after launch")
+        # "?" said nothing and read as a defect. Name the two cases apart: either we know when the
+        # pool opened and can say how early they were, or we do not and the heat is docked for it.
+        when = (("first " + (f"{lead:.0f}m" if lead < 90 else f"{lead / 60:.1f}h") + " after launch")
+                if lead is not None else "launch time unknown")
+        out.append(f"{i:>2}. {token_link(t.get('mint'), t['sym'])}  heat {t['heat']:.2f}"
+                   f"  \u00b7  {t['buyers']} in, {when}")
         out.append(f"    <i>{who_line(t.get('who'), t.get('scores'), 4)}</i>")
     if feed.get("drained"):
         out.append(f"\n<i>{feed['drained']} more had trusted buying, but the pool is drained.</i>")

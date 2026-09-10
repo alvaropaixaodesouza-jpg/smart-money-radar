@@ -110,6 +110,31 @@ class GeckoTerminal:
             out.extend(t for t in (parse_token(it, chain) for it in items) if t)
         return out
 
+    def pool_ages(self, chain: str, pools: Iterable[str]) -> dict[str, int]:
+        """When each pool opened, keyed by pool address. Thirty at a time.
+
+        The token endpoint does not carry a creation time — only the pool endpoint does — which is
+        why a token discovered from our own tape arrives undated while one found on the new-pools
+        feed does not. That gap reached the reader: the fresh feed is ranked by how early each
+        wallet was, and 43% of tokens had no launch time to be early against.
+        """
+        network = NETWORK_MAP.get(chain, chain)
+        out: dict[str, int] = {}
+        pools = [p for p in pools if p]
+        for i in range(0, len(pools), 30):
+            chunk = ",".join(pools[i:i + 30])
+            try:
+                items = self._get(f"/networks/{network}/pools/multi/{chunk}")
+            except httpx.HTTPError as e:
+                log.warning("geckoterminal pool lookup on %s failed: %s", chain, e)
+                continue
+            for it in items:
+                t = parse_pool(it)
+                addr = ((it.get("attributes") or {}).get("address")) or ""
+                if t and t.created_at and addr:
+                    out[norm_addr(addr)] = t.created_at
+        return out
+
     def ohlcv(self, chain: str, pool: str, timeframe: str = "hour", aggregate: int = 1,
               limit: int = 168) -> list[list[float]]:
         """Candles for one pool: [timestamp, open, high, low, close, volume], oldest first.

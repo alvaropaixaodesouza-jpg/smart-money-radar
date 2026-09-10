@@ -9,6 +9,7 @@ from ..config import settings
 from ..models import NewToken
 from ..sources.dexscreener import DexScreener, parse_pair
 from ..sources.filters import filter_tokens
+from ..sources.fomo import norm_addr
 from ..sources.fomo import FomoClient, FomoError
 from .discover import discover_holders, discover_makers
 
@@ -60,6 +61,21 @@ def stale_price_tokens(conn: sqlite3.Connection, limit: int | None = None,
         "GROUP BY u.token, u.chain "
         "ORDER BY COALESCE(t.checked_at, 0) ASC LIMIT ?",
         (max_age, limit or settings.price_refresh_limit),
+    ).fetchall()
+
+
+def undated_tokens(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
+    """Tokens with a pool but no launch time, the ones a reader is looking at first.
+
+    A launch time is permanent, so this queue only ever shrinks. It is ordered by how recently the
+    cohort traded the token because the fresh feed ranks by how early each wallet was, and a token
+    nobody is buying today does not need a date tonight.
+    """
+    return conn.execute(
+        "SELECT t.mint AS token, t.chain AS chain, t.pool_address AS pool, MAX(tr.ts) AS seen "
+        "FROM tokens t JOIN trades tr ON tr.mint = t.mint "
+        "WHERE t.created_at IS NULL AND t.pool_address IS NOT NULL AND t.chain IS NOT NULL "
+        "GROUP BY t.mint ORDER BY seen DESC LIMIT ?", (limit,),
     ).fetchall()
 
 
@@ -155,6 +171,33 @@ def enrich_tokens(conn: sqlite3.Connection, dex: DexScreener | None = None, limi
             for mint in mints:
                 if mint not in answered:
                     db.upsert_token(conn, mint, chain=chain, checked_at=now)
+    # Third pass: when each pool opened. Only the pool endpoint carries it, so a token found on
+    # our own tape arrives undated however well it is priced — and the fresh feed is ranked on
+    # exactly that number. Cheap and permanent: thirty pools a request, and a token dated once is
+    # never asked again.
+    stats["dated"] = 0
+    undated = undated_tokens(conn, settings.date_refresh_limit)
+    if undated:
+        from ..sources.geckoterminal import GeckoTerminal
+
+        gt = GeckoTerminal()
+        by_chain_pools: dict[str, dict[str, str]] = {}
+        for r in undated:
+            by_chain_pools.setdefault(r["chain"], {})[norm_addr(r["pool"])] = r["token"]
+        for chain, pools in by_chain_pools.items():
+            try:
+                ages = gt.pool_ages(chain, list(pools))
+            except Exception as e:  # noqa: BLE001 - one dead source must not stop the pass
+                log.warning("pool ages on %s failed: %s", chain, e)
+                continue
+            stats["requests"] += 1
+            with db.tx(conn):
+                for pool, created in ages.items():
+                    mint = pools.get(pool)
+                    if mint:
+                        db.upsert_token(conn, mint, chain=chain, created_at=created)
+                        stats["dated"] += 1
+
     log.info("token enrichment: %s", stats)
     return stats
 

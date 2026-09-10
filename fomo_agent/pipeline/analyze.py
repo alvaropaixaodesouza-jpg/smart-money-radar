@@ -17,6 +17,9 @@ from .. import db
 from ..sources.rpc import QUOTE_TOKENS
 
 TRUSTED = 60
+# What an undated launch is worth. Equal to an entry one hour after the pool opened: enough to
+# rank, never enough to lead. Chosen rather than derived, and named so it can be argued with.
+UNDATED_EARLINESS = 0.5
 NOT_QUOTE = " AND {col} NOT IN (%s)" % ",".join("'%s'" % t for t in QUOTE_TOKENS)
 
 
@@ -132,9 +135,15 @@ def earliness(entered_ts: int, launched_ts: int | None) -> float:
 
     Halving every hour is aggressive on purpose — 0.5 at an hour, 0.09 at ten, 0.04 at a day — and
     it matches how these markets actually move.
+
+    A token we cannot date must not outrank one we can. Returning 1.0 for an unknown launch —
+    which this did — scores the wallet as if it had bought in the same second the pool opened, so
+    the feed's top was decided by which tokens we had failed to look up. Measured on a live day,
+    eight of the top ten showed "?" and sat above tokens with real, measured entries of ten and one
+    minute. An unknown launch is now worth what an hour-old entry is worth: present, not first.
     """
     if launched_ts is None:
-        return 1.0
+        return UNDATED_EARLINESS
     return 1.0 / (1.0 + max(entered_ts - launched_ts, 0) / 3600)
 
 

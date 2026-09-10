@@ -318,7 +318,8 @@ def test_a_launch_with_no_known_open_time_does_not_claim_to_be_first(conn):
     """
     d = {"hours": 24, "counts": {"active": 1}, "joined": [], "joined_n": 0, "theses": [],
          "signals": [], "exits": [],
-         "fresh": [{"sym": "PONS", "heat": 3.2, "buyers": 4, "lead_minutes": None}],
+         "fresh": [{"mint": "0x" + "d" * 40, "sym": "PONS", "heat": 3.2, "buyers": 4,
+                   "lead_minutes": None}],
          "health": {"ok": True, "checks": []}}
     text = bot.fmt_digest(d)
     assert "launch time unknown" in text and "0m after" not in text

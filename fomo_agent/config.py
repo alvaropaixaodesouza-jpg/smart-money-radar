@@ -106,6 +106,9 @@ class Settings:
     api_host: str = field(default_factory=lambda: _env("API_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: _int("API_PORT", 8000))
     api_rate_per_min: int = field(default_factory=lambda: _int("API_RATE_PER_MIN", 120))
+    # Where the site answers. The bot links tokens to it, and Astro bakes the same value into
+    # every canonical and og:url at build time, so the two cannot disagree.
+    public_site_url: str = field(default_factory=lambda: _env("PUBLIC_SITE_URL", "").rstrip("/"))
     api_cors_origins: tuple[str, ...] = field(default_factory=lambda: tuple(
         o.strip() for o in _env("API_CORS_ORIGINS", "").split(",") if o.strip()))
 
@@ -165,6 +168,9 @@ class Settings:
     thesis_window_h: int = field(default_factory=lambda: _int("THESIS_WINDOW_H", 72))
     thesis_max_age_s: int = field(default_factory=lambda: _int("THESIS_MAX_AGE_S", 21600))
     thesis_batch: int = field(default_factory=lambda: _int("THESIS_BATCH", 12))
+    # Pools dated per enrichment pass. A launch time never changes, so this queue only
+    # shrinks: 120 a pass at thirty per request clears a backlog of three thousand in a day.
+    date_refresh_limit: int = field(default_factory=lambda: _int("DATE_REFRESH_LIMIT", 120))
     # A dead man's switch. The server pings this URL while the pipeline is healthy, and the service
     # at the other end shouts when the pings stop. Silence is the alarm, which is the only design
     # that survives the server itself going down — an internal check cannot report its own host

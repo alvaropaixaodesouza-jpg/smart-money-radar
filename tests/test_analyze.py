@@ -337,7 +337,15 @@ def test_earliness_decays_from_the_launch():
     assert earliness(t0 + 3600, t0) == pytest.approx(0.5)
     assert earliness(t0 + 36000, t0) == pytest.approx(1 / 11)
     assert earliness(t0 - 60, t0) == 1.0, "a buy before the launch is as early as it gets"
-    assert earliness(t0, None) == 1.0, "an unknown launch cannot penalise anyone"
+
+    # This used to return 1.0, on the principle that a gap in our data must not punish a wallet.
+    # The principle is right and the consequence was not: in a ranked feed, scoring an undated
+    # token as if it were bought at the pool opening does not spare the wallet, it corrupts the
+    # order. Measured live, eight of the top ten launches showed "?" and outranked tokens with
+    # real entries of one and ten minutes. Undated now ranks where an hour-old entry ranks.
+    assert earliness(t0, None) == 0.5, "an undated token must not outrank a measured one"
+    assert earliness(t0, None) == earliness(t0 + 3600, t0), "worth exactly an hour-old entry"
+    assert earliness(t0 + 600, t0) > earliness(t0, None), "ten minutes measured beats unknown"
 
 
 def test_heat_ranks_the_early_wallet_over_the_late_one():
@@ -349,7 +357,10 @@ def test_heat_ranks_the_early_wallet_over_the_late_one():
     late = [{"score": 80, "ts": t0 + 7200}, {"score": 80, "ts": t0 + 9000}]
     assert conviction([80, 80]) == pytest.approx(1.28), "conviction cannot tell them apart"
     assert heat(early, t0) > heat(late, t0) * 2
-    assert heat(early, None) == pytest.approx(conviction([80, 80])), "no launch time, no weighting"
+    # An undated launch is discounted rather than waved through, so it cannot beat the token whose
+    # buyers we actually watched arrive early.
+    assert heat(early, None) == pytest.approx(conviction([80, 80]) * 0.5)
+    assert heat(early, t0) > heat(early, None), "measured and early beats undated"
 
 
 def test_fresh_lists_only_what_the_cohort_has_just_started_buying(conn):
