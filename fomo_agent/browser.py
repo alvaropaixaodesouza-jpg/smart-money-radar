@@ -151,12 +151,17 @@ SIGNED_IN = """(() => {
     cookieBytes: document.cookie.length,
     // the app renders a Login button until it has a session, and swaps it for the account menu
     showsLogin: /\\bLogin\\b/.test(document.body ? document.body.innerText.slice(0, 4000) : ''),
+    // A restricted account is signed in, holds a live token, and is refused by every endpoint. From
+    // out here that is indistinguishable from health, which is how it went unnoticed for two and a
+    // half hours while every explanation except the right one was tried.
+    restricted: /account is restricted/i.test(
+      document.body ? document.body.innerText.slice(0, 4000) : ''),
   };
 })()"""
 
 
 def state(port: int | None = None) -> dict:
-    """What the fomo tab currently is: signed in, or showing a login button."""
+    """What the fomo tab currently is: signed in, showing a login, or restricted."""
     return evaluate(SIGNED_IN, port=port) or {}
 
 

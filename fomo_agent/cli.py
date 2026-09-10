@@ -401,6 +401,10 @@ def browser_cmd(
         time.sleep(8)
     st = browser.state()
     typer.echo(st)
+    if st.get("restricted"):
+        typer.echo("ACCOUNT RESTRICTED - fomo is refusing this account, not this machine. "
+                   "A proxy will not help; the account itself has to be cleared or replaced.")
+        raise typer.Exit(1)
     typer.echo("signed in" if st.get("hasToken") and not st.get("showsLogin")
                else "NOT signed in - the page still offers a login")
 
