@@ -15,6 +15,7 @@ app accepted it.
 from __future__ import annotations
 
 import json
+import time
 import logging
 from typing import Any
 
@@ -171,7 +172,23 @@ def collect_now(port: int | None = None) -> str:
     The page cannot call chrome.runtime itself — that lives in the isolated world — so the message
     goes out as a window event and content_bridge.js relays it. Returns immediately; the collection
     takes about a minute, and the receiver's log is where it lands.
+
+    Reloads first when the page has no collector in it. A manifest's content scripts only run on
+    navigation, so a tab that was already open when the extension was installed or updated is
+    running none of them — and a poke into a page with no listener returns "poked" and does
+    nothing, which is the most misleading answer available. The watchdog reaches for this exactly
+    when the browser has just been restarted, so it has to survive that case.
     """
+    present = evaluate('typeof window.__fomoAgent', port=port)
+    if present != "object":
+        evaluate("(location.reload(), 1)", port=port)
+        for _ in range(12):
+            time.sleep(3)
+            if evaluate('typeof window.__fomoAgent', port=port) == "object":
+                break
+        else:
+            return "the page has no collector in it, even after a reload"
+
     poke = ('(window.postMessage({__fomoAgent: true, type: "collectNow", payload: {}}, "*"), '
             '"poked")')
     return evaluate(poke, port=port)

@@ -186,13 +186,26 @@ async function deliver(data, reason) {
     await chrome.storage.local.set({ knownUserIds: [...known].slice(-2000) });
     // The reply says which tokens to ask about next. Parsed defensively: an older receiver, or a
     // proxy that rewrote the body, must leave the collector working exactly as it did before.
+    // The reply says which tokens to ask about next. Parsed defensively: an older receiver, or a
+    // proxy that rewrote the body, must leave the collector working exactly as it did before.
+    //
+    // The outcome goes into the status because this hop was invisible for a day: the delivery
+    // reported success either way, so a list that never arrived and a list that arrived and was
+    // ignored produced identical evidence.
+    let wanted = 'no wants in the reply';
     try {
       const wants = JSON.parse(body);
-      if (wants && wants.wants && Array.isArray(wants.wants.mints)) {
-        await chrome.storage.local.set({ wantMints: wants.wants.mints.slice(0, 40) });
+      const mints = wants && wants.wants && wants.wants.mints;
+      if (Array.isArray(mints)) {
+        await chrome.storage.local.set({ wantMints: mints.slice(0, 40) });
+        wanted = `stored ${mints.length}`;
+      } else if (wants && wants.wants) {
+        wanted = `wants.mints was ${typeof mints}`;
       }
-    } catch (e) { /* not JSON, or not ours: keep whatever list we already had */ }
-    await setStatus({ ok: true, reason, message: `sent ${counts.swaps} wallets`, counts, response: body.slice(0, 200) });
+    } catch (e) {
+      wanted = `reply was not JSON: ${String((e && e.message) || e).slice(0, 60)}`;
+    }
+    await setStatus({ ok: true, reason, message: `sent ${counts.swaps} wallets`, counts, wanted });
     return { ok: true, counts };
   } catch (e) {
     await setStatus({ ok: false, reason, message: `receiver unreachable: ${e.message}`, counts });
