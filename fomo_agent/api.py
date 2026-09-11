@@ -115,7 +115,19 @@ RESPONSE_TTL = 10.0
 RESPONSE_CACHE_MAX = 4000
 _responses: dict[str, tuple[float, int, bytes, str]] = {}
 _responses_lock = threading.Lock()
+# one computation in flight per key: when the entry expires under sixty readers at once, one of
+# them runs the query and the other fifty-nine wait for that answer instead of running it too
+_inflight: dict[str, "asyncio.Future[None]"] = {}
 UNCACHED = ("/api/health",)
+
+
+def _cached(key: str):
+    with _responses_lock:
+        hit = _responses.get(key)
+    if hit and time.monotonic() - hit[0] < RESPONSE_TTL:
+        return Response(content=hit[2], status_code=hit[1], media_type=hit[3],
+                        headers={"x-cache": "hit"})
+    return None
 
 
 @app.middleware("http")
@@ -124,25 +136,35 @@ async def remember_responses(request: Request, call_next):
             or request.url.path in UNCACHED:
         return await call_next(request)
     key = str(request.url)
-    now = time.monotonic()
-    with _responses_lock:
-        hit = _responses.get(key)
-    if hit and now - hit[0] < RESPONSE_TTL:
-        return Response(content=hit[2], status_code=hit[1], media_type=hit[3],
-                        headers={"x-cache": "hit"})
-    response = await call_next(request)
-    if response.status_code != 200:
-        return response
-    body = b"".join([chunk async for chunk in response.body_iterator])
-    with _responses_lock:
-        if len(_responses) >= RESPONSE_CACHE_MAX:
-            for k in [k for k, v in _responses.items() if now - v[0] >= RESPONSE_TTL]:
-                _responses.pop(k, None)
+    if (hit := _cached(key)) is not None:
+        return hit
+    waiting = _inflight.get(key)
+    if waiting is not None:
+        await waiting
+        if (hit := _cached(key)) is not None:
+            return hit
+    import asyncio
+    fut = asyncio.get_running_loop().create_future()
+    _inflight[key] = fut
+    try:
+        response = await call_next(request)
+        if response.status_code != 200:
+            return response
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        now = time.monotonic()
+        with _responses_lock:
             if len(_responses) >= RESPONSE_CACHE_MAX:
-                _responses.clear()
-        _responses[key] = (now, 200, body, response.media_type or "application/json")
-    return Response(content=body, status_code=200, media_type=response.media_type,
-                    headers={"x-cache": "miss"})
+                for k in [k for k, v in _responses.items() if now - v[0] >= RESPONSE_TTL]:
+                    _responses.pop(k, None)
+                if len(_responses) >= RESPONSE_CACHE_MAX:
+                    _responses.clear()
+            _responses[key] = (now, 200, body, response.media_type or "application/json")
+        return Response(content=body, status_code=200, media_type=response.media_type,
+                        headers={"x-cache": "miss"})
+    finally:
+        _inflight.pop(key, None)
+        if not fut.done():
+            fut.set_result(None)
 
 
 @app.middleware("http")
