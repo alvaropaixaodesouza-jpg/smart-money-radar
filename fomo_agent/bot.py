@@ -724,7 +724,10 @@ def run(conn, tg: Telegram | None = None, once: bool = False) -> dict:
     who = tg.me()
     log.info("bot @%s online", who.get("username"))
     stats = {"handled": 0, "broadcasts": 0, "sent": 0}
-    offset, last_alert = 0, 0.0
+    # -inf rather than 0: monotonic() counts from boot, and on a machine up for less than the
+    # alert interval - a fresh CI runner, a just-rebooted server - zero would mean waiting
+    # out the interval before the first broadcast instead of sending it at once
+    offset, last_alert = 0, float("-inf")
     while True:
         try:
             for u in tg.updates(offset) or []:
