@@ -93,7 +93,8 @@ sudo -u radar npm install --silent --no-fund --no-audit
 # addresses are decided here rather than by the unit file. Without this the pages ship claiming
 # whatever the config default happens to be, which is a domain we do not serve.
 SITE_URL="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$APP/.env" | tail -1)"
-sudo -u radar env PUBLIC_SITE_URL="$SITE_URL" npm run build 2>&1 | grep -E "error|Complete!" | tail -1
+REPO_URL="$(sed -n 's/^PUBLIC_REPO_URL=//p' "$APP/.env" | tail -1)"
+sudo -u radar env PUBLIC_SITE_URL="$SITE_URL" PUBLIC_REPO_URL="$REPO_URL" npm run build 2>&1 | grep -E "error|Complete!" | tail -1
 
 systemctl restart radar-api radar-site radar-bot radar-receive
 sleep 5
