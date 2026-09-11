@@ -233,7 +233,7 @@
     PTS.length = 0; builtW = W; builtH = H;
     BCX = W * 0.5; BCY = H * 0.50;
     /* portrait: the width is the limit, and the stations above and below leave the middle band */
-    BSCALE = Math.min(W * 0.42, H * 0.24);
+    BSCALE = Math.min(W * 0.46, H * 0.30);
     BRX = BSCALE * 0.62; BRY = BSCALE * 0.46;
     const D = W < 500 ? 0.55 : 1;
     const push = (x, y, z, tint, w, bright) => { PTS.push({ x, y, z, ph: rnd(0, 6.283), sp: rnd(0.25, 0.9), amp: rnd(0.003, 0.012), b: bright, tint, fire: 0, scan: 0, ref: 0, w }); };
