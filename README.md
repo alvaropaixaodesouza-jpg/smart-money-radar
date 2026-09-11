@@ -15,6 +15,30 @@ leaderboard ranked by judgement rather than by headline PnL.
 
 **Live: [fomoradar.app](https://fomoradar.app) · [@fomoradarRH_bot](https://t.me/fomoradarRH_bot) · [API docs](https://fomoradar.app/docs)**
 
+## What it looks like
+
+The home page: the headline, and the brain — a point cloud of the six things the pipeline does,
+with the roster's wallets walking between them.
+
+![Home](docs/screens/home.png)
+
+A trader, judged: the verdict and its reasoning, the open book with cost bases and multiples, and
+every recent fill — with the ones that were never the wallet's own marked as such.
+
+![Trader](docs/screens/trader.png)
+
+A token: who holds it, what it cost them, the flow in and out, and what they said about it.
+
+![Token](docs/screens/token.png)
+
+| Fresh — launches the cohort is entering, by how early | Exits — the same wallets leaving |
+|---|---|
+| ![Fresh](docs/screens/fresh.png) | ![Exits](docs/screens/exits.png) |
+
+The leaderboard, ranked by judgement rather than by headline PnL:
+
+![Leaderboard](docs/screens/leaderboard.png)
+
 ```bash
 pip install -e .
 cp .env.example .env          # nothing is required to start; see "Keys" below
