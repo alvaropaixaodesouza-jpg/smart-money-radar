@@ -44,6 +44,7 @@ def client(tmp_path, monkeypatch):
                             side="buy", usd_value=5_000.0, ts=now - 900, source="rpc")
     c.close()
     api.limiter.hits.clear()
+    api._responses.clear()   # the response cache is module-wide; a test must not read another's
     return TestClient(api.app)
 
 
@@ -142,6 +143,19 @@ def test_tape_only_carries_trusted_wallets(client):
     assert all(f["sym"] != "USDG" for f in body["fills"])
 
 
+def test_a_second_reader_inside_ten_seconds_is_served_from_memory(client):
+    """The feed queries walk the whole tape; forty readers in the same ten seconds are one
+    question, answered once."""
+    api._responses.clear()
+    first = client.get("/api/signals?hours=24")
+    second = client.get("/api/signals?hours=24")
+    assert first.headers["x-cache"] == "miss" and second.headers["x-cache"] == "hit"
+    assert first.json() == second.json()
+    other = client.get("/api/signals?hours=6")
+    assert other.headers["x-cache"] == "miss", "a different window is a different question"
+    assert "x-cache" not in client.get("/api/health").headers, "health is never remembered"
+
+
 def test_the_site_talking_to_itself_is_not_one_visitor(client, monkeypatch):
     """The server-side renderer calls from loopback with no forwarded address. Every reader of
     the site went through that one key, so 120 calls a minute was the whole site's budget."""
@@ -158,6 +172,7 @@ def test_the_site_talking_to_itself_is_not_one_visitor(client, monkeypatch):
 
 
 def test_rate_limit_returns_429_rather_than_dying(client, monkeypatch):
+    api._responses.clear()
     monkeypatch.setattr(api.limiter, "per_minute", 3)
     api.limiter.hits.clear()
     codes = [client.get("/api/health").status_code for _ in range(5)]

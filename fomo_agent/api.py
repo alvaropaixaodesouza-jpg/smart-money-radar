@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from . import db
 from .config import settings
@@ -103,6 +103,46 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+# Ten seconds of memory in front of every GET. The feeds change on the watcher's tick and the
+# fifteen-minute pass; the queries behind them walk the whole tape and cost 150 to 750 ms each,
+# and under forty readers at once that became two-second tails on every page. Forty readers in
+# the same ten seconds are asking the same question, and it is answered once. Keyed by the full
+# URL, so a token page and a window size are each their own entry; bounded, so a crawler walking
+# six thousand token pages cannot turn it into a second database.
+RESPONSE_TTL = 10.0
+RESPONSE_CACHE_MAX = 4000
+_responses: dict[str, tuple[float, int, bytes, str]] = {}
+_responses_lock = threading.Lock()
+UNCACHED = ("/api/health",)
+
+
+@app.middleware("http")
+async def remember_responses(request: Request, call_next):
+    if request.method != "GET" or not request.url.path.startswith("/api/") \
+            or request.url.path in UNCACHED:
+        return await call_next(request)
+    key = str(request.url)
+    now = time.monotonic()
+    with _responses_lock:
+        hit = _responses.get(key)
+    if hit and now - hit[0] < RESPONSE_TTL:
+        return Response(content=hit[2], status_code=hit[1], media_type=hit[3],
+                        headers={"x-cache": "hit"})
+    response = await call_next(request)
+    if response.status_code != 200:
+        return response
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    with _responses_lock:
+        if len(_responses) >= RESPONSE_CACHE_MAX:
+            for k in [k for k, v in _responses.items() if now - v[0] >= RESPONSE_TTL]:
+                _responses.pop(k, None)
+            if len(_responses) >= RESPONSE_CACHE_MAX:
+                _responses.clear()
+        _responses[key] = (now, 200, body, response.media_type or "application/json")
+    return Response(content=body, status_code=200, media_type=response.media_type,
+                    headers={"x-cache": "miss"})
 
 
 @app.middleware("http")
