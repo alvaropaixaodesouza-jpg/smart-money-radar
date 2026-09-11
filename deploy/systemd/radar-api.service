@@ -12,6 +12,11 @@ EnvironmentFile=/opt/fomoradar/app/.env
 ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli serve
 Restart=always
 RestartSec=5
+# A ceiling, not a budget: the process idles near 60 MB and a heavy hour is under 200. It once
+# reached 2.3 GB by holding a TLS connection open for every chart it had ever fetched, and this
+# is what turns the next leak of that kind into a restart in the log instead of a machine that
+# has stopped answering.
+MemoryMax=1G
 # the service reads one sqlite file and talks to public HTTP endpoints; nothing else
 NoNewPrivileges=yes
 PrivateTmp=yes

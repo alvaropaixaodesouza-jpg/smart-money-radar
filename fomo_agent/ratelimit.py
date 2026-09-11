@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import deque
 
@@ -14,14 +15,19 @@ class RateLimiter:
         self.name = name
         self.calls: deque[float] = deque()
         self.total = 0
+        # The API shares one client across its worker threads. Sleeping with the lock held is the
+        # point: a second caller arriving during the wait queues behind it instead of also
+        # deciding there is room.
+        self._lock = threading.Lock()
 
     def wait(self) -> None:
-        now = time.monotonic()
-        while self.calls and now - self.calls[0] > 60:
-            self.calls.popleft()
-        if len(self.calls) >= self.max:
-            sleep = 60 - (now - self.calls[0]) + 0.05
-            log.info("%s rate limit: sleeping %.1fs", self.name, sleep)
-            time.sleep(max(sleep, 0))
-        self.calls.append(time.monotonic())
-        self.total += 1
+        with self._lock:
+            now = time.monotonic()
+            while self.calls and now - self.calls[0] > 60:
+                self.calls.popleft()
+            if len(self.calls) >= self.max:
+                sleep = 60 - (now - self.calls[0]) + 0.05
+                log.info("%s rate limit: sleeping %.1fs", self.name, sleep)
+                time.sleep(max(sleep, 0))
+            self.calls.append(time.monotonic())
+            self.total += 1

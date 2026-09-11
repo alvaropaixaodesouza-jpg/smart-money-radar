@@ -184,8 +184,7 @@ def test_candles_are_served_from_memory_between_requests(monkeypatch):
             calls.append((chain, pool, timeframe, limit))
             return [[1, 2, 3, 1, 2, 9]]
 
-    import fomo_agent.sources.geckoterminal as gt
-    monkeypatch.setattr(gt, "GeckoTerminal", FakeGecko)
+    monkeypatch.setitem(api._clients, "gecko", FakeGecko())
     api._candles.clear()
 
     assert api.candles_for("0xpool", "robinhood", "7d") == [[1, 2, 3, 1, 2, 9]]
@@ -195,6 +194,44 @@ def test_candles_are_served_from_memory_between_requests(monkeypatch):
 
     api.candles_for("0xpool", "robinhood", "30d")
     assert calls[1][2] == "day", "a month is daily candles, not 720 hourly ones"
+
+
+def test_the_upstream_client_is_one_per_process(monkeypatch):
+    """A client per request brought a rate limiter per request, which limits nothing, and a
+    connection pool per request that nothing closed: 581 open sockets and 2.3 GB after a day."""
+    made = []
+
+    class FakeGecko:
+        def __init__(self):
+            made.append(self)
+
+        def ohlcv(self, *a):
+            return [[1, 2, 3, 1, 2, 9]]
+
+    import fomo_agent.sources.geckoterminal as gt
+    monkeypatch.setattr(gt, "GeckoTerminal", FakeGecko)
+    monkeypatch.delitem(api._clients, "gecko", raising=False)
+    api._candles.clear()
+    for pool in ("0xa", "0xb", "0xc"):
+        api.candles_for(pool, "robinhood", "24h")
+    assert len(made) == 1 and api.gecko() is made[0]
+
+
+def test_expired_candles_leave_the_cache(monkeypatch):
+    """An entry past its TTL was never served but was never dropped either, so the cache only
+    ever grew — one entry per pool per span for every token a crawler had ever opened."""
+    class FakeGecko:
+        def ohlcv(self, *a):
+            return [[1, 2, 3, 1, 2, 9]]
+
+    monkeypatch.setitem(api._clients, "gecko", FakeGecko())
+    api._candles.clear()
+    api.candles_for("0xold", "robinhood", "7d")
+    # age it past the TTL by hand
+    at, rows = api._candles[("0xold", "7d")]
+    api._candles[("0xold", "7d")] = (at - api.CANDLE_TTL - 1, rows)
+    api.candles_for("0xnew", "robinhood", "7d")
+    assert ("0xold", "7d") not in api._candles and ("0xnew", "7d") in api._candles
 
 
 def test_fresh_endpoint_carries_the_filters_it_applied(client):

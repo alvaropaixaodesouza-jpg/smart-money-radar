@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -137,7 +138,7 @@ def live_lookup(conn: sqlite3.Connection, mint: str) -> bool:
     from .pipeline.new_tokens import lookup_tokens
 
     try:
-        tokens, _ = lookup_tokens(chain() or "robinhood", [mint])
+        tokens, _ = lookup_tokens(chain() or "robinhood", [mint], gecko=gecko(), dex=dex())
     except Exception as e:  # noqa: BLE001 - an unknown token is still answerable without this
         log.warning("live lookup for %s failed: %s", mint[:10], e)
         return False
@@ -152,6 +153,36 @@ def live_lookup(conn: sqlite3.Connection, mint: str) -> bool:
     return False
 
 
+# One upstream client per process, not one per request.
+#
+# `GeckoTerminal()` in the request path looked harmless and was two bugs. Each instance brought
+# its own rate limiter, so the limiter never saw two calls in a row and a crawler walking the token
+# pages sent 429s straight back to the page. And each brought its own connection pool that nothing
+# closed: after a day of that walk the process held 581 TLS connections to GeckoTerminal open, and
+# 2.3 GB of memory with them. Refcounting does not rescue an httpx client that has made a request —
+# the pool and its connections reference each other.
+_clients: dict[str, object] = {}
+_clients_lock = threading.Lock()
+
+
+def gecko():
+    from .sources.geckoterminal import GeckoTerminal
+
+    with _clients_lock:
+        if "gecko" not in _clients:
+            _clients["gecko"] = GeckoTerminal()
+        return _clients["gecko"]
+
+
+def dex():
+    from .sources.dexscreener import DexScreener
+
+    with _clients_lock:
+        if "dex" not in _clients:
+            _clients["dex"] = DexScreener()
+        return _clients["dex"]
+
+
 # A candle set is the same for every visitor, and the pool it comes from produces one new bar an
 # hour at most. Serving it from memory keeps a page nobody has cached off the upstream rate limit.
 RANGES = {"24h": ("hour", 1, 24), "7d": ("hour", 1, 168), "30d": ("day", 1, 30)}
@@ -159,20 +190,27 @@ _candles: dict[tuple[str, str], tuple[float, list]] = {}
 CANDLE_TTL = 300
 
 
+def _evict_stale() -> None:
+    """An expired entry is never served, but until this it was never dropped either, so the cache
+    only ever grew — one entry per pool per span, for every token anybody had ever looked at."""
+    cutoff = time.monotonic() - CANDLE_TTL
+    for key in [k for k, (at, _) in _candles.items() if at < cutoff]:
+        _candles.pop(key, None)
+
+
 def candles_for(pool: str, chain_name: str, span: str) -> list[list[float]]:
     """OHLCV for one pool, cached for five minutes and empty rather than raising."""
-    from .sources.geckoterminal import GeckoTerminal
-
     key = (pool, span)
     hit = _candles.get(key)
     if hit and time.monotonic() - hit[0] < CANDLE_TTL:
         return hit[1]
     timeframe, aggregate, limit = RANGES[span]
     try:
-        rows = GeckoTerminal().ohlcv(chain_name, pool, timeframe, aggregate, limit)
+        rows = gecko().ohlcv(chain_name, pool, timeframe, aggregate, limit)
     except Exception as e:  # noqa: BLE001 - a page without a chart is still a page
         log.warning("candles for %s failed: %s", pool[:12], e)
         return hit[1] if hit else []
+    _evict_stale()
     _candles[key] = (time.monotonic(), rows)
     return rows
 
