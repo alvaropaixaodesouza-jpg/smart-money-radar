@@ -113,6 +113,7 @@ const lead = signals[0];
         <span class="tkwrap">
           <Ident seed={s.mint} size={18} />
           <a class="tk" href={`/token/${s.mint}`}>{s.sym}</a>
+          {s.burst && <a class="burst" href="/hot" title={`+${s.burst.conviction.toFixed(1)} inside the window, ${ago(s.burst.ts)} ago`}>&#9650; burst</a>}
         </span>
         <span class="cv">{s.conviction.toFixed(1)}</span>
         <Meter value={s.conviction} max={Math.max(top, 1)} />
@@ -240,4 +241,12 @@ const lead = signals[0];
   }
 
   .tkwrap { display: flex; align-items: center; gap: 9px; }
+  /* The mark for buying that arrived inside minutes. Amber is the conviction colour and this is
+     conviction with a clock on it; a hairline pill keeps it off the token name's weight. */
+  .burst {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--amber); border: 1px solid var(--amber); border-radius: 9999px; padding: 1px 8px;
+    margin-left: 8px; text-decoration: none; vertical-align: 2px; white-space: nowrap;
+  }
+  .burst:hover { background: var(--amber); color: #000; }
 </style>

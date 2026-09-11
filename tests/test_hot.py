@@ -59,8 +59,8 @@ def seed(conn, now):
                              status=status)
         db.upsert_token(conn, TOKEN, chain="robinhood", symbol="BURST", liquidity_usd=50_000)
         db.upsert_token(conn, OTHER, chain="robinhood", symbol="SLOW")
-        # BURST: four trusted wallets in twelve minutes, and a dud who does not count
-        for i, mins in ((0, 14), (1, 9), (2, 5), (3, 2), (4, 1)):
+        # BURST: four trusted wallets in twelve minutes, and a dud (earlier) who does not count
+        for i, mins in ((0, 14), (1, 9), (2, 5), (3, 2), (4, 20)):
             db.insert_trade(conn, sig=f"b{i}", address=W[i], chain="robinhood", mint=TOKEN,
                             side="buy", usd_value=500.0 * (i + 1), token_amount=1000.0,
                             ts=now - mins * 60, source="rpc")
@@ -176,3 +176,61 @@ def test_a_burst_is_pushed_once_per_subscriber(tmp_path, monkeypatch):
     chain.head_block += 200
     again = watch.tick(conn, w, now)
     assert again["hot"] == 1 and again["sent"] == 0, "still bursting, already told"
+
+
+# ---------------------------------------------------------------- the record and its scorecard
+
+
+def test_a_burst_is_written_once_and_read_back_with_what_followed(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    now = db.now()
+    seed(conn, now)
+    h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)[0]
+    assert h["px"] == 2.0, "the last entrant paid $2000 for 1000 tokens"
+
+    assert hot.record(conn, h, quiet_s=12 * 3600, chain="robinhood") is True
+    assert hot.record(conn, h, quiet_s=12 * 3600, chain="robinhood") is False, "same burst, next tick"
+
+    # what happened next: a fill at 3x, then one at 1.5x, and the token quotes 0.4x now
+    with db.tx(conn):
+        db.insert_trade(conn, sig="l1", address=W[1], chain="robinhood", mint=TOKEN, side="sell",
+                        usd_value=6000.0, token_amount=1000.0, ts=now + 3600, source="rpc")
+        db.insert_trade(conn, sig="l2", address=W[2], chain="robinhood", mint=TOKEN, side="sell",
+                        usd_value=3000.0, token_amount=1000.0, ts=now + 7200, source="rpc")
+        db.upsert_token(conn, TOKEN, chain="robinhood", price_usd=0.8)
+    later = now + 4 * 3600
+    rows = hot.recent(conn, "robinhood", hours=24, now=later)
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r["best"], r["last"], r["now"]) == (3.0, 1.5, 0.4)
+    assert r["who"] == ["w1", "w2", "w3"] and r["age_at_read_h"] == 4.0
+
+
+def test_a_burst_with_no_tape_after_it_is_unmeasured_not_flat(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    now = db.now()
+    seed(conn, now)
+    h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)[0]
+    hot.record(conn, h, quiet_s=3600, chain="robinhood")
+    r = hot.recent(conn, "robinhood", hours=24, now=now + 60)[0]
+    assert r["best"] is None and r["last"] is None and r["fills"] == 0
+
+
+def test_the_digest_carries_the_scorecard(tmp_path, monkeypatch):
+    from fomo_agent.bot import fmt_digest
+    from fomo_agent.pipeline.digest import daily
+
+    conn = db.connect(tmp_path / "d.db")
+    now = db.now()
+    seed(conn, now - 5 * 3600)   # the burst was five hours ago
+    h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now - 5 * 3600)[0]
+    hot.record(conn, h, quiet_s=3600, chain="robinhood")
+    with db.tx(conn):
+        db.insert_trade(conn, sig="l1", address=W[1], chain="robinhood", mint=TOKEN, side="sell",
+                        usd_value=5000.0, token_amount=1000.0, ts=now - 3600, source="rpc")
+    monkeypatch.setattr("fomo_agent.pipeline.digest.health_report", lambda c: {"ok": True, "checks": []})
+    d = daily(conn, hours=24, chain="robinhood")
+    assert d["bursts"]["n"] == 1 and d["bursts"]["measured"] == 1
+    assert d["bursts"]["reached_2x"] == 1 and d["bursts"]["median_best"] == 2.5
+    text = fmt_digest(d)
+    assert "Bursts" in text and "1 reached 2x" in text and "best 2.5x" in text

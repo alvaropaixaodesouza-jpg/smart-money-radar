@@ -274,6 +274,21 @@ def fmt_digest(d: dict) -> str:
             lead = (f"first in {t['lead_minutes']:.0f}m after the pool opened"
                     if t.get("lead_minutes") is not None else "launch time unknown")
             out.append(f"  {token_link(t.get('mint'), t['sym'])}  heat {t['heat']:.1f} · {t['buyers']} in, {lead}")
+    b = d.get("bursts") or {}
+    if b.get("n"):
+        # the feed's own scorecard: the backtest, continued live, one day at a time
+        line = f"{b['n']} burst{'s' if b['n'] != 1 else ''}"
+        if b["measured"]:
+            line += (f" · of {b['measured']} old enough to judge, {b['reached_2x']} reached 2x, "
+                     f"{b['below_half']} ended below half · median best {b['median_best']:.1f}x")
+        else:
+            line += " · none old enough to judge yet"
+        out.append(f"\n<b>Bursts</b>\n  {line}")
+        for t in b.get("top", []):
+            mins = max(1, round(t["window_s"] / 60)) if t.get("window_s") else "?"
+            now_txt = f", now {t['now']:.1f}x" if t.get("now") is not None else ""
+            out.append(f"  {token_link(t.get('mint'), t['sym'])}  +{t['conviction']:.1f} from "
+                       f"{t['wallets']} wallets \u2192 best {t['best']:.1f}x{now_txt}")
     if d["signals"]:
         out.append("\n<b>Bought</b>")
         for s in d["signals"]:

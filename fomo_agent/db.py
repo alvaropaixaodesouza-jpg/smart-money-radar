@@ -191,6 +191,19 @@ MIGRATIONS: dict[int, str] = {
     -- head of the queue forever, starving the ones that would answer.
     ALTER TABLE tokens ADD COLUMN thesis_at INTEGER;
     """,
+    17: """
+    -- A burst the rule fired on, written the tick it formed. The bot dedups its own pushes in
+    -- bot_sent; this is the record that outlives them, and it is what turns the backtest into a
+    -- live one: the digest reads back what each burst went on to do, so a month from now the
+    -- answer to "does this feed work" is measured rather than remembered.
+    CREATE TABLE IF NOT EXISTS bursts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT, chain TEXT, ts INTEGER, conviction REAL, wallets INTEGER, usd REAL, px REAL,
+      window_s INTEGER, age_s INTEGER, who TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_bursts_mint_ts ON bursts(mint, ts);
+    CREATE INDEX IF NOT EXISTS idx_bursts_ts ON bursts(ts);
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")

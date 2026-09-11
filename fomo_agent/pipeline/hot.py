@@ -18,6 +18,7 @@ actually followed a burst here, not against what sounds right.
 from __future__ import annotations
 
 import bisect
+import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -116,17 +117,89 @@ def hot_now(conn: sqlite3.Connection, chain: str | None = None, delta: float = 3
         if max_age_s and age is not None and age > max_age_s:
             continue
         sym, liq = meta[mint]
+        # the price the last entrant paid: what a reader of the alert is being told about
+        marks = ",".join("?" * len(entries))
+        px = conn.execute(
+            f"SELECT usd_value / token_amount FROM trades WHERE mint=? AND side='buy' AND ts>=? "
+            f"AND address IN ({marks}) AND usd_value > 0 AND token_amount > 0 "
+            "ORDER BY ts DESC LIMIT 1",
+            (mint, since, *[a for _, a, _, _, _, _ in entries])).fetchone()
         out.append({
             "mint": mint, "sym": sym, "liq": liq,
             "conviction": round(conv, 2), "wallets": len(entries),
             "usd": sum(u for _, _, _, u, _, _ in entries),
             "first_ts": entries[0][0], "last_ts": entries[-1][0],
-            "age_s": age, "window_s": window_s,
+            "age_s": age, "window_s": window_s, "px": px[0] if px else None,
             "who": [h or a[:8] for _, a, _, _, _, h in entries],
             "scores": [s for _, _, s, _, _, _ in entries],
             "avg_score": sum(s for _, _, s, _, _, _ in entries) / len(entries),
         })
     out.sort(key=lambda h: (-h["conviction"], -h["usd"]))
+    return out
+
+
+# ---------------------------------------------------------------- the record
+
+
+def record(conn: sqlite3.Connection, h: dict, quiet_s: int, chain: str | None = None) -> bool:
+    """Write a burst down once. A token still bursting on the next tick is the same burst."""
+    if conn.execute("SELECT 1 FROM bursts WHERE mint=? AND ts>=?",
+                    (h["mint"], h["last_ts"] - quiet_s)).fetchone():
+        return False
+    with db.tx(conn):
+        conn.execute(
+            "INSERT INTO bursts(mint, chain, ts, conviction, wallets, usd, px, window_s, age_s, who) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (h["mint"], chain, h["last_ts"], h["conviction"], h["wallets"], h["usd"], h.get("px"),
+             h["window_s"], h.get("age_s"), json.dumps(list(zip(h["who"], h["scores"])))))
+    return True
+
+
+def outcome(conn: sqlite3.Connection, mint: str, ts: int, px: float | None,
+            horizon_s: int = 86400, now: int | None = None) -> dict:
+    """What the tape shows the price did after a burst, in the price the cohort itself paid.
+
+    `best` is the highest implied price of any tracked fill inside the horizon over the burst
+    price, `last` the most recent one, `now` the token's current quote over the same. Any of them
+    is None when there is nothing to measure it with, which is a different thing from 1.0.
+    """
+    now = now or db.now()
+    if not px:
+        return {"best": None, "last": None, "now": None, "fills": 0}
+    rows = conn.execute(
+        "SELECT usd_value / token_amount p FROM trades WHERE mint=? AND ts>? AND ts<=? "
+        "AND usd_value > 0 AND token_amount > 0 ORDER BY ts",
+        (mint, ts, min(now, ts + horizon_s))).fetchall()
+    later = [r["p"] for r in rows]
+    cur = conn.execute("SELECT price_usd FROM tokens WHERE mint=?", (mint,)).fetchone()
+    return {
+        "best": round(max(later) / px, 2) if later else None,
+        "last": round(later[-1] / px, 2) if later else None,
+        "now": round(cur["price_usd"] / px, 2) if cur and cur["price_usd"] else None,
+        "fills": len(later),
+    }
+
+
+def recent(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
+           now: int | None = None, horizon_s: int = 86400) -> list[dict]:
+    """Every burst recorded in the window, newest first, with what followed it so far."""
+    now = now or db.now()
+    rows = conn.execute(
+        "SELECT b.*, COALESCE(tk.symbol, substr(b.mint,1,8)) sym, tk.liquidity_usd liq "
+        "FROM bursts b LEFT JOIN tokens tk ON tk.mint = b.mint "
+        "WHERE b.ts >= ?" + (" AND b.chain = ?" if chain else "") + " ORDER BY b.ts DESC",
+        [now - hours * 3600, *([chain] if chain else [])]).fetchall()
+    out = []
+    for r in rows:
+        who = json.loads(r["who"] or "[]")
+        out.append({
+            "mint": r["mint"], "sym": r["sym"], "liq": r["liq"], "ts": r["ts"],
+            "conviction": r["conviction"], "wallets": r["wallets"], "usd": r["usd"],
+            "px": r["px"], "window_s": r["window_s"], "age_s": r["age_s"],
+            "who": [w for w, _ in who], "scores": [sc for _, sc in who],
+            "age_at_read_h": round((now - r["ts"]) / 3600, 1),
+            **outcome(conn, r["mint"], r["ts"], r["px"], horizon_s, now),
+        })
     return out
 
 

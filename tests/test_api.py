@@ -240,3 +240,22 @@ def test_fresh_endpoint_carries_the_filters_it_applied(client):
     assert body["hours"] == 24 and body["min_liquidity"] == 1000 and body["min_buyers"] == 1
     assert "drained" in body and isinstance(body["tokens"], list)
     assert client.get("/api/fresh?hours=999").status_code == 422
+
+
+def test_hot_endpoint_carries_the_feed_and_its_scorecard(client):
+    body = client.get("/api/hot").json()
+    assert body["delta"] > 0 and body["window_min"] > 0
+    assert body["now"] == [] and body["recent"] == [], "the fixture's buys are spread, not bursting"
+
+
+def test_a_signal_says_whether_it_arrived_in_a_burst(client):
+    from fomo_agent import db as _db
+    c = _db.connect()
+    with _db.tx(c):
+        c.execute("INSERT INTO bursts(mint, chain, ts, conviction, wallets, usd, px, window_s, age_s, who) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?)", (TOKEN, "robinhood", _db.now() - 600, 4.2, 4, 9000.0,
+                                                   1.0, 1800, 3000, "[]"))
+    c.close()
+    rows = client.get("/api/signals").json()["signals"]
+    pons = next(r for r in rows if r["mint"] == TOKEN)
+    assert pons["burst"] and pons["burst"]["conviction"] == 4.2

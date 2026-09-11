@@ -41,11 +41,27 @@ def daily(conn: sqlite3.Connection, hours: int = 24, chain: str | None = None) -
         "WHERE th.first_seen_at >= ? AND t.score >= ? "
         "ORDER BY t.score DESC LIMIT 3", (since, analyze.TRUSTED))]
 
+    # The bursts the watcher wrote down, and what each did since. Only one older than a few
+    # hours has had time to do anything, so the scorecard counts those and says how many.
+    from .hot import recent
+
+    bursts = recent(conn, chain, hours=hours)
+    settled = [b for b in bursts if b["age_at_read_h"] >= 3 and b["best"] is not None]
+    best = sorted(b["best"] for b in settled)
+    scorecard = {
+        "n": len(bursts), "measured": len(settled),
+        "reached_2x": sum(b["best"] >= 2 for b in settled),
+        "median_best": best[len(best) // 2] if best else None,
+        "below_half": sum((b["last"] or 0) < 0.5 for b in settled),
+        "top": sorted(settled, key=lambda b: -b["best"])[:3],
+    }
+
     return {
         "hours": hours,
         "counts": counts,
         "joined": joined,
         "joined_n": joined_n,
+        "bursts": scorecard,
         "signals": analyze.signals(conn, chain, hours=hours, limit=3),
         "fresh": (analyze.fresh(conn, chain, hours=hours, limit=3) or {}).get("tokens", [])[:3],
         "exits": analyze.exits(conn, chain, hours=hours, min_sellers=2, limit=3),
@@ -56,4 +72,5 @@ def daily(conn: sqlite3.Connection, hours: int = 24, chain: str | None = None) -
 
 def is_quiet(d: dict) -> bool:
     """Nothing moved. Worth saying in one line rather than dressing up as a report."""
-    return not (d["signals"] or d["fresh"] or d["exits"] or d["joined_n"] or d["theses"])
+    return not (d["signals"] or d["fresh"] or d["exits"] or d["joined_n"] or d["theses"]
+                or d.get("bursts", {}).get("n"))

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from .. import db
 from ..config import settings
 from ..sources.rpc import CHAIN, RobinhoodRPC, RpcError
-from .hot import hot_now
+from .hot import hot_now, record
 from .track import TRACKED
 
 log = logging.getLogger(__name__)
@@ -89,6 +89,10 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
                       max_age_s=settings.hot_max_age_h * 3600 or None, now=now)
     stats["hot"] = len(burning)
     if burning:
+        # written down whether or not anybody is subscribed: the record is what the digest and the
+        # site read back, and what a month from now says whether the feed was worth having
+        stats["recorded"] = sum(record(conn, h, settings.telegram_realert_hours * 3600, CHAIN)
+                                for h in burning)
         stats["sent"] = push(conn, burning)
         w.alerts += stats["sent"]
     return stats

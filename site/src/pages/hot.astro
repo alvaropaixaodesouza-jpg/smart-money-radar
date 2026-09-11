@@ -1,0 +1,139 @@
+---
+import Base from '../layouts/Base.astro';
+import Meter from '../components/Meter.astro';
+import Search from '../components/Search.astro';
+import Panel from '../components/Panel.astro';
+import { getHot, usd, ago, type Burst, type HotNow } from '../lib/api';
+
+const hours = Number(Astro.url.searchParams.get('hours') ?? 24);
+const feed = await getHot(hours);
+const now: HotNow[] = feed?.now ?? [];
+const recent: Burst[] = feed?.recent ?? [];
+const hottest = Math.max(1, ...now.map((h) => h.conviction), ...recent.map((b) => b.conviction));
+
+/** Old enough to have done something, and with a fill to measure it by. */
+const judged = recent.filter((b) => b.age_at_read_h >= 3 && b.best !== null);
+const reached2x = judged.filter((b) => (b.best ?? 0) >= 2).length;
+const belowHalf = judged.filter((b) => (b.last ?? 1) < 0.5).length;
+const medianBest = judged.length
+  ? [...judged].map((b) => b.best as number).sort((a, b) => a - b)[Math.floor(judged.length / 2)]
+  : null;
+
+const minutes = (b: { window_s: number }) => Math.max(1, Math.round(b.window_s / 60));
+const ageText = (s: number | null) =>
+  s === null ? '\u2014' : s < 5400 ? `${Math.round(s / 60)} min old` : `${(s / 3600).toFixed(1)}h old`;
+const x = (v: number | null) => (v === null ? '\u2014' : `${v.toFixed(1)}\u00d7`);
+const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 'c' : '');
+---
+<Base
+  title="Bursts \u2014 where several trusted Robinhood Chain wallets went in at once"
+  description="Tokens that three or more trusted fomo.family wallets entered inside half an hour, caught within twenty seconds of the fill, with what the price did afterwards. The fast edge of the signal feed, and its own scorecard."
+  section="bursts"
+>
+  <div class="pagehead">
+    <h1 style="font-size:clamp(28px,5vw,44px)">Bursts</h1>
+    <span class="badge" style="color:var(--amber)">{now.length} now</span>
+  </div>
+  <p class="verdict" style="margin-bottom:20px">
+    The signal feed asks who the cohort is in over a day. This asks a narrower question: did the
+    conviction arrive <b>all at once</b>? A burst is {feed?.delta ?? 4} of it \u2014 four wallets
+    scoring 80, say \u2014 from at least {feed?.min_wallets ?? 3} trusted wallets, each making its
+    first buy of the token inside the last {feed?.window_min ?? 30} minutes. The chain is read every
+    twenty seconds, so what is on this page happened minutes ago, not last pass.
+  </p>
+
+  <dl class="strip">
+    <div><dt>Bursting now</dt><dd class="a">{now.length}</dd></div>
+    <div><dt>Last {hours}h</dt><dd>{recent.length}</dd></div>
+    <div><dt>Old enough to judge</dt><dd>{judged.length}</dd></div>
+    <div><dt>Reached 2\u00d7</dt><dd class="g">{judged.length ? reached2x : '\u2014'}</dd></div>
+    <div><dt>Ended below \u00bd</dt><dd class="c">{judged.length ? belowHalf : '\u2014'}</dd></div>
+    <div><dt>Median best</dt><dd>{x(medianBest)}</dd></div>
+  </dl>
+
+  {!feed && <p class="empty">The data service is not answering.</p>}
+
+  {feed && now.length === 0 && (
+    <p class="note">
+      <b>Nothing is bursting this minute.</b> Three trusted wallets have to enter the same name
+      inside half an hour before it appears here; most of the day, nothing does. The list below
+      is what did, and what came of it.
+    </p>
+  )}
+
+  {now.length > 0 && (
+    <Panel title="Bursting now" meta={`window ${feed?.window_min} min`}>
+      <ul class="signals">
+        {now.map((h, i) => (
+          <li>
+            <span class="rank">{String(i + 1).padStart(2, '0')}</span>
+            <a class="tk" href={`/token/${h.mint}`}>${h.sym}</a>
+            <span class="cv">+{h.conviction.toFixed(1)}</span>
+            <Meter value={h.conviction} max={hottest} />
+            <p class="who">
+              <span class="a">{h.wallets} in over {Math.max(1, Math.round((h.last_ts - h.first_ts) / 60))} min</span>
+              {' \u00b7 '}{ageText(h.age_s)}{' \u00b7 '}{usd(h.usd)}{' \u00b7 '}
+              {h.who.slice(0, 5).map((w, n) => (
+                <><a href={`/trader/${w}`}>{w}</a> {h.scores[n]}{n < Math.min(4, h.who.length - 1) ? ' \u00b7 ' : ''}</>
+              ))}{h.who.length > 5 ? ` +${h.who.length - 5}` : ''}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  )}
+
+  {recent.length > 0 && (
+    <section style="margin-top:var(--section)">
+      <h2 class="h2">Last {hours} hours <span class="m mono" style="font-weight:400;font-size:12px">\u00b7 multiples of the price the last entrant paid</span></h2>
+      <div class="tablewrap">
+        <table class="bursts mono">
+          <thead>
+            <tr>
+              <th>when</th><th>token</th><th class="r">burst</th><th>wallets</th>
+              <th class="r">age then</th><th class="r">best</th><th class="r">last fill</th><th class="r">now</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map((b) => (
+              <tr>
+                <td class="m">{ago(b.ts)} ago</td>
+                <td><a class="tk" href={`/token/${b.mint}`}>${b.sym}</a></td>
+                <td class="r a">+{b.conviction.toFixed(1)} <span class="m">/ {minutes(b)}m</span></td>
+                <td class="m">{b.wallets} \u00b7 {b.who.slice(0, 3).join(' \u00b7 ')}{b.who.length > 3 ? ` +${b.who.length - 3}` : ''}</td>
+                <td class="r m">{b.age_s === null ? '\u2014' : b.age_s < 5400 ? `${Math.round(b.age_s / 60)}m` : `${(b.age_s / 3600).toFixed(1)}h`}</td>
+                <td class={`r ${tone(b.best)}`}>{x(b.best)}</td>
+                <td class={`r ${tone(b.last)}`}>{x(b.last)}</td>
+                <td class={`r ${tone(b.now)}`}>{x(b.now)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  <p class="note" style="margin-top:var(--section)">
+    <b>What the replay said before this page existed.</b> Over 36 days of tape the same rule fired
+    about five times a day; 39% of those reached 2\u00d7 inside a day and about 40% ended the day
+    below half, against 36% and 43% for the ordinary signal feed, which fires fifty times a day.
+    Better on every measure and ten times quieter, and still a coin with a long tail: the value
+    is in the best price, not in holding to the close. The scorecard above is that replay,
+    continued live.
+  </p>
+
+  <div style="margin-top:var(--section)"><Search /></div>
+</Base>
+
+<style>
+  .h2 { font-size: 18px; margin: 0 0 12px; }
+  .tablewrap { overflow-x: auto; }
+  .bursts { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .bursts th, .bursts td { padding: 9px 10px; border-bottom: 1px solid var(--carbon); text-align: left; white-space: nowrap; }
+  .bursts th { font-weight: 400; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--graphite); }
+  .bursts .r { text-align: right; }
+  .bursts .tk { color: #fff; text-decoration: none; font-weight: 700; }
+  .bursts .tk:hover { color: var(--amber); }
+  .who a { color: var(--graphite); }
+  .who a:hover { color: var(--amber); }
+</style>

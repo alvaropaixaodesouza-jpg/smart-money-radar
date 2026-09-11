@@ -288,10 +288,39 @@ def signals(
     than how many wallets did, because anyone can open a wallet.
     """
     rows = analyze.signals(conn, chain(), hours=hours, min_buyers=min_buyers, limit=limit)
+    # which of these arrived in a burst rather than drifting in over the day
+    burst_at = {r["mint"]: dict(r) for r in conn.execute(
+        "SELECT mint, MAX(ts) ts, MAX(conviction) conviction FROM bursts WHERE ts >= ? GROUP BY mint",
+        (db.now() - hours * 3600,))}
     for r in rows:
         r["who"] = [h for h in (r.get("who") or "").split(",") if h]
         r["scores"] = [int(s) for s in (r.get("scores") or "").split(",") if s]
+        r["burst"] = burst_at.get(r["mint"])
     return {"hours": hours, "count": len(rows), "signals": rows}
+
+
+@app.get("/api/hot", tags=["signals"])
+def hot_route(
+    hours: int = Query(24, ge=1, le=168),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    """Bursts: several trusted wallets entering one token inside minutes rather than over a day.
+
+    `now` is what is bursting this minute, straight from the tape. `recent` is every burst the
+    watcher wrote down in the window, each with what the price did afterwards in the price the
+    cohort itself paid — so the feed carries its own scorecard.
+    """
+    from .pipeline import hot
+
+    return {
+        "delta": settings.hot_delta, "window_min": settings.hot_window_min,
+        "min_wallets": settings.hot_min_wallets, "hours": hours,
+        "now": hot.hot_now(conn, chain(), delta=settings.hot_delta,
+                           window_s=settings.hot_window_min * 60,
+                           min_wallets=settings.hot_min_wallets,
+                           max_age_s=settings.hot_max_age_h * 3600 or None),
+        "recent": hot.recent(conn, chain(), hours=hours),
+    }
 
 
 @app.get("/api/exits", tags=["signals"])

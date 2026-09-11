@@ -11,7 +11,7 @@ import { getLeaderboard, getSignals } from '../lib/api';
  */
 export const GET: APIRoute = async ({ site }) => {
   const base = (site ?? new URL('https://fomoradar.app')).origin;
-  const urls = ['/', '/fresh', '/exits', '/leaderboard', '/about'];
+  const urls = ['/', '/hot', '/fresh', '/exits', '/leaderboard', '/about'];
 
   const [board, signals] = await Promise.all([getLeaderboard('active', 60), getSignals(24, 40)]);
   for (const t of board?.traders ?? []) {

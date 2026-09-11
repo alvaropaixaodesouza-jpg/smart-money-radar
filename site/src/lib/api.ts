@@ -10,6 +10,24 @@ export type Stats = {
 export type Signal = {
   mint: string; sym: string; liq: number | null; buyers: number; usd: number | null;
   first_ts: number; avg_score: number; conviction: number; who: string[]; scores: number[];
+  /** Set when the buying arrived inside minutes rather than over the day. */
+  burst: { ts: number; conviction: number } | null;
+};
+
+/** A burst: several trusted wallets entering one token inside the window. `best`, `last` and
+ *  `now` are multiples of the price the last entrant paid, from the tape; null when there is
+ *  nothing yet to measure with, which is not the same as 1.0. */
+export type Burst = {
+  mint: string; sym: string; liq: number | null; ts: number; conviction: number; wallets: number;
+  usd: number; px: number | null; window_s: number; age_s: number | null;
+  who: string[]; scores: number[]; age_at_read_h: number;
+  best: number | null; last: number | null; now: number | null; fills: number;
+};
+
+export type HotNow = {
+  mint: string; sym: string; liq: number | null; conviction: number; wallets: number; usd: number;
+  first_ts: number; last_ts: number; age_s: number | null; window_s: number; px: number | null;
+  who: string[]; scores: number[]; avg_score: number;
 };
 
 /** One launch the cohort is entering. `heat` is conviction weighted by how early each buyer was. */
@@ -114,6 +132,9 @@ export const getFresh = (hours = 24, maxAgeH = 72, minLiquidity = 5000, minBuyer
   get<{ tokens: Fresh[]; drained: number; hours: number; max_age_h: number;
         min_liquidity: number; min_buyers: number }>(
     `/api/fresh?hours=${hours}&max_age_h=${maxAgeH}&min_liquidity=${minLiquidity}&min_buyers=${minBuyers}`);
+export const getHot = (hours = 24) =>
+  get<{ delta: number; window_min: number; min_wallets: number; hours: number; now: HotNow[]; recent: Burst[] }>(
+    `/api/hot?hours=${hours}`);
 export const getExits = (hours = 24, minSellers = 2, minExit = 0.5) =>
   get<{ hours: number; count: number; exits: Exit[] }>(
     `/api/exits?hours=${hours}&min_sellers=${minSellers}&min_exit=${minExit}`);
