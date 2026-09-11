@@ -319,8 +319,20 @@ def hot_route(
                            window_s=settings.hot_window_min * 60,
                            min_wallets=settings.hot_min_wallets,
                            max_age_s=settings.hot_max_age_h * 3600 or None),
-        "recent": hot.recent(conn, chain(), hours=hours),
+        "recent": hot.recent(conn, chain(), hours=hours, candles_for=_pool_candles(conn, hours)),
     }
+
+
+def _pool_candles(conn: sqlite3.Connection, hours: int):
+    """mint -> the pool's candles over the window, from the same cache the token page fills."""
+    span = "24h" if hours <= 24 else "7d" if hours <= 168 else "30d"
+
+    def candles(mint: str):
+        row = conn.execute("SELECT pool_address, chain FROM tokens WHERE mint=?", (mint,)).fetchone()
+        if not row or not row["pool_address"]:
+            return None
+        return candles_for(row["pool_address"], row["chain"] or chain() or "robinhood", span) or None
+    return candles
 
 
 @app.get("/api/exits", tags=["signals"])

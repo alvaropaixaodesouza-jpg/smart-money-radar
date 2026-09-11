@@ -229,6 +229,28 @@ def test_a_burst_is_written_once_and_read_back_with_what_followed(tmp_path):
     assert r["who"] == ["w1", "w2", "w3"] and r["age_at_read_h"] == 4.0
 
 
+def test_the_pool_candles_correct_a_tape_that_held_through_the_run(tmp_path):
+    """The cohort bought at 2.0 and its only later fill is at 3.0; the pool went to 44.0 while
+    they sat in it. The tape alone says 1.5x. The candles say 22x, and that is the answer."""
+    conn = db.connect(tmp_path / "c.db")
+    now = db.now()
+    seed(conn, now)
+    h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)[0]
+    hot.record(conn, h, quiet_s=3600, chain="robinhood")
+    with db.tx(conn):
+        db.insert_trade(conn, sig="l1", address=W[1], chain="robinhood", mint=TOKEN, side="sell",
+                        usd_value=3000.0, token_amount=1000.0, ts=now + 600, source="rpc")
+    burst_ts = h["last_ts"]
+    candles = [[burst_ts - 7200, 1.5, 1.6, 1.4, 1.5, 100.0],   # before: does not count
+               [burst_ts - 600, 1.9, 44.0, 1.8, 30.0, 900.0],    # the hour that holds the burst
+               [burst_ts + 3000, 30.0, 33.0, 20.0, 21.0, 500.0]]
+    r = hot.recent(conn, "robinhood", hours=24, now=now + 4 * 3600,
+                   candles_for=lambda mint: candles if mint == TOKEN else None)[0]
+    assert r["best"] == 22.0 and r["last"] == 1.5 and r["now"] == 10.5
+    plain = hot.recent(conn, "robinhood", hours=24, now=now + 4 * 3600)[0]
+    assert plain["best"] == 1.5, "without candles the tape is the only witness"
+
+
 def test_a_burst_with_no_tape_after_it_is_unmeasured_not_flat(tmp_path):
     conn = db.connect(tmp_path / "r.db")
     now = db.now()

@@ -45,7 +45,7 @@ def daily(conn: sqlite3.Connection, hours: int = 24, chain: str | None = None) -
     # hours has had time to do anything, so the scorecard counts those and says how many.
     from .hot import recent
 
-    bursts = recent(conn, chain, hours=hours)
+    bursts = recent(conn, chain, hours=hours, candles_for=_pool_candles(conn))
     settled = [b for b in bursts if b["age_at_read_h"] >= 3 and b["best"] is not None]
     best = sorted(b["best"] for b in settled)
     scorecard = {
@@ -68,6 +68,22 @@ def daily(conn: sqlite3.Connection, hours: int = 24, chain: str | None = None) -
         "theses": theses,
         "health": health_report(conn),
     }
+
+
+def _pool_candles(conn: sqlite3.Connection):
+    """One day's hourly candles per burst, from GeckoTerminal. Once a day, a handful of requests,
+    and a pool it cannot answer for simply leaves the tape as the only witness."""
+    def candles(mint: str):
+        row = conn.execute("SELECT pool_address, chain FROM tokens WHERE mint=?", (mint,)).fetchone()
+        if not row or not row["pool_address"]:
+            return None
+        try:
+            from ..sources.geckoterminal import GeckoTerminal
+            return GeckoTerminal().ohlcv(row["chain"] or "robinhood", row["pool_address"],
+                                         "hour", 1, 24) or None
+        except Exception:  # noqa: BLE001 - the tape still answers
+            return None
+    return candles
 
 
 def is_quiet(d: dict) -> bool:

@@ -156,12 +156,16 @@ def record(conn: sqlite3.Connection, h: dict, quiet_s: int, chain: str | None = 
 
 
 def outcome(conn: sqlite3.Connection, mint: str, ts: int, px: float | None,
-            horizon_s: int = 86400, now: int | None = None) -> dict:
-    """What the tape shows the price did after a burst, in the price the cohort itself paid.
+            horizon_s: int = 86400, now: int | None = None,
+            candles: list[list[float]] | None = None) -> dict:
+    """What the price did after a burst, in the price the cohort itself paid.
 
-    `best` is the highest implied price of any tracked fill inside the horizon over the burst
-    price, `last` the most recent one, `now` the token's current quote over the same. Any of them
-    is None when there is nothing to measure it with, which is a different thing from 1.0.
+    Two witnesses. The tape: every tracked fill inside the horizon, which is exact and biased low
+    — a cohort that holds through a run leaves no fill at the top, and the first live burst read
+    1.9x on the tape while the token did 22x. And the pool's own candles, when the caller has
+    them: the high since the burst is what the price actually did. `best` is the greater of the
+    two, `last` the tape's most recent fill, `now` the candle close if there is one and the stored
+    quote otherwise. None means nothing to measure with, which is not the same as 1.0.
     """
     now = now or db.now()
     if not px:
@@ -171,18 +175,30 @@ def outcome(conn: sqlite3.Connection, mint: str, ts: int, px: float | None,
         "AND usd_value > 0 AND token_amount > 0 ORDER BY ts",
         (mint, ts, min(now, ts + horizon_s))).fetchall()
     later = [r["p"] for r in rows]
+    best = max(later) / px if later else None
     cur = conn.execute("SELECT price_usd FROM tokens WHERE mint=?", (mint,)).fetchone()
+    quote = cur["price_usd"] / px if cur and cur["price_usd"] else None
+    # a candle that contains the burst counts: its high may be after the burst, its open before
+    since = [c for c in (candles or []) if c[0] >= ts - 3600 and c[0] <= ts + horizon_s]
+    if since:
+        high = max(c[2] for c in since) / px
+        best = max(best or 0.0, high)
+        quote = since[-1][4] / px
     return {
-        "best": round(max(later) / px, 2) if later else None,
+        "best": round(best, 2) if best is not None else None,
         "last": round(later[-1] / px, 2) if later else None,
-        "now": round(cur["price_usd"] / px, 2) if cur and cur["price_usd"] else None,
+        "now": round(quote, 2) if quote is not None else None,
         "fills": len(later),
     }
 
 
 def recent(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
-           now: int | None = None, horizon_s: int = 86400) -> list[dict]:
-    """Every burst recorded in the window, newest first, with what followed it so far."""
+           now: int | None = None, horizon_s: int = 86400, candles_for=None) -> list[dict]:
+    """Every burst recorded in the window, newest first, with what followed it so far.
+
+    `candles_for(mint)` is optional and answers with the pool's OHLCV rows or None; the API hands
+    in its cached one, the digest a fresh client, and a test nothing at all.
+    """
     now = now or db.now()
     rows = conn.execute(
         "SELECT b.*, COALESCE(tk.symbol, substr(b.mint,1,8)) sym, tk.liquidity_usd liq "
@@ -198,7 +214,8 @@ def recent(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
             "px": r["px"], "window_s": r["window_s"], "age_s": r["age_s"],
             "who": [w for w, _ in who], "scores": [sc for _, sc in who],
             "age_at_read_h": round((now - r["ts"]) / 3600, 1),
-            **outcome(conn, r["mint"], r["ts"], r["px"], horizon_s, now),
+            **outcome(conn, r["mint"], r["ts"], r["px"], horizon_s, now,
+                      candles_for(r["mint"]) if candles_for else None),
         })
     return out
 
