@@ -107,9 +107,16 @@ app.add_middleware(
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
-    client = request.headers.get("x-forwarded-for", "").split(",")[0].strip() \
-        or (request.client.host if request.client else "?")
-    if not limiter.check(client):
+    """Per visitor. A public call arrives through Caddy carrying X-Forwarded-For; the site's own
+    server-side renders arrive from loopback with no such header, and those are not one visitor
+    but all of them. Counting them as one address put the whole site under a single 120-a-minute
+    budget - about forty page views - after which every visitor got an empty page. Loopback
+    without a forwarded address is the site talking to itself, and is not limited."""
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    host = request.client.host if request.client else "?"
+    if not forwarded and host in ("127.0.0.1", "::1"):
+        return await call_next(request)
+    if not limiter.check(forwarded or host):
         return JSONResponse({"error": "rate limited", "limit_per_minute": limiter.per_minute},
                             status_code=429)
     return await call_next(request)

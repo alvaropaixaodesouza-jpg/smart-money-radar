@@ -121,14 +121,43 @@ export type Chart = {
 };
 
 /** Returns null on 404 or on a service that is down, so a page can say so instead of crashing. */
+/**
+ * A short server-side cache in front of the API. The feeds change on the watcher's twenty-second
+ * tick and the fifteen-minute pass; a hundred people opening the home page in the same ten
+ * seconds are asking the same three questions, and asking once is enough. Token and trader pages
+ * share it too, keyed by the full path. Nothing here outlives ten seconds, so a reader is never
+ * more than that behind the API. One request in flight per path: the hundredth reader waits on
+ * the first rather than adding a hundredth call.
+ */
+const TTL_MS = 10_000;
+const cache = new Map<string, { at: number; body: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
+
 export async function get<T>(path: string): Promise<T | null> {
-  try {
-    const r = await fetch(`${BASE}${path}`, { headers: { accept: 'application/json' } });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  } catch {
-    return null;
+  const hit = cache.get(path);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.body as T | null;
+  let p = inflight.get(path);
+  if (!p) {
+    p = (async () => {
+      try {
+        const r = await fetch(`${BASE}${path}`, { headers: { accept: 'application/json' } });
+        if (!r.ok) return null;
+        return (await r.json()) as unknown;
+      } catch {
+        return null;
+      }
+    })().then((body) => {
+      if (body !== null) cache.set(path, { at: Date.now(), body });
+      inflight.delete(path);
+      if (cache.size > 2000) {
+        const cutoff = Date.now() - TTL_MS;
+        for (const [k, v] of cache) if (v.at < cutoff) cache.delete(k);
+      }
+      return body;
+    });
+    inflight.set(path, p);
   }
+  return (await p) as T | null;
 }
 
 export const getStats = () => get<Stats>('/api/stats');

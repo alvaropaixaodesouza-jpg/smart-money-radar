@@ -142,6 +142,20 @@ def test_tape_only_carries_trusted_wallets(client):
     assert all(f["sym"] != "USDG" for f in body["fills"])
 
 
+def test_the_site_talking_to_itself_is_not_one_visitor(client, monkeypatch):
+    """The server-side renderer calls from loopback with no forwarded address. Every reader of
+    the site went through that one key, so 120 calls a minute was the whole site's budget."""
+    monkeypatch.setattr(api.limiter, "per_minute", 2)
+    api.limiter.hits.clear()
+    # loopback, no X-Forwarded-For: the renderer. Never limited.
+    for _ in range(6):
+        assert client.get("/api/stats").status_code == 200
+    # the same calls with a forwarded address are a visitor, and are
+    codes = [client.get("/api/stats", headers={"x-forwarded-for": "203.0.113.9"}).status_code
+             for _ in range(4)]
+    assert codes == [200, 200, 429, 429]
+
+
 def test_rate_limit_returns_429_rather_than_dying(client, monkeypatch):
     monkeypatch.setattr(api.limiter, "per_minute", 3)
     api.limiter.hits.clear()
