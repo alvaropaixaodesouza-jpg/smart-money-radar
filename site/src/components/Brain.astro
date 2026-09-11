@@ -1,29 +1,32 @@
 ---
 /**
- * The brain — the home page's centrepiece, ported whole from the v4.1 concept.
+ * The brain — the home page's centrepiece, ported whole from the v6.1 concept.
  *
- * A point cloud of ~4,200 particles turning in three dimensions, six stations around it for the
- * six things the product does (resolve, tape, provenance, judge, burst, exits), nerves between
- * them that wallets walk along, and a firing wave that sweeps the volume. Everything is canvas;
- * the stations are real panels laid over it. The concept's own palette is kept inside this box
- * on purpose — it is one artwork, not a themed component — and only the type is the site's.
+ * A point cloud of ~6,000 particles shaped like the organ — long front to back, domed crown, flat
+ * base, a fissure down the middle, a finely ridged cerebellum and a stem — turning in three
+ * dimensions. A section plane travels through the volume and lights whatever it cuts; a lobe
+ * firing starts at one site and spreads to real neighbours through a spatial hash. Six stations
+ * around it for the six things the product does, nerves between them that wallets walk along.
+ * The concept's own palette is kept inside this box on purpose; only the type is the site's.
  *
- * Two departures from the concept file: the head, ticker and signal rail are gone (the page has
- * its own), and on a narrow screen the six stations hide and the cloud thins, because 198-pixel
- * panels over a 360-pixel canvas are not a picture of anything.
+ * Portrait, because it sits beside the headline rather than under it: three stations above the
+ * cloud and three below, so the column stays a column. Nerve endpoints are read from the station
+ * panels' own rectangles, so the geometry follows the CSS rather than guessing at it. On a narrow
+ * screen the stations hide and the cloud thins.
  */
 ---
 <div class="brain" id="brain">
   <div class="fh">
     <span class="t">THE BRAIN</span>
-    <span class="s">· six lobes · one mind · two rpc calls</span>
-    <span class="r"><b id="brThought">reading the tape</b> · FIRING <b id="brFire">JUDGE</b> · <b id="brUnits">0</b> OUT</span>
+    <span class="s">· six lobes · one mind</span>
+    <span class="r">FIRING <b id="brFire">JUDGE</b> · <b id="brUnits">0</b> OUT</span>
   </div>
   <div class="stage" id="brStage">
     <canvas id="brRain"></canvas>
     <canvas id="brWire"></canvas>
     <canvas id="brUnit"></canvas>
   </div>
+  <div class="ft"><b id="brThought">reading the tape</b></div>
 </div>
 
 <style is:global>
@@ -33,20 +36,22 @@
     --ink: #e8f5f0; --ink2: #9fb6b2; --ink3: #6b8280;
     --mx: #00ff9c;
     --bmono: "JetBrains Mono", ui-monospace, monospace;
-    position: relative; width: 100%; min-width: 0; aspect-ratio: 16 / 9; max-height: 640px;
+    position: relative; width: 100%; min-width: 0; aspect-ratio: 3 / 4;
     border: 1px solid var(--line); background: var(--deep);
     display: flex; flex-direction: column; overflow: hidden; color: var(--ink);
     font-feature-settings: "tnum" 1;
   }
-  .brain .fh {
-    display: flex; align-items: center; gap: 9px; padding: 8px 14px;
-    border-bottom: 1px solid var(--line); flex: none; z-index: 6; position: relative;
-    background: var(--panel);
+  .brain .fh, .brain .ft {
+    display: flex; align-items: center; gap: 9px; padding: 7px 12px; flex: none; z-index: 6;
+    position: relative; background: var(--panel); font-family: var(--bmono);
   }
-  .brain .fh .t { font-family: var(--bmono); font-size: 11.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
-  .brain .fh .s { font-family: var(--bmono); font-size: 10px; letter-spacing: .09em; color: var(--ink2); text-transform: uppercase; }
+  .brain .fh { border-bottom: 1px solid var(--line); }
+  .brain .ft { border-top: 1px solid var(--line); font-size: 10px; letter-spacing: .09em; color: var(--ink2); min-height: 28px; }
+  .brain .ft b { color: var(--mx); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brain .fh .t { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+  .brain .fh .s { font-size: 9.5px; letter-spacing: .09em; color: var(--ink2); text-transform: uppercase; }
   /* the readout must never be the thing that decides how wide the page is */
-  .brain .fh .r { margin-left: auto; min-width: 0; font-family: var(--bmono); font-size: 10px; letter-spacing: .11em; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brain .fh .r { margin-left: auto; min-width: 0; font-size: 9.5px; letter-spacing: .11em; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brain .fh .r b { color: var(--mx); font-weight: 700; }
   .brain .stage { flex: 1; position: relative; min-height: 0; contain: layout paint; }
   .brain .stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
@@ -55,26 +60,25 @@
   #brUnit { z-index: 4; }
   #brRain, #brWire, #brUnit { will-change: transform; transform: translateZ(0); contain: strict; }
 
-  /* the six stations sit on top as real panels */
+  /* the six stations: three across the top, three across the bottom */
   .brain .st {
-    position: absolute; z-index: 3; width: 198px; border: 1px solid var(--line2);
-    background: rgba(8,14,23,0.93); padding: 7px 9px; display: flex; flex-direction: column; gap: 5px;
+    position: absolute; z-index: 3; width: calc(33.333% - 9px); border: 1px solid var(--line2);
+    background: rgba(8,14,23,0.93); padding: 6px 7px; display: flex; flex-direction: column; gap: 4px;
     transition: border-color .3s, background .3s; contain: layout paint;
   }
   .brain .st.on { border-color: var(--c); background: rgba(8,14,23,0.97); }
-  .brain .st .sh { display: flex; align-items: center; gap: 6px; }
-  .brain .st .sh i { width: 7px; height: 7px; display: block; background: var(--c); flex: none; }
-  .brain .st .sh b { font-family: var(--bmono); font-size: 10.5px; font-weight: 700; letter-spacing: .11em; color: var(--ink); }
-  .brain .st .sh s { text-decoration: none; margin-left: auto; font-family: var(--bmono); font-size: 9px; color: var(--ink3); }
-  .brain .st .sub { font-family: var(--bmono); font-size: 9px; color: var(--ink3); letter-spacing: .02em; line-height: 1.25; }
-  .brain .st .win { height: 38px; position: relative; overflow: hidden; background: rgba(2,5,10,0.8); border: 1px solid rgba(35,54,72,0.7); }
+  .brain .st .sh { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .brain .st .sh i { width: 6px; height: 6px; display: block; background: var(--c); flex: none; }
+  .brain .st .sh b { font-family: var(--bmono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brain .st .sh s { text-decoration: none; margin-left: auto; font-family: var(--bmono); font-size: 8.5px; color: var(--ink3); white-space: nowrap; }
+  .brain .st .sub { font-family: var(--bmono); font-size: 8.5px; color: var(--ink3); letter-spacing: .02em; line-height: 1.25; }
+  .brain .st .win { height: 34px; position: relative; overflow: hidden; background: rgba(2,5,10,0.8); border: 1px solid rgba(35,54,72,0.7); }
   .brain .st .win canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
-  .brain .st .out { font-family: var(--bmono); font-size: 10px; font-weight: 700; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brain .st .out { font-family: var(--bmono); font-size: 9px; font-weight: 700; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  @media (max-width: 760px) {
-    .brain { aspect-ratio: 4 / 5; max-height: none; }
+  @media (max-width: 600px) {
     .brain .st { display: none; }
-    .brain .fh .s, .brain .fh .r #brThought { display: none; }
+    .brain .fh .s { display: none; }
   }
 </style>
 
@@ -97,14 +101,14 @@
   const MX = '#00ff9c', CY = '#35e0ff', VI = '#a678ff', AM = '#ffb23f', RO = '#ff4d6d', GO = '#ffe066';
   const INK = '#e8f5f0', INK3 = '#6b8280';
 
-  /* six stations, each a real panel with a live window, placed around the brain */
+  /* six stations: the top row and the bottom row, each a real panel with a live window */
   const ST = [
-    { id: 'RESOLVER',   col: CY, note: 'finds the real wallet behind the profile', stat: '101/101', win: 'resolve', px: 0.035, py: 0.13 },
-    { id: 'TAPE',       col: MX, note: 'reads the chain every 20 seconds',          stat: '20s',     win: 'tape',    px: 0.035, py: 0.44 },
-    { id: 'PROVENANCE', col: AM, note: 'checks the receipt on every fill',          stat: '1 in 11', win: 'prov',    px: 0.035, py: 0.75 },
-    { id: 'JUDGE',      col: VI, note: 'claude scores 0 to 100',                    stat: '96 high', win: 'judge',   px: 0.775, py: 0.13 },
-    { id: 'BURST',      col: GO, note: 'four 80+ wallets inside 30 minutes',        stat: '39% 2x',  win: 'burst',   px: 0.775, py: 0.44 },
-    { id: 'EXITS',      col: RO, note: 'the same wallets leaving',                  stat: '22 → 19', win: 'exit',    px: 0.775, py: 0.75 },
+    { id: 'RESOLVER',   col: CY, note: 'finds the real wallet behind the profile', stat: '101/101', win: 'resolve', col_: 0, row: 'top' },
+    { id: 'TAPE',       col: MX, note: 'reads the chain every 20 seconds',          stat: '20s',     win: 'tape',    col_: 1, row: 'top' },
+    { id: 'PROVENANCE', col: AM, note: 'checks the receipt on every fill',          stat: '1 in 11', win: 'prov',    col_: 2, row: 'top' },
+    { id: 'JUDGE',      col: VI, note: 'gpt-6 astra scores 0 to 100',               stat: '96 high', win: 'judge',   col_: 0, row: 'bottom' },
+    { id: 'BURST',      col: GO, note: 'four 80+ wallets inside 30 minutes',        stat: '39% 2x',  win: 'burst',   col_: 1, row: 'bottom' },
+    { id: 'EXITS',      col: RO, note: 'the same wallets leaving',                  stat: '22 → 19', win: 'exit',    col_: 2, row: 'bottom' },
   ];
   let firing = 3;
   const ROSTER = [['unipcs', 96], ['ogle', 91], ['AvgJoesCrypto', 89], ['0xAvast', 90], ['frankdegods', 87],
@@ -112,14 +116,13 @@
     ['paidinfullintel', 85], ['NachSOL', 82], ['error', 82], ['Rowdy', 85], ['yeon__', 74]];
   const TOKENS = ['FLYBRAIN', 'RIDE', 'FLY', 'AI', 'BYCOCKET', 'SEXFLY', 'MEME', 'PONS', 'CRUMBS'];
 
-  /* station panels */
   const stage = $('brStage');
   ST.forEach((s, i) => {
     const el = document.createElement('div');
     el.className = 'st'; el.id = 'brSt' + i;
     el.style.setProperty('--c', s.col);
-    el.style.left = (s.px * 100) + '%';
-    el.style.top = (s.py * 100) + '%';
+    el.style.left = 'calc(' + (s.col_ * 33.333) + '% + 6px)';
+    el.style[s.row] = '8px';
     el.innerHTML = '<div class="sh"><i></i><b>' + s.id + '</b><s>' + s.stat + '</s></div>' +
       '<div class="win"><canvas id="brWc' + i + '"></canvas></div>' +
       '<div class="sub">' + s.note + '</div>' +
@@ -136,61 +139,61 @@
     c.clearRect(0, 0, W, H);
     const on = i === firing, col = s.col;
     if (s.win === 'resolve') {
-      c.font = '8.5px ' + MONO;
-      c.fillStyle = INK3; c.fillText('fomo  0x00…0000', 5, 12);
-      c.fillStyle = col; c.fillText('chain 0x4eb9…2d35', 5, 24);
+      c.font = '8px ' + MONO;
+      c.fillStyle = INK3; c.fillText('fomo  0x00…0000', 4, 11);
+      c.fillStyle = col; c.fillText('chain 0x4eb9…2d35', 4, 22);
       const p = (T * 0.7) % 1;
       c.strokeStyle = col; c.globalAlpha = 0.35 + 0.5 * Math.sin(p * Math.PI);
-      c.lineWidth = 1.2; c.beginPath(); c.moveTo(5, 31); c.lineTo(5 + p * (W - 20), 31); c.stroke(); c.globalAlpha = 1;
-      c.fillStyle = col; c.font = '700 8.5px ' + MONO; c.fillText('MATCH', W - 42, 34);
+      c.lineWidth = 1.2; c.beginPath(); c.moveTo(4, 28); c.lineTo(4 + p * (W - 16), 28); c.stroke(); c.globalAlpha = 1;
+      c.fillStyle = col; c.font = '700 8px ' + MONO; c.fillText('MATCH', W - 38, 31);
     } else if (s.win === 'tape') {
-      if (st.a.length === 0) for (let k = 0; k < 44; k++) st.a.push(rnd(0.1, 1));
+      if (st.a.length === 0) for (let k = 0; k < 36; k++) st.a.push(rnd(0.1, 1));
       st.t += dt; if (st.t > 0.09) { st.t = 0; st.a.push(Math.random() < 0.14 ? rnd(0.75, 1) : rnd(0.08, 0.5)); st.a.shift(); }
       const bw = W / st.a.length;
       st.a.forEach((v, k) => { c.fillStyle = v > 0.7 ? col : 'rgba(0,255,156,0.32)'; c.fillRect(k * bw, H - v * (H - 4), bw - 0.8, v * (H - 4)); });
-      c.fillStyle = col; c.font = '700 8.5px ' + MONO; c.fillText((T % 20).toFixed(1) + 's', W - 30, 11);
+      c.fillStyle = col; c.font = '700 8px ' + MONO; c.fillText((T % 20).toFixed(1) + 's', W - 28, 10);
     } else if (s.win === 'prov') {
       if (st.a.length === 0) for (let k = 0; k < 11; k++) st.a.push(Math.random() < 0.09 ? 0 : 1);
       st.t += dt; if (st.t > 0.55) { st.t = 0; st.a.push(Math.random() < 0.09 ? 0 : 1); st.a.shift(); }
       const cw = W / 11;
       st.a.forEach((v, k) => {
-        const x = k * cw + 2, y = H * 0.28, w = cw - 4, hh = H * 0.44;
+        const x = k * cw + 2, y = H * 0.24, w = cw - 4, hh = H * 0.42;
         c.strokeStyle = v ? 'rgba(0,255,156,0.55)' : 'rgba(255,77,109,0.9)';
         c.lineWidth = 1; c.strokeRect(x, y, w, hh);
         if (!v) { c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y + hh); c.moveTo(x + w, y); c.lineTo(x, y + hh); c.stroke(); }
         else { c.fillStyle = 'rgba(0,255,156,0.22)'; c.fillRect(x, y, w, hh); }
       });
-      c.fillStyle = col; c.font = '700 8px ' + MONO; c.fillText('1 IN 11 FAKE', 4, H - 3);
+      c.fillStyle = col; c.font = '700 7.5px ' + MONO; c.fillText('1 IN 11 FAKE', 4, H - 3);
     } else if (s.win === 'judge') {
       st.b = st.b || 70; st.b = clamp(st.b + rnd(-2.2, 2.4), 58, 97);
       const g = st.b / 100;
-      c.fillStyle = 'rgba(166,120,255,0.14)'; c.fillRect(4, H - 11, W - 8, 6);
-      c.fillStyle = col; c.fillRect(4, H - 11, (W - 8) * g, 6);
-      c.font = '700 17px ' + MONO; c.fillStyle = col; c.fillText(Math.round(st.b), 6, 20);
-      c.font = '8px ' + MONO; c.fillStyle = INK3; c.fillText('/100 repeatable', 34, 20);
+      c.fillStyle = 'rgba(166,120,255,0.14)'; c.fillRect(4, H - 9, W - 8, 5);
+      c.fillStyle = col; c.fillRect(4, H - 9, (W - 8) * g, 5);
+      c.font = '700 15px ' + MONO; c.fillStyle = col; c.fillText(Math.round(st.b), 5, 18);
+      c.font = '7.5px ' + MONO; c.fillStyle = INK3; c.fillText('/100 repeatable', 30, 18);
     } else if (s.win === 'burst') {
       const p = (T * 0.42) % 1;
       c.strokeStyle = 'rgba(255,224,102,0.25)'; c.lineWidth = 1;
-      c.beginPath(); c.arc(W * 0.5, H * 0.5, 13, 0, 7); c.stroke();
+      c.beginPath(); c.arc(W * 0.5, H * 0.5, 11, 0, 7); c.stroke();
       c.strokeStyle = col; c.lineWidth = 1.6;
-      c.beginPath(); c.arc(W * 0.5, H * 0.5, 13, -1.57, -1.57 + p * 6.283); c.stroke();
+      c.beginPath(); c.arc(W * 0.5, H * 0.5, 11, -1.57, -1.57 + p * 6.283); c.stroke();
       for (let k = 0; k < 4; k++) {
-        const a = k * 1.571 + T * 0.5, r = 26 - p * 12;
+        const a = k * 1.571 + T * 0.5, r = 22 - p * 10;
         c.fillStyle = col; c.globalAlpha = p > k * 0.22 ? 1 : 0.25;
-        c.beginPath(); c.arc(W * 0.5 + Math.cos(a) * r, H * 0.5 + Math.sin(a) * r, 2.6, 0, 7); c.fill();
+        c.beginPath(); c.arc(W * 0.5 + Math.cos(a) * r, H * 0.5 + Math.sin(a) * r, 2.4, 0, 7); c.fill();
         c.globalAlpha = 1;
       }
-      c.font = '700 8px ' + MONO; c.fillStyle = col; c.fillText('30:00', 4, 11); c.fillText('39% → 2x', W - 46, H - 4);
+      c.font = '700 7.5px ' + MONO; c.fillStyle = col; c.fillText('30:00', 4, 10); c.fillText('39% → 2x', W - 42, H - 4);
     } else {
       st.b = st.b || 22;
       if (Math.random() < 0.02 && st.b > 4) st.b--;
       if (st.b <= 4) st.b = 22;
       const g = st.b / 22;
-      c.fillStyle = 'rgba(255,77,109,0.14)'; c.fillRect(4, H * 0.34, W - 8, 10);
-      c.fillStyle = col; c.fillRect(4, H * 0.34, (W - 8) * g, 10);
-      c.font = '700 9px ' + MONO; c.fillStyle = col; c.fillText(st.b + ' IN', 5, 12);
-      c.fillStyle = INK3; c.fillText((22 - st.b) + ' GONE', W - 52, 12);
-      c.font = '8px ' + MONO; c.fillStyle = INK3; c.fillText('CRUMBS · same day', 5, H - 4);
+      c.fillStyle = 'rgba(255,77,109,0.14)'; c.fillRect(4, H * 0.36, W - 8, 8);
+      c.fillStyle = col; c.fillRect(4, H * 0.36, (W - 8) * g, 8);
+      c.font = '700 8px ' + MONO; c.fillStyle = col; c.fillText(st.b + ' IN', 4, 10);
+      c.fillStyle = INK3; c.fillText((22 - st.b) + ' GONE', W - 46, 10);
+      c.font = '7.5px ' + MONO; c.fillStyle = INK3; c.fillText('CRUMBS · same day', 4, H - 3);
     }
     if (on) { c.strokeStyle = col; c.globalAlpha = 0.45 + 0.35 * Math.sin(T * 6); c.lineWidth = 1.4; c.strokeRect(0.7, 0.7, W - 1.4, H - 1.4); c.globalAlpha = 1; }
   }
@@ -220,62 +223,126 @@
     });
   }
 
-  /* the brain: a point cloud in a real volume, turning on its own axis */
+  /* the brain: a point cloud shaped like the organ, turning on its own axis */
   const wireCv = $('brWire');
-  let BCX = 0, BCY = 0, BRX = 0, BRY = 0, BSCALE = 1, builtW = 0;
+  let BCX = 0, BCY = 0, BRX = 0, BRY = 0, BSCALE = 1, builtW = 0, builtH = 0;
   const PTS = [];
   const BUCK = Array.from({ length: 32 }, () => []);
-  const GLOW = [];
-  let SHOCK = [];
+  const GLOW = [], SCAN = [];
   function buildBrain(W, H) {
-    PTS.length = 0; builtW = W;
+    PTS.length = 0; builtW = W; builtH = H;
     BCX = W * 0.5; BCY = H * 0.50;
-    BSCALE = Math.min(W * 0.30, H * 0.46);
+    /* portrait: the width is the limit, and the stations above and below leave the middle band */
+    BSCALE = Math.min(W * 0.42, H * 0.24);
     BRX = BSCALE * 0.62; BRY = BSCALE * 0.46;
-    const D = W < 700 ? 0.5 : 1;   /* a phone gets half the cloud and the same picture */
-    const push = (x, y, z, tint, w) => { PTS.push({ x, y, z, ph: rnd(0, 6.283), sp: rnd(0.25, 0.9), amp: rnd(0.004, 0.016), b: Math.pow(Math.random(), 1.7), tint, fire: 0, w }); };
-    for (let i = 0; i < 2600 * D; i++) {
+    const D = W < 500 ? 0.55 : 1;
+    const push = (x, y, z, tint, w, bright) => { PTS.push({ x, y, z, ph: rnd(0, 6.283), sp: rnd(0.25, 0.9), amp: rnd(0.003, 0.012), b: bright, tint, fire: 0, scan: 0, ref: 0, w }); };
+    /* a brain is not an egg: long front to back, domed crown, flat base, temporal bulge */
+    function hemiR(u, v) {
+      const front = Math.cos(u), up = Math.cos(v);
+      let R = 1.0;
+      R *= 1 + 0.10 * front - 0.16 * front * front;
+      R *= up > 0 ? (1 + 0.10 * up) : (1 - 0.46 * Math.abs(up));
+      R *= 1 + 0.20 * Math.max(0, -up) * Math.max(0, front) * 1.5;
+      R *= 1 + 0.055 * Math.sin(u * 3 + v * 2);
+      return R;
+    }
+    const gyrus = (u, v) => Math.sin(u * 7.5 + v * 4.2) * Math.sin(v * 5.5 - u * 2.1);
+    /* cortex: a shell, particles crowd along the ridges and thin out in the sulci */
+    for (let i = 0; i < 4600 * D; i++) {
       const side = Math.random() < 0.5 ? -1 : 1;
       const u = rnd(0, 6.283), v = Math.acos(rnd(-1, 1));
-      const shell = 0.62 + Math.pow(Math.random(), 0.42) * 0.38;
-      let x = Math.sin(v) * Math.cos(u) * 0.52 * shell + side * 0.30;
-      let y = Math.cos(v) * 0.40 * shell - 0.03;
-      let z = Math.sin(v) * Math.sin(u) * 0.44 * shell;
-      const fold = 1 + 0.085 * Math.sin(u * 5 + v * 3) + 0.055 * Math.sin(v * 7 - u * 2);
-      x *= fold; y *= fold; z *= fold;
-      push(x, y, z, 0, rnd(0.7, 1.9));
+      const g = gyrus(u, v);
+      if (Math.random() > 0.30 + 0.70 * ((g + 1) / 2)) continue;
+      const shell = Math.random() < 0.82 ? rnd(0.90, 1.0) : rnd(0.45, 0.90);
+      const R = hemiR(u, v) * shell * (1 + g * 0.045);
+      const x = Math.sin(v) * Math.cos(u) * 0.50 * R + side * 0.235;
+      const y = Math.cos(v) * 0.385 * R - 0.045;
+      const z = Math.sin(v) * Math.sin(u) * 0.415 * R;
+      if (Math.abs(x) < 0.052) continue;   /* the longitudinal fissure */
+      push(x, y, z, 0, rnd(0.9, 2.1), clamp(0.30 + ((g + 1) / 2) * 0.62 + rnd(-0.10, 0.10), 0.06, 1));
     }
-    for (let i = 0; i < 820 * D; i++) {
+    /* the fissure itself, picked out as a bright seam */
+    for (let i = 0; i < 150 * D; i++) {
+      const v = rnd(0.22, 2.75), R = hemiR(0, v);
+      push(rnd(-0.030, 0.030), Math.cos(v) * 0.36 * R - 0.045, rnd(-0.34, 0.36) * R, 0, rnd(0.5, 1.0), rnd(0.55, 0.95));
+    }
+    /* cerebellum: a tight, finely ridged body low and behind */
+    for (let i = 0; i < 1250 * D; i++) {
       const u = rnd(0, 6.283), v = Math.acos(rnd(-1, 1));
-      const shell = 0.55 + Math.pow(Math.random(), 0.5) * 0.45;
-      push(Math.sin(v) * Math.cos(u) * 0.30 * shell, Math.cos(v) * 0.17 * shell + 0.36, Math.sin(v) * Math.sin(u) * 0.25 * shell - 0.22, 1, rnd(0.6, 1.5));
+      const shell = Math.random() < 0.8 ? rnd(0.88, 1.0) : rnd(0.5, 0.88);
+      const f = Math.sin(v * 22) * 0.5 + 0.5;
+      if (Math.random() > 0.25 + 0.75 * f) continue;
+      const R = (1 - 0.22 * Math.max(0, Math.cos(v))) * shell;
+      push(Math.sin(v) * Math.cos(u) * 0.270 * R, Math.cos(v) * 0.138 * R + 0.362, Math.sin(v) * Math.sin(u) * 0.215 * R - 0.300,
+        1, rnd(0.6, 1.4), clamp(0.34 + f * 0.5 + rnd(-0.08, 0.08), 0.1, 1));
     }
+    /* brain stem: a tapering column with a visible surface */
     for (let i = 0; i < 420 * D; i++) {
-      const t = Math.random(), r = (0.12 - t * 0.055) * Math.sqrt(Math.random()), a = rnd(0, 6.283);
-      push(Math.cos(a) * r, 0.30 + t * 0.52, Math.sin(a) * r - 0.04, 2, rnd(0.6, 1.4));
+      const t = Math.random(), rr = (0.115 - t * 0.052), a = rnd(0, 6.283);
+      const onSkin = Math.random() < 0.75, r2 = onSkin ? rr : rr * Math.sqrt(Math.random());
+      push(Math.cos(a) * r2, 0.360 + t * 0.46, Math.sin(a) * r2 - 0.075, 2, rnd(0.6, 1.3), clamp(0.30 + (onSkin ? 0.40 : 0.05) + rnd(-0.08, 0.08), 0.1, 1));
     }
-    for (let i = 0; i < 360 * D; i++) {
-      const u = rnd(0, 6.283), v = Math.acos(rnd(-1, 1)), R = 0.85 + Math.random() * 0.55;
-      push(Math.sin(v) * Math.cos(u) * 0.62 * R, Math.cos(v) * 0.5 * R, Math.sin(v) * Math.sin(u) * 0.52 * R, 3, rnd(0.5, 1.1));
+    /* the dust halo, sparse and dim */
+    for (let i = 0; i < 300 * D; i++) {
+      const u = rnd(0, 6.283), v = Math.acos(rnd(-1, 1)), R = 1.05 + Math.random() * 0.5;
+      push(Math.sin(v) * Math.cos(u) * 0.58 * R, Math.cos(v) * 0.46 * R, Math.sin(v) * Math.sin(u) * 0.48 * R, 3, rnd(0.5, 1.0), rnd(0.05, 0.28));
     }
   }
-  function nervePath(i, W, H) {
-    const s = ST[i], left = s.px < 0.5;
-    const sx = (s.px * W) + (left ? 198 : 0), sy = s.py * H + 46;
-    const ax = BCX + (left ? -BRX * 0.94 : BRX * 0.94), ay = BCY + (s.py - 0.44) * BRY * 1.5;
+
+  /* where a nerve leaves the cloud toward a station: read from the panel's own rectangle */
+  function nervePath(i) {
+    const s = ST[i], el = $('brSt' + i);
+    const sr = stage.getBoundingClientRect(), er = el.getBoundingClientRect();
+    const top = s.row === 'top';
+    const sx = er.left - sr.left + er.width / 2, sy = top ? er.bottom - sr.top : er.top - sr.top;
+    const ax = BCX + (s.col_ - 1) * BRX * 0.7, ay = BCY + (top ? -BRY * 0.9 : BRY * 0.9);
     const dx = sx - ax, dy = sy - ay, L = Math.hypot(dx, dy) || 1;
-    return { sx, sy, ax, ay, left, dockX: sx - dx / L * 86, dockY: sy - dy / L * 86 };
+    return { sx, sy, ax, ay, dockX: sx - dx / L * 40, dockY: sy - dy / L * 40 };
   }
   const TINT = [[180, 235, 255], [120, 255, 205], [150, 205, 255], [110, 150, 190]];
+
+  /* a spatial hash so excitation can hop to real neighbours */
+  const HASH = {}, CELL = 0.085;
+  let FRONT = [];
+  const hashKey = (x, y, z) => ((x / CELL) | 0) + '_' + ((y / CELL) | 0) + '_' + ((z / CELL) | 0);
+  function buildHash() {
+    for (const k in HASH) delete HASH[k];
+    FRONT = [];
+    PTS.forEach((p, i) => { const k = hashKey(p.x, p.y, p.z); (HASH[k] || (HASH[k] = [])).push(i); });
+  }
+  function stepFront() {
+    if (!FRONT.length) return;
+    const next = [];
+    for (let q = 0; q < FRONT.length; q++) {
+      const i = FRONT[q], p = PTS[i]; if (!p) continue;
+      const cx = (p.x / CELL) | 0, cy = (p.y / CELL) | 0, cz = (p.z / CELL) | 0;
+      const cand = [];
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c2 = -1; c2 <= 1; c2++) {
+        const bucket = HASH[(cx + a) + '_' + (cy + b) + '_' + (cz + c2)]; if (!bucket) continue;
+        for (let m = 0; m < bucket.length; m++) { const j = bucket[m], t = PTS[j]; if (!t || t.fire > 0.2 || t.ref > 0) continue; cand.push(j); }
+      }
+      if (!cand.length) continue;
+      const branches = Math.random() < 0.42 ? 2 : 1;
+      for (let k = 0; k < branches; k++) {
+        const j = cand[Math.floor(Math.random() * cand.length)], t = PTS[j];
+        if (t.fire > 0.2 || t.ref > 0) continue;
+        t.fire = 1; t.ref = 70; next.push(j);
+      }
+    }
+    FRONT = next.length > 150 ? next.slice(0, 150) : next;
+  }
+
   function drawBrain(dt) {
     const { c, W, H } = fit(wireCv);
-    if (!PTS.length || builtW !== W || Math.abs(BCX - W * 0.5) > 2) buildBrain(W, H);
+    if (!PTS.length || builtW !== W || builtH !== H) { buildBrain(W, H); buildHash(); }
+    stepFront();
     const T = performance.now() / 1000;
     c.clearRect(0, 0, W, H);
     const nerves = stationsShown();
     if (nerves) ST.forEach((s, i) => {
-      const n = nervePath(i, W, H), on = i === firing;
-      const midx = (n.ax + n.sx) / 2, midy = (n.ay + n.sy) / 2 + Math.sin(T * 0.7 + i) * 14;
+      const n = nervePath(i), on = i === firing;
+      const midx = (n.ax + n.sx) / 2 + Math.sin(T * 0.7 + i) * 10, midy = (n.ay + n.sy) / 2;
       c.strokeStyle = on ? s.col : 'rgba(45,70,92,0.9)'; c.lineWidth = on ? 2.2 : 1.1;
       c.beginPath(); c.moveTo(n.ax, n.ay); c.quadraticCurveTo(midx, midy, n.sx, n.sy); c.stroke();
       const cnt = on ? 9 : 4;
@@ -288,7 +355,10 @@
     });
     const yaw = T * 0.30, roll = Math.sin(T * 0.21) * 0.26;
     const cy0 = Math.cos(yaw), sy0 = Math.sin(yaw), cr = Math.cos(roll), sr = Math.sin(roll);
-    const FOV = 2.1, wavePos = ((T * 0.42) % 1.6) - 0.3;
+    const FOV = 2.1;
+    /* the section plane: a thin slab travelling through the volume on an axis that itself drifts */
+    const scanPhase = (T * 0.155) % 1, scanAng = T * 0.11;
+    const nx = Math.cos(scanAng), nz = Math.sin(scanAng), scanD = (scanPhase * 1.5) - 0.75, SLAB = 0.045;
     for (let i = 0; i < PTS.length; i++) {
       const p = PTS[i];
       const br = 1 + Math.sin(T * p.sp + p.ph) * p.amp * 3.2;
@@ -298,15 +368,22 @@
       const persp = FOV / (FOV + Z * 0.9);
       const sx = BCX + X * BSCALE * persp, sy = BCY + Y * BSCALE * persp;
       const d = clamp((1.1 - Z) / 2.2, 0, 1);
-      const dw = Math.abs(p.y - wavePos);
-      if (dw < 0.10) p.fire = Math.min(1, p.fire + 0.16 * (1 - dw / 0.10));
-      p.fire *= 0.955;
-      const lit = p.fire;
-      const a = (0.10 + p.b * 0.55) * (0.35 + d * 0.65) + lit * 0.6;
-      const sz = (p.w * (0.45 + d * 0.9) * persp) * (1 + lit * 1.3);
+      const sd = Math.abs(x * nx + z * nz - scanD);
+      if (sd < SLAB) p.scan = 1; else p.scan *= 0.90;
+      p.fire *= 0.90;
+      if (p.ref > 0) p.ref--;
+      const lit = p.fire, sc = p.scan;
+      const a = (0.13 + p.b * 0.80) * (0.42 + d * 0.58) + lit * 0.55 + sc * 0.42;
+      const sz = (p.w * (0.55 + d * 0.85) * persp) * (1 + lit * 1.1 + sc * 0.55);
       const ab = Math.min(7, (a * 8) | 0);
       BUCK[p.tint * 8 + ab].push(sx, sy, sz);
       if (lit > 0.14) GLOW.push(sx, sy, sz + 3.2 * lit, lit);
+      if (sc > 0.30) SCAN.push(sx, sy, sz + 1.6 * sc, sc);
+    }
+    if (SCAN.length) {
+      c.fillStyle = '#bfefff';
+      for (let k = 0; k < SCAN.length; k += 4) { c.globalAlpha = Math.min(0.65, SCAN[k + 3] * 0.55); c.beginPath(); c.arc(SCAN[k], SCAN[k + 1], SCAN[k + 2], 0, 7); c.fill(); }
+      c.globalAlpha = 1; SCAN.length = 0;
     }
     if (GLOW.length) {
       c.fillStyle = ST[firing].col;
@@ -324,14 +401,8 @@
       }
       c.fill(); bk.length = 0;
     }
-    SHOCK = SHOCK.filter((s) => T - s.t < 1.25);
-    SHOCK.forEach((s) => {
-      const k = (T - s.t) / 1.25;
-      c.strokeStyle = s.col; c.globalAlpha = (1 - k) * 0.42; c.lineWidth = (1 - k) * 3 + 0.5;
-      c.beginPath(); c.ellipse(BCX, BCY, BSCALE * (0.45 + k * 1.25), BSCALE * (0.34 + k * 0.95), 0, 0, 7); c.stroke(); c.globalAlpha = 1;
-    });
     /* the eyes, held in the front of the cloud */
-    const tgt = nervePath(firing, W, H);
+    const tgt = nerves ? nervePath(firing) : { sx: BCX, sy: BCY - BRY };
     const look = Math.atan2(tgt.sy - BCY, tgt.sx - BCX);
     const blink = (Math.sin(T * 0.55) > 0.985) ? 0.12 : 1;
     [-1, 1].forEach((sd) => {
@@ -345,40 +416,48 @@
       }
     });
   }
+  /* a lobe firing starts at one site and travels outward through the tissue */
   function fireLobe(li) {
     firing = li;
-    SHOCK.push({ t: performance.now() / 1000, col: ST[li].col });
-    if (SHOCK.length > 3) SHOCK.shift();
     setT('brFire', ST[li].id);
     ST.forEach((s, i) => { const e = $('brSt' + i); if (e) e.className = 'st' + (i === li ? ' on' : ''); });
-    for (let k = 0; k < 420 && PTS.length; k++) { const p = PTS[Math.floor(rnd(0, PTS.length))]; p.fire = Math.min(1, p.fire + rnd(0.5, 1)); }
+    FRONT = [];
+    if (!PTS.length) return;
+    const ox = rnd(-0.4, 0.4), oy = rnd(-0.3, 0.3), oz = rnd(-0.3, 0.3);
+    const best = [];
+    for (let i = 0; i < PTS.length; i++) {
+      const p = PTS[i], d = (p.x - ox) ** 2 + (p.y - oy) ** 2 + (p.z - oz) ** 2;
+      if (best.length < 6) best.push({ i, d });
+      else { let wi = 0; for (let k = 1; k < best.length; k++) if (best[k].d > best[wi].d) wi = k; if (d < best[wi].d) best[wi] = { i, d }; }
+    }
+    best.forEach((b) => { PTS[b.i].fire = 1; PTS[b.i].ref = 70; FRONT.push(b.i); });
   }
 
   /* wallet units: each leaves the brain, walks its nerve to a station, works, walks back */
   const unitCv = $('brUnit');
   const UNITS = [];
   function spawnUnit() {
-    if (UNITS.length >= 7 || !stationsShown()) return;
+    if (UNITS.length >= 6 || !stationsShown()) return;
     const busy = {}; UNITS.forEach((u) => { busy[u.li] = (busy[u.li] || 0) + 1; });
-    const free = []; for (let i = 0; i < ST.length; i++) if ((busy[i] || 0) < 2) free.push(i);
+    const free = []; for (let i = 0; i < ST.length; i++) if ((busy[i] || 0) < 1) free.push(i);
     if (!free.length) return;
-    const li = pick(free), [nm, sc] = pick(ROSTER), slot = (busy[li] || 0);
-    UNITS.push({ li, nm, sc, t: 0, phase: 'out', hold: 0, col: ST[li].col, lane: { x: slot ? 40 : -16, y: slot ? 42 : -38 }, bob: rnd(0, 6.283) });
+    const li = pick(free), [nm, sc] = pick(ROSTER);
+    UNITS.push({ li, nm, sc, t: 0, phase: 'out', hold: 0, col: ST[li].col, lane: { x: rnd(-14, 14), y: 0 }, bob: rnd(0, 6.283) });
   }
   function drawUnits(dt) {
     const { c, W, H } = fit(unitCv);
     c.clearRect(0, 0, W, H);
     const T = performance.now() / 1000;
     for (let i = UNITS.length - 1; i >= 0; i--) {
-      const u = UNITS[i], n = nervePath(u.li, W, H);
-      const midx = (n.ax + n.dockX) / 2, midy = (n.ay + n.dockY) / 2 + Math.sin(T * 0.7 + u.li) * 14;
+      const u = UNITS[i], n = nervePath(u.li);
+      const midx = (n.ax + n.dockX) / 2 + Math.sin(T * 0.7 + u.li) * 10, midy = (n.ay + n.dockY) / 2;
       if (u.phase === 'out') { u.t += dt * 0.42; if (u.t >= 1) { u.t = 1; u.phase = 'work'; u.hold = rnd(0.7, 1.7); } }
       else if (u.phase === 'work') { u.hold -= dt; if (u.hold <= 0) u.phase = 'back'; }
       else { u.t -= dt * 0.62; if (u.t <= 0) { UNITS.splice(i, 1); continue; } }
-      const p = u.t, uu = 1 - p, lane = u.lane;
-      const x = uu * uu * n.ax + 2 * uu * p * midx + p * p * n.dockX + lane.x * (0.35 + p * 0.65);
-      const y = uu * uu * n.ay + 2 * uu * p * midy + p * p * n.dockY + lane.y * (0.35 + p * 0.65) + Math.sin(T * 7 + u.bob) * (u.phase === 'work' ? 1.2 : 2.4);
-      const s = 8.5;
+      const p = u.t, uu = 1 - p;
+      const x = uu * uu * n.ax + 2 * uu * p * midx + p * p * n.dockX + u.lane.x * (0.35 + p * 0.65);
+      const y = uu * uu * n.ay + 2 * uu * p * midy + p * p * n.dockY + Math.sin(T * 7 + u.bob) * (u.phase === 'work' ? 1.2 : 2.4);
+      const s = 7.5;
       c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(x, y + s * 1.25, s * 0.8, s * 0.26, 0, 0, 7); c.fill();
       c.fillStyle = u.col; c.beginPath(); c.roundRect(x - s * 0.62, y - s * 0.35, s * 1.24, s * 1.5, s * 0.28); c.fill();
       c.fillStyle = '#02050a'; c.beginPath(); c.roundRect(x - s * 0.70, y - s * 1.25, s * 1.40, s * 1.05, s * 0.30); c.fill();
@@ -388,12 +467,12 @@
         c.save(); c.translate(x + sd * s * 0.26, y - s * 0.74); c.rotate(Math.sin(T * 1.4 + u.bob) * sd * 0.2);
         c.beginPath(); c.moveTo(-1.1, -2.4); c.quadraticCurveTo(1.4, -1, 0.8, 2.4); c.quadraticCurveTo(-0.7, 0.6, -1.1, -2.4); c.fill(); c.restore();
       });
-      c.font = '700 9px ' + MONO;
+      c.font = '700 8.5px ' + MONO;
       const tw = c.measureText(u.nm).width;
       c.fillStyle = 'rgba(2,5,10,0.9)'; c.fillRect(x - tw / 2 - 4, y + s * 1.5, tw + 8, 12);
       c.strokeStyle = u.col; c.lineWidth = 1; c.strokeRect(x - tw / 2 - 4.5, y + s * 1.5 - 0.5, tw + 9, 13);
       c.fillStyle = u.col; c.fillText(u.nm, x - tw / 2, y + s * 1.5 + 9);
-      c.font = '700 8.5px ' + MONO; c.fillStyle = INK; c.fillText(u.sc, x + tw / 2 + 7, y + s * 1.5 + 9);
+      c.font = '700 8px ' + MONO; c.fillStyle = INK; c.fillText(u.sc, x + tw / 2 + 7, y + s * 1.5 + 9);
       if (u.phase === 'work') { c.strokeStyle = u.col; c.globalAlpha = 0.35 + 0.5 * Math.sin(T * 9 + u.bob); c.lineWidth = 1.4; c.beginPath(); c.arc(x, y - s * 1.9, 4.5, 0, 7); c.stroke(); c.globalAlpha = 1; }
     }
     setT('brUnits', UNITS.length);
@@ -428,10 +507,10 @@
       c.fillStyle = 'rgba(255,224,102,' + ((1 - k) * 0.16).toFixed(3) + ')'; c.fillRect(0, 0, W, H);
       c.strokeStyle = '#ffe066'; c.globalAlpha = 1 - k; c.lineWidth = (1 - k) * 5 + 1;
       c.beginPath(); c.arc(BCX, BCY, k * Math.max(W, H) * 0.75, 0, 7); c.stroke(); c.globalAlpha = 1;
-      c.font = '700 ' + (22 + (1 - k) * 12).toFixed(0) + 'px ' + MONO;
+      c.font = '700 ' + (16 + (1 - k) * 8).toFixed(0) + 'px ' + MONO;
       c.fillStyle = 'rgba(255,224,102,' + (1 - k).toFixed(2) + ')'; c.textAlign = 'center';
-      c.fillText('BURST · 4 × 80+ · $' + BURST_TK, W / 2, H * 0.22);
-      c.font = '700 12px ' + MONO; c.fillText('39% OF THESE GO 2x', W / 2, H * 0.22 + 22);
+      c.fillText('BURST · 4 × 80+ · $' + BURST_TK, W / 2, H * 0.5 - BSCALE * 0.75);
+      c.font = '700 10px ' + MONO; c.fillText('39% OF THESE GO 2x', W / 2, H * 0.5 - BSCALE * 0.75 + 18);
       c.textAlign = 'left';
     }
   }
@@ -439,15 +518,14 @@
   /* frame one */
   (function seed() {
     const { W, H } = fit(wireCv);
-    buildBrain(W, H);
+    buildBrain(W, H); buildHash();
     fireLobe(3);
     ST.forEach((s, i) => setT('brSo' + i, OUT[i]()));
-    for (let k = 0; k < 4; k++) spawnUnit();
+    for (let k = 0; k < 3; k++) spawnUnit();
     UNITS.forEach((u) => { u.t = rnd(0.25, 0.95); if (u.t > 0.9) { u.phase = 'work'; u.hold = rnd(0.5, 2); } });
   })();
 
   if (reduced) {
-    /* one still frame: the cloud, the stations, no motion */
     drawRain(0); drawBrain(0); drawUnits(0);
     if (stationsShown()) for (let i = 0; i < ST.length; i++) drawWin(i, 0);
     return;
@@ -461,7 +539,6 @@
   }, 700);
   setInterval(spawnUnit, 620);
   setInterval(() => { BURST_T = 1.5; BURST_TK = pick(TOKENS); fireLobe(4); }, 12000);
-  /* the tab in the background does not need sixty frames a second of a brain nobody is looking at */
   document.addEventListener('visibilitychange', () => { last = performance.now(); });
   loop();
 })();

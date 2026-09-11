@@ -144,14 +144,15 @@ const lead = signals[0];
 
 <style>
   /* ── hero ─────────────────────────────────────────────────── */
-  /* the headline over the brain: one column, the artwork gets the full width */
+  /* the headline beside the brain: copy on the left, the portrait artwork on the right */
   .hero {
     position: relative;
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 26px;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 480px);
+    gap: 30px;
+    align-items: center;
     border: 1px solid #ffffff;
-    padding: 34px 30px 30px;
+    padding: 34px 30px;
     margin-bottom: 25px;
     overflow: hidden;
   }
@@ -193,7 +194,7 @@ const lead = signals[0];
   .hero-actions { position: relative; }
 
   @media (max-width: 900px) {
-    .hero { padding: 25px 18px 18px; }
+    .hero { grid-template-columns: 1fr; padding: 25px 18px 18px; }
   }
 
   /* ── instrument rack ──────────────────────────────────────── */
