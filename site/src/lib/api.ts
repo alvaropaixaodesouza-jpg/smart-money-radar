@@ -75,7 +75,8 @@ export type Trader = {
   positions: Position[]; closed: Position[]; open_pnl: number | null; book_value: number | null;
   realized_usd: number | null; round_trips: number; wins: number;
   win_rate: number | null; pre_tape: number; tape_from: number | null;
-  fills: { ts: number; side: string; usd: number | null; sym: string; mint: string; source: string }[];
+  fills: { ts: number; side: string; usd: number | null; sym: string; mint: string; source: string;
+          kind: 'trade' | 'dust' | 'direct' | 'flow' }[];
   bought_usd: number; sold_usd: number; hours: number;
   company: { handle: string; score: number; shared: number }[];
 };

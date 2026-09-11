@@ -119,7 +119,9 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
               {t.fills.slice(0, 18).map((f) => (
                 <tr>
                   <td class="m">{ago(f.ts)}</td>
-                  <td class={f.side === 'buy' ? 'g' : 'c'}>{f.side}</td>
+                  <td class={f.kind === 'dust' || f.kind === 'direct' ? 'm' : f.side === 'buy' ? 'g' : 'c'}>
+                    {f.side}{f.kind === 'dust' && <span class="kind" title="below this wallet's own size; not counted">dust</span>}{f.kind === 'direct' && <span class="kind" title="a swap somebody else sent to this wallet; not its trade">gift</span>}
+                  </td>
                   <td class="sym"><a href={`/token/${f.mint}`}>{f.sym}</a></td>
                   <td class="r">{usd(f.usd)}</td>
                 </tr>
@@ -218,3 +220,11 @@ const winners = closed.filter((p) => (p.realized ?? 0) > 0).length;
     }
   </style>
 </Base>
+
+<style>
+  .kind {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--crimson); border: 1px dashed var(--crimson); border-radius: 9999px;
+    padding: 0 6px; margin-left: 6px; vertical-align: 1px;
+  }
+</style>
