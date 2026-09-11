@@ -28,3 +28,4 @@ Caddyfile       text eol=lf
 *.png           binary
 *.ttf           binary
 *.db            binary
+.env*           text eol=lf
