@@ -89,6 +89,7 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
                       max_age_s=settings.hot_max_age_h * 3600 or None, now=now)
     stats["hot"] = len(burning)
     if burning:
+        name(conn, burning)
         # written down whether or not anybody is subscribed: the record is what the digest and the
         # site read back, and what a month from now says whether the feed was worth having
         stats["recorded"] = sum(record(conn, h, settings.telegram_realert_hours * 3600, CHAIN)
@@ -96,6 +97,38 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
         stats["sent"] = push(conn, burning)
         w.alerts += stats["sent"]
     return stats
+
+
+def name(conn: sqlite3.Connection, burning: list[dict]) -> int:
+    """Put a name on a bursting token we only know by address, now rather than next pass.
+
+    A burst is minutes old when it fires and the naming pass runs every fifteen, so the first
+    alert for a launch would otherwise read `$0x3adde1`, which is a contract, not a name. One
+    request per unnamed token, through the same lookup the site uses.
+    """
+    from .new_tokens import lookup_tokens
+
+    unnamed = [h for h in burning if h["sym"] == h["mint"][:8]]
+    if not unnamed:
+        return 0
+    try:
+        found, _ = lookup_tokens(CHAIN, [h["mint"] for h in unnamed])
+    except Exception as e:  # noqa: BLE001 - an alert without a name still carries the contract
+        log.warning("naming %d bursting tokens failed: %s", len(unnamed), e)
+        return 0
+    by_mint = {t.mint.lower(): t for t in found}
+    named = 0
+    with db.tx(conn):
+        for h in unnamed:
+            t = by_mint.get(h["mint"].lower())
+            if t and t.symbol:
+                db.upsert_token(conn, t.mint, chain=t.chain, symbol=t.symbol, mcap_usd=t.mcap_usd,
+                                liquidity_usd=t.liquidity_usd, created_at=t.created_at,
+                                price_usd=t.price_usd, price_at=db.now(), checked_at=db.now(),
+                                decimals=t.decimals, pool_address=t.pool_address)
+                h["sym"], h["liq"] = t.symbol, t.liquidity_usd
+                named += 1
+    return named
 
 
 def push(conn: sqlite3.Connection, burning: list[dict]) -> int:

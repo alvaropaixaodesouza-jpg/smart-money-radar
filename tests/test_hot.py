@@ -123,6 +123,29 @@ class FakeChain:
         return {}
 
 
+def test_a_bursting_token_without_a_name_is_named_on_the_spot(tmp_path, monkeypatch):
+    """The naming pass runs every fifteen minutes; a burst is minutes old. One lookup, now."""
+    from types import SimpleNamespace
+    conn = db.connect(tmp_path / "n.db")
+    now = db.now()
+    seed(conn, now)
+    with db.tx(conn):
+        conn.execute("UPDATE tokens SET symbol=NULL WHERE mint=?", (TOKEN,))
+    asked = []
+
+    def fake_lookup(chain, mints, **kw):
+        asked.append(mints)
+        return [SimpleNamespace(mint=TOKEN, chain="robinhood", symbol="NAMED", mcap_usd=1.0,
+                                liquidity_usd=2.0, created_at=None, price_usd=3.0, decimals=18,
+                                pool_address=None)], 1
+    monkeypatch.setattr("fomo_agent.pipeline.new_tokens.lookup_tokens", fake_lookup)
+    burning = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)
+    assert burning[0]["sym"] == TOKEN[:8], "no name yet"
+    assert watch.name(conn, burning) == 1 and asked == [[TOKEN]]
+    assert burning[0]["sym"] == "NAMED"
+    assert conn.execute("SELECT symbol FROM tokens WHERE mint=?", (TOKEN,)).fetchone()[0] == "NAMED"
+
+
 def test_one_tick_reads_only_the_blocks_since_last_time_and_writes_the_fills(tmp_path, monkeypatch):
     conn = db.connect(tmp_path / "w.db")
     now = db.now()

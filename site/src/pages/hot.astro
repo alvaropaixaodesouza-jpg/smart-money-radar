@@ -21,12 +21,12 @@ const medianBest = judged.length
 
 const minutes = (b: { window_s: number }) => Math.max(1, Math.round(b.window_s / 60));
 const ageText = (s: number | null) =>
-  s === null ? '\u2014' : s < 5400 ? `${Math.round(s / 60)} min old` : `${(s / 3600).toFixed(1)}h old`;
-const x = (v: number | null) => (v === null ? '\u2014' : `${v.toFixed(1)}\u00d7`);
+  s === null ? '—' : s < 5400 ? `${Math.round(s / 60)} min old` : `${(s / 3600).toFixed(1)}h old`;
+const x = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)}×`);
 const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 'c' : '');
 ---
 <Base
-  title="Bursts \u2014 where several trusted Robinhood Chain wallets went in at once"
+  title="Bursts — where several trusted Robinhood Chain wallets went in at once"
   description="Tokens that three or more trusted fomo.family wallets entered inside half an hour, caught within twenty seconds of the fill, with what the price did afterwards. The fast edge of the signal feed, and its own scorecard."
   section="bursts"
 >
@@ -36,8 +36,8 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
   </div>
   <p class="verdict" style="margin-bottom:20px">
     The signal feed asks who the cohort is in over a day. This asks a narrower question: did the
-    conviction arrive <b>all at once</b>? A burst is {feed?.delta ?? 4} of it \u2014 four wallets
-    scoring 80, say \u2014 from at least {feed?.min_wallets ?? 3} trusted wallets, each making its
+    conviction arrive <b>all at once</b>? A burst is {feed?.delta ?? 4} of it — four wallets
+    scoring 80, say — from at least {feed?.min_wallets ?? 3} trusted wallets, each making its
     first buy of the token inside the last {feed?.window_min ?? 30} minutes. The chain is read every
     twenty seconds, so what is on this page happened minutes ago, not last pass.
   </p>
@@ -46,8 +46,8 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
     <div><dt>Bursting now</dt><dd class="a">{now.length}</dd></div>
     <div><dt>Last {hours}h</dt><dd>{recent.length}</dd></div>
     <div><dt>Old enough to judge</dt><dd>{judged.length}</dd></div>
-    <div><dt>Reached 2\u00d7</dt><dd class="g">{judged.length ? reached2x : '\u2014'}</dd></div>
-    <div><dt>Ended below \u00bd</dt><dd class="c">{judged.length ? belowHalf : '\u2014'}</dd></div>
+    <div><dt>Reached 2×</dt><dd class="g">{judged.length ? reached2x : '—'}</dd></div>
+    <div><dt>Ended below ½</dt><dd class="c">{judged.length ? belowHalf : '—'}</dd></div>
     <div><dt>Median best</dt><dd>{x(medianBest)}</dd></div>
   </dl>
 
@@ -72,9 +72,9 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
             <Meter value={h.conviction} max={hottest} />
             <p class="who">
               <span class="a">{h.wallets} in over {Math.max(1, Math.round((h.last_ts - h.first_ts) / 60))} min</span>
-              {' \u00b7 '}{ageText(h.age_s)}{' \u00b7 '}{usd(h.usd)}{' \u00b7 '}
+              {' · '}{ageText(h.age_s)}{' · '}{usd(h.usd)}{' · '}
               {h.who.slice(0, 5).map((w, n) => (
-                <><a href={`/trader/${w}`}>{w}</a> {h.scores[n]}{n < Math.min(4, h.who.length - 1) ? ' \u00b7 ' : ''}</>
+                <><a href={`/trader/${w}`}>{w}</a> {h.scores[n]}{n < Math.min(4, h.who.length - 1) ? ' · ' : ''}</>
               ))}{h.who.length > 5 ? ` +${h.who.length - 5}` : ''}
             </p>
           </li>
@@ -85,7 +85,7 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
 
   {recent.length > 0 && (
     <section style="margin-top:var(--section)">
-      <h2 class="h2">Last {hours} hours <span class="m mono" style="font-weight:400;font-size:12px">\u00b7 multiples of the price the last entrant paid</span></h2>
+      <h2 class="h2">Last {hours} hours <span class="m mono" style="font-weight:400;font-size:12px">· multiples of the price the last entrant paid</span></h2>
       <div class="tablewrap">
         <table class="bursts mono">
           <thead>
@@ -100,8 +100,8 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
                 <td class="m">{ago(b.ts)} ago</td>
                 <td><a class="tk" href={`/token/${b.mint}`}>${b.sym}</a></td>
                 <td class="r a">+{b.conviction.toFixed(1)} <span class="m">/ {minutes(b)}m</span></td>
-                <td class="m">{b.wallets} \u00b7 {b.who.slice(0, 3).join(' \u00b7 ')}{b.who.length > 3 ? ` +${b.who.length - 3}` : ''}</td>
-                <td class="r m">{b.age_s === null ? '\u2014' : b.age_s < 5400 ? `${Math.round(b.age_s / 60)}m` : `${(b.age_s / 3600).toFixed(1)}h`}</td>
+                <td class="m">{b.wallets} · {b.who.slice(0, 3).join(' · ')}{b.who.length > 3 ? ` +${b.who.length - 3}` : ''}</td>
+                <td class="r m">{b.age_s === null ? '—' : b.age_s < 5400 ? `${Math.round(b.age_s / 60)}m` : `${(b.age_s / 3600).toFixed(1)}h`}</td>
                 <td class={`r ${tone(b.best)}`}>{x(b.best)}</td>
                 <td class={`r ${tone(b.last)}`}>{x(b.last)}</td>
                 <td class={`r ${tone(b.now)}`}>{x(b.now)}</td>
@@ -115,7 +115,7 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
 
   <p class="note" style="margin-top:var(--section)">
     <b>What the replay said before this page existed.</b> Over 36 days of tape the same rule fired
-    about five times a day; 39% of those reached 2\u00d7 inside a day and about 40% ended the day
+    about five times a day; 39% of those reached 2× inside a day and about 40% ended the day
     below half, against 36% and 43% for the ordinary signal feed, which fires fifty times a day.
     Better on every measure and ten times quieter, and still a coin with a long tail: the value
     is in the best price, not in holding to the close. The scorecard above is that replay,
