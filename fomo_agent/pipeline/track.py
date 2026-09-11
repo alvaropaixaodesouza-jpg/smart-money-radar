@@ -162,7 +162,7 @@ def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, l
     # size every new flow fill against its wallet's own median, then move the medians on
     from .provenance import classify, refresh_medians
 
-    stats["kinds"] = classify(conn, db.now() - 2 * settings.rpc_window_blocks)
+    stats["kinds"] = classify(conn, since=0)   # every flow fill still unsized, however old
     refresh_medians(conn)
     log.info("track: %s", stats)
     return stats
