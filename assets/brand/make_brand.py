@@ -231,21 +231,23 @@ def avatar(name: str, side: int = 512, solid: bool = False) -> None:
     save(im, name, side, side)
 
 
-def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True,
+def banner(name: str, w: int, h: int, note: str = "",
            where: pathlib.Path | None = None) -> None:
     """Wide artwork: description picture, /start photo, link preview.
 
     One left edge for everything below the lockup — a grid built from hairlines cannot afford two
     ragged margins — and the readout strip sits on the baseline the rule establishes.
 
-    Without the footnote the whole block drops by `dy` so the remaining content stays optically
-    centred rather than clinging to the top of an empty card.
+    There used to be a footnote along the bottom edge. It went for two reasons: at preview size
+    it read as a grey smudge, and it said "never trades", which stopped being true the day an
+    execution engine went on the plan. With the bottom edge empty the whole block drops by `dy`
+    so the content stays optically centred rather than clinging to the top of the card.
     """
     im, d = canvas(w, h)
     W, H = w * SS, h * SS
     pad = W * 0.055
     inner = W - pad * 2
-    dy = 0.0 if footnote else H * 0.055
+    dy = H * 0.055
 
     m = H * 0.32
     mark(d, pad, H * 0.14 + dy, m)
@@ -281,18 +283,15 @@ def banner(name: str, w: int, h: int, note: str = "", footnote: bool = True,
         fn, tn = mono_fit(note, room, H * 0.040)
         draw_runs(d, W - pad - run_width([(note, fn)], tn), row, [(note, fn)], GRAPHITE, tn)
 
-    if footnote:
-        small = "ROBINHOOD CHAIN 4663   ·   READ-ONLY RESEARCH   ·   NEVER TRADES"
-        fs, ts = mono_fit(small, inner, H * 0.034)
-        draw_runs(d, pad, H * 0.935, [(small, fs)], CARBON, ts)
     save(im, name, w, h, where)
 
 
 if __name__ == "__main__":
     avatar("tg-avatar-512.png")
     avatar("tg-avatar-solid-512.png", solid=True)
-    banner("tg-description-640x360.png", 640, 360, footnote=False)
+    banner("tg-description-640x360.png", 640, 360)
     banner("tg-start-1280x640.png", 1280, 640, note="/signals  /fresh  /token  /trader")
     # The link preview is written straight into the site so there is one file rather than two
-    # copies that can drift; Base.astro points og:image and twitter:image at it.
-    banner("og.png", 1200, 630, note="193.233.209.98", where=HERE.parent.parent / "site" / "public")
+    # copies that can drift; Base.astro points og:image and twitter:image at it. No address on
+    # it: every place that shows a preview prints the domain underneath anyway.
+    banner("og.png", 1200, 630, where=HERE.parent.parent / "site" / "public")
