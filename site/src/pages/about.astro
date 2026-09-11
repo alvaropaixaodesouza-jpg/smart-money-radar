@@ -10,11 +10,12 @@ const s = await getStats();
 
   <p style="font-size:16px;margin-bottom:25px">
     The fomo.family leaderboard shows a number. It does not show whether that number came from
-    skill or one lucky ticket, which wallet the person actually trades from, or what they are
-    buying today. This fills in all three, on nothing but public endpoints.
+    skill or one lucky ticket, which wallet the person actually trades from, what they are
+    buying this minute, or whether they even bought it. This fills in all four, on nothing but
+    public endpoints, and reads the chain every twenty seconds.
   </p>
 
-  <h3 style="margin:0 0 12px">Three things that took a while to learn</h3>
+  <h3 style="margin:0 0 12px">Four things that took a while to learn</h3>
   <ol class="roster" style="margin-bottom:25px">
     <li>
       <div class="score follow" style="font-size:22px">01</div>
@@ -22,7 +23,8 @@ const s = await getStats();
         <div class="top"><span class="handle">A fomo profile address is not a wallet</span></div>
         <p>Every address the fomo API returns is an internal account with zero on-chain history.
         The real one is inferred by intersecting who traded the same token in the same minute across
-        a dozen of a trader's swaps, weighting quiet windows higher. Measured 41 correct out of 42.</p>
+        a dozen of a trader's swaps, weighting quiet windows higher. Graded against fomo's own
+        verified wallets once those were available: 101 agreements, none the other way.</p>
       </div>
     </li>
     <li>
@@ -43,6 +45,19 @@ const s = await getStats();
         direction. That is why tracking the whole roster costs two requests and no money.</p>
       </div>
     </li>
+    <li>
+      <div class="score follow" style="font-size:22px">04</div>
+      <div>
+        <div class="top"><span class="handle">A token arriving from the router is not always the wallet buying it</span></div>
+        <p>Anyone can call the router with their own ETH and name a famous wallet as the recipient,
+        and anyone can push fifty cents of a token into eighteen such wallets through fomo's own
+        flow. To a tracker that reads "arrived from a swap" as "bought", both are the cohort piling
+        in. Every fill here is checked against its receipt: a swap sent to the router itself is
+        nobody's trade, a buy far below the wallet's own size is dust, and a token pushed into more
+        trusted wallets than bought it for real is quarantined from every feed. About one buy in
+        eleven credited to a trusted wallet turns out not to be that wallet's.</p>
+      </div>
+    </li>
   </ol>
 
   <h3 style="margin:0 0 12px">Reading the numbers</h3>
@@ -53,6 +68,12 @@ const s = await getStats();
     reports profit already withdrawn, so the entry price cannot be recovered.</p>
     <p class="note"><b>USDG and WETH are quote assets</b>, never positions. Feeds built on raw DEX
     data rank the stablecoin every trade passes through as the most-bought token on the chain.</p>
+    <p class="note"><b>A burst</b> is conviction with a clock on it: four wallets scoring 80, say,
+    all making their first buy of a token inside half an hour. Caught within twenty seconds of the
+    fill that tips it. Replayed over the whole tape, it fires about five times a day and 39% reach
+    2× within a day — better on every measure than the plain feed, and still a coin with a long tail.</p>
+    <p class="note"><b>dust</b>, <b>gift</b> and <b>seeded</b> on a fill or a token mean it was
+    pushed at the wallet rather than bought by it. Such fills are shown and never counted.</p>
     <p class="note"><b>A score judges process, not price.</b> It is an opinion about whether a
     result looks repeatable. It is not a prediction.</p>
   </div>

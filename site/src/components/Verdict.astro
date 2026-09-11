@@ -1,8 +1,0 @@
----
-import { verdictClass, verdictLabel } from '../lib/api';
-interface Props { status: string; score?: number | null; withScore?: boolean }
-const { status, score = null, withScore = true } = Astro.props;
----
-<span class={`badge ${verdictClass(status)}`}>
-  {verdictLabel(status)}{withScore && score !== null ? ` · ${score}` : ''}
-</span>
