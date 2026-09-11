@@ -1,4 +1,5 @@
 ---
+import og from '../assets/og.png';
 import Logo from '../components/Logo.astro';
 import '../styles/tokens.css';
 
@@ -11,11 +12,14 @@ interface Props {
   noindex?: boolean;
 }
 const { title, description, section = null, noindex = false } = Astro.props;
-const base = Astro.site ?? new URL('https://fomoradar.xyz');
+const base = Astro.site ?? new URL('https://fomoradar.app');
 const canonical = new URL(Astro.url.pathname, base).href;
 // Crawlers need an absolute URL and a raster: Telegram, Twitter and Slack all refuse SVG.
-// site/public/og.png is written by assets/brand/make_brand.py from the same mark as everything else.
-const ogImage = new URL('/og.png', base).href;
+// The file is written by assets/brand/make_brand.py from the same mark as everything else, and
+// imported rather than served from public/ so the build puts a content hash in its name. Telegram
+// caches a preview image by URL and nothing short of a new URL dislodges it: a regenerated file at
+// the old address kept showing the old picture even after @WebpageBot said it had refreshed.
+const ogImage = new URL(og.src, base).href;
 // No repository yet, and a link to github.com itself is worse than no link at all.
 const repo = import.meta.env.PUBLIC_REPO_URL ?? '';
 ---

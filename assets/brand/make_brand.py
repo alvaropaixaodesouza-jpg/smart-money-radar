@@ -292,6 +292,7 @@ if __name__ == "__main__":
     banner("tg-description-640x360.png", 640, 360)
     banner("tg-start-1280x640.png", 1280, 640, note="/signals  /fresh  /token  /trader")
     # The link preview is written straight into the site so there is one file rather than two
-    # copies that can drift; Base.astro points og:image and twitter:image at it. No address on
-    # it: every place that shows a preview prints the domain underneath anyway.
-    banner("og.png", 1200, 630, where=HERE.parent.parent / "site" / "public")
+    # copies that can drift; Base.astro imports it, and the build hashes the name so a new
+    # rendering is a new URL — which is the only thing Telegram's preview cache respects. No
+    # address on it: every place that shows a preview prints the domain underneath anyway.
+    banner("og.png", 1200, 630, where=HERE.parent.parent / "site" / "src" / "assets")
