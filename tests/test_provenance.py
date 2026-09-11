@@ -129,6 +129,9 @@ def test_verify_fills_settles_the_old_rows_from_their_receipts(tmp_path):
                         side="buy", usd_value=416.0, token_amount=1e9, ts=now - 100, source="rpc")
         db.insert_trade(conn, sig="0xreal:1", address=W[1], chain="robinhood", mint=HONEST,
                         side="buy", usd_value=900.0, token_amount=10.0, ts=now - 100, source="rpc")
+        # a Codex-era row: the bare hash, no log index
+        db.insert_trade(conn, sig="0xreal", address=W[2], chain="robinhood", mint=HONEST,
+                        side="buy", usd_value=900.0, token_amount=10.0, ts=now - 100, source="codex")
 
     class FakeRpc:
         limiter = type("L", (), {"max": 45})()
@@ -140,7 +143,7 @@ def test_verify_fills_settles_the_old_rows_from_their_receipts(tmp_path):
     out = provenance.verify(conn, days=1, rpc=FakeRpc())
     assert out["checked"] == 2 and out["direct"] == 1 and out["flow"] == 1
     kinds = dict(conn.execute("SELECT sig, kind FROM trades WHERE sig LIKE '0x%'").fetchall())
-    assert kinds == {"0xgift:1": "direct", "0xreal:1": "trade"}
+    assert kinds == {"0xgift:1": "direct", "0xreal:1": "trade", "0xreal": "trade"}
 
 
 def test_the_token_page_says_it_is_seeded(tmp_path):

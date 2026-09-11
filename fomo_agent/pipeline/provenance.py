@@ -146,8 +146,10 @@ def verify(conn: sqlite3.Connection, days: int = 7, rpc=None, max_per_min: int |
                 if not rc:
                     continue
                 kind = "direct" if (rc.get("to") or "").lower() in routers else "flow"
-                conn.execute("UPDATE trades SET kind=? WHERE sig LIKE ? AND kind IS NULL",
-                             (kind, tx + ":%"))
+                # the chain tracker suffixes a log index onto the hash; the older Codex rows are
+                # the bare hash, and both are the same transaction
+                conn.execute("UPDATE trades SET kind=? WHERE (sig = ? OR sig LIKE ?) AND kind IS NULL",
+                             (kind, tx, tx + ":%"))
                 stats[kind] += 1
                 stats["checked"] += 1
     stats.update(classify(conn, since))
