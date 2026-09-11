@@ -8,7 +8,11 @@ REM Pure ASCII on purpose - cmd reads .bat files in the ANSI codepage and mangle
 
 setlocal
 set KEY=%USERPROFILE%\.ssh\fomoradar
-set HOST=root@193.233.209.98
+if "%RADAR_HOST%"=="" (
+    echo set RADAR_HOST=root@your-server first
+    exit /b 1
+)
+set HOST=%RADAR_HOST%
 
 echo.
 echo   FOMO Robinhood Radar - sign in to fomo.family on the server

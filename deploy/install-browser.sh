@@ -54,7 +54,7 @@ cat <<EOF
 
 ==> done. To sign in once:
 
-  on your machine:   ssh -i ~/.ssh/fomoradar -L 5900:127.0.0.1:5900 root@193.233.209.98 \\
+  on your machine:   ssh -i ~/.ssh/fomoradar -L 5900:127.0.0.1:5900 root@<server> \\
                        'systemctl start radar-vnc; sleep 3600'
   then point any VNC viewer at  127.0.0.1:5900
 

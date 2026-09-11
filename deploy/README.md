@@ -72,7 +72,7 @@ password was rotated to a value nobody holds. If console access is ever needed, 
 from the Contabo panel and use their VNC console.
 
 ```bash
-ssh -i ~/.ssh/fomoradar root@193.233.209.98
+ssh -i ~/.ssh/fomoradar root@<server>
 ```
 
 ## Adding a domain

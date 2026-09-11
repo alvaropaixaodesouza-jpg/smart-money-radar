@@ -51,6 +51,7 @@ www.fomoradar.app {
 }
 
 # The bare IP kept working for months and people have it. It answers, and then it moves them on.
-http://193.233.209.98 {
+# the bare address, so a link typed without the domain still lands on it
+http://YOUR.SERVER.IP {
 	redir https://fomoradar.app{uri} permanent
 }

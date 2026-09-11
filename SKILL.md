@@ -25,13 +25,13 @@ Two databases, and picking the wrong one is the most common mistake:
 
 | | path | what is in it |
 |---|---|---|
-| **live** | `root@193.233.209.98:/opt/fomoradar/fomo_agent.db` | everything: collection runs every 30 min, the tape, the scores |
+| **live** | `root@<server>:/opt/fomoradar/fomo_agent.db` | everything: collection runs every 30 min, the tape, the scores |
 | local | `./fomo_agent.db` | whatever this machine last collected — usually stale |
 
 Anything that answers a question about *current* traders or tokens must run on the server:
 
 ```bash
-ssh -i ~/.ssh/fomoradar root@193.233.209.98 'cd /opt/fomoradar/app && /opt/fomoradar/venv/bin/python -m fomo_agent.cli <command>'
+ssh -i ~/.ssh/fomoradar root@<server> 'cd /opt/fomoradar/app && /opt/fomoradar/venv/bin/python -m fomo_agent.cli <command>'
 ```
 
 The same data is already published, so prefer reading it over re-deriving it: the site at

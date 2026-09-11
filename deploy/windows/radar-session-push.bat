@@ -12,7 +12,11 @@ REM Pure ASCII on purpose - cmd reads .bat files in the ANSI codepage.
 
 setlocal enabledelayedexpansion
 set KEY=%USERPROFILE%\.ssh\fomoradar
-set HOST=root@193.233.209.98
+if "%RADAR_HOST%"=="" (
+    echo set RADAR_HOST=root@your-server first
+    exit /b 1
+)
+set HOST=%RADAR_HOST%
 set FILE=
 
 REM Dragged onto this file wins; otherwise look where a browser would have put it.

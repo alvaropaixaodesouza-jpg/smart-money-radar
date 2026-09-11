@@ -1,11 +1,19 @@
 # FOMO Robinhood Radar
 
-Finds the [fomo.family](https://fomo.family) traders worth watching **on Robinhood Chain**, follows
-their fills on-chain, and asks Claude which of them actually know what they are doing. The result is
-a live site, a Telegram bot and an HTTP API over one database: a signal feed, a token analyzer, a
-trader analyzer, and a leaderboard ranked by judgement rather than by headline PnL.
+![tests](https://github.com/cvxv666/fomo-robinhood-radar/actions/workflows/tests.yml/badge.svg)
+![license](https://img.shields.io/badge/license-MIT-00ff85)
+![cost](https://img.shields.io/badge/runs%20on-%240%20%2F%20month-00ff85)
 
-**Live: [fomoradar.app](https://fomoradar.app) · [@fomoradarRH_bot](https://t.me/fomoradarRH_bot)**
+![FOMO Robinhood Radar](assets/brand/tg-start-1280x640.png)
+
+Finds the [fomo.family](https://fomo.family) traders worth watching **on Robinhood Chain**, resolves
+each profile to the wallet that actually trades, reads their fills off the chain every twenty
+seconds, checks the receipt of every fill to know whose trade it really was, and has an AI judge
+say which of them look repeatable. The result is a live site, a Telegram bot and an HTTP API over
+one database: signals, bursts, launches, exits, a token analyzer, a trader analyzer, and a
+leaderboard ranked by judgement rather than by headline PnL.
+
+**Live: [fomoradar.app](https://fomoradar.app) · [@fomoradarRH_bot](https://t.me/fomoradarRH_bot) · [API docs](https://fomoradar.app/docs)**
 
 ```bash
 pip install -e .
@@ -20,14 +28,14 @@ fomo-radar bot                   # the Telegram bot
 
 ## What it actually knows
 
-Three things took a while to learn and are the reason this repo exists.
+Four things took a while to learn and are the reason this repo exists.
 
 **1. A fomo profile address is not a wallet.** Every address fomo's API returns is an internal
 account with zero on-chain history. The wallet that executes the trades is separate and the API
 never links them. `pipeline/resolve.py` infers it: take ~12 of a trader's swaps, ask who else
 traded that token in the same 90-second window, and weight each window by how quiet it was — being
-one of three makers is evidence, being one of a hundred is not. Measured 41 of 42 correct against
-an independently sourced roster.
+one of three makers is evidence, being one of a hundred is not. Graded against fomo's own verified
+wallets once those became available: **101 agreements, zero disagreements.**
 
 **2. The leaderboard's PnL is real money, and it includes open bags.** A wallet showing $2.8M on a
 $5.2k on-chain outlay is not a glitch: the position ran and was never sold, so the profit is real
@@ -40,6 +48,15 @@ transaction's `from`. Each fill routes through one contract, and the wallet's on
 arriving from it (a buy) or leaving to it (a sell). Filtering on that counterparty is what
 separates real fills from the airdrops that make up most of a wallet's log traffic — and it is why
 `eth_getLogs` is enough to track the whole roster for free.
+
+**4. A token arriving from the router is not always the wallet buying it.** Anyone can call the
+router directly, pay with their own ETH, and name a famous wallet as the recipient; anyone can push
+fifty cents of a token through fomo's own flow into eighteen such wallets for thirty-five dollars.
+To every tracker that reads "token arrived from a swap" as "wallet bought", both look like the
+cohort piling in. `pipeline/provenance.py` reads the receipt: a swap sent to the router itself is
+nobody's trade, a buy far below the wallet's own size is dust, and a token pushed into more trusted
+wallets than bought it for real is quarantined from every feed. On the first week re-checked,
+**one buy in eleven** credited to a trusted wallet was not that wallet's trade.
 
 ## Data sources
 
@@ -84,7 +101,7 @@ Scoring runs either way:
 
 ```bash
 fomo-radar score                          # needs ANTHROPIC_API_KEY
-fomo-radar score --export pending.json    # ...or paste the file into any Claude chat
+fomo-radar score --export pending.json    # ...or paste the file into any LLM chat: Claude, GPT, Grok
 fomo-radar score --import scored.json     # and load the answer back
 ```
 
@@ -182,7 +199,9 @@ disable themselves and the rest keeps running.
 |---|---|
 | *(none)* | `rpc` tracking, trenches discovery, dexscreener and geckoterminal |
 | `CODEX_API_KEY` | Solana and Base tracking, token discovery, wallet resolution |
+| `FOMOAPI_KEY` | the fomo leaderboards, verified wallets and theses over HTTP (free key at fomoapi.io) |
 | `ANTHROPIC_API_KEY` | scoring without the export/import loop |
+| `TELEGRAM_BOT_TOKEN` | the bot |
 | `HELIUS_API_KEY` | Solana tracking |
 
 Every source fails soft: one API being down never stops the loop.
@@ -246,10 +265,12 @@ source means adding one of each.
 
 ## Disclaimer
 
-fomo.family has no public API. This reads what the web app calls internally, which can change or
-break at any time and may violate their terms — your account could be banned. Robinhood Chain's
-public RPC is used within its ordinary rate limits. Nothing here is financial advice, and nothing
-here places a trade.
+fomo.family has no public API. The fomo side of this reads [fomoapi.io](https://fomoapi.io), a
+third party, on a free key. The older route in `extension/` reads what the web app calls
+internally from a signed-in browser; that can change or break at any time, may violate their
+terms, and accounts used that way get restricted. Robinhood Chain's public RPC is used within its
+ordinary rate limits. Nothing here is financial advice, and nothing in this repository places a
+trade.
 
 ## License
 

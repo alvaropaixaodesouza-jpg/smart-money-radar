@@ -5,7 +5,7 @@
 # Secrets are never touched either — .env is written once at provision time and stays put.
 set -euo pipefail
 
-HOST="${RADAR_HOST:-root@193.233.209.98}"
+HOST="${RADAR_HOST:?set RADAR_HOST=root@your-server (the machine deploy/README.md was provisioned on)}"
 KEY="${RADAR_KEY:-$HOME/.ssh/fomoradar}"
 APP=/opt/fomoradar/app
 
