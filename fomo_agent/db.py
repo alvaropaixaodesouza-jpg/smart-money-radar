@@ -204,6 +204,17 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_bursts_mint_ts ON bursts(mint, ts);
     CREATE INDEX IF NOT EXISTS idx_bursts_ts ON bursts(ts);
     """,
+    18: """
+    -- Whose trade a fill really is. A swap delivered to a wallet by an outside key calling the
+    -- router, or fifty cents pushed through fomo's own flow to a famous address, both used to
+    -- read as that wallet buying. `kind` is direct / dust / trade once judged, flow between the
+    -- scan and the size check, and NULL for rows from before this existed, which verify-fills
+    -- works through. See pipeline/provenance.py.
+    ALTER TABLE trades ADD COLUMN kind TEXT;
+    CREATE INDEX IF NOT EXISTS idx_trades_kind ON trades(kind);
+    -- each wallet's own idea of a normal buy, which is what a dust floor is relative to
+    ALTER TABLE traders ADD COLUMN median_buy_usd REAL;
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -343,7 +354,7 @@ def holdings_for(conn: sqlite3.Connection, address: str) -> dict[str, tuple[floa
 # ---------- trades ----------
 
 TRADE_COLS = ("sig", "address", "chain", "mint", "side", "sol_amount", "token_amount", "usd_value",
-              "ts", "source", "fill_key")
+              "ts", "source", "fill_key", "kind")
 
 
 def fill_key(t: dict[str, Any]) -> str:

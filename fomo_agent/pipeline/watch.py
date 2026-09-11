@@ -26,6 +26,7 @@ from .. import db
 from ..config import settings
 from ..sources.rpc import CHAIN, RobinhoodRPC, RpcError
 from .hot import hot_now, record
+from .provenance import classify
 from .track import TRACKED
 
 log = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
             db.save_token_decimals(conn, w.rpc.known_decimals())
         except Exception as e:  # noqa: BLE001
             log.warning("could not store decimals: %s", e)
+    if stats["fills"]:
+        classify(conn, now - 3600)
     w.last_block = head
     stats["blocks"] = head - first + 1
     w.ticks += 1

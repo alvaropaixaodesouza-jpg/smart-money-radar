@@ -159,5 +159,10 @@ def track_all(conn: sqlite3.Connection, trackers: list[Tracker] | None = None, l
         used = getattr(t, "requests", None) or getattr(getattr(t, "limiter", None), "total", None)
         if used:
             stats.setdefault("requests", {})[type(t).__name__] = used
+    # size every new flow fill against its wallet's own median, then move the medians on
+    from .provenance import classify, refresh_medians
+
+    stats["kinds"] = classify(conn, db.now() - 2 * settings.rpc_window_blocks)
+    refresh_medians(conn)
     log.info("track: %s", stats)
     return stats

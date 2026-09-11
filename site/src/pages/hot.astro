@@ -12,7 +12,7 @@ const recent: Burst[] = feed?.recent ?? [];
 const hottest = Math.max(1, ...now.map((h) => h.conviction), ...recent.map((b) => b.conviction));
 
 /** Old enough to have done something, and with a fill to measure it by. */
-const judged = recent.filter((b) => b.age_at_read_h >= 3 && b.best !== null);
+const judged = recent.filter((b) => b.age_at_read_h >= 3 && b.best !== null && !b.seeded);
 const reached2x = judged.filter((b) => (b.best ?? 0) >= 2).length;
 const belowHalf = judged.filter((b) => (b.last ?? 1) < 0.5).length;
 const medianBest = judged.length
@@ -96,9 +96,9 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
           </thead>
           <tbody>
             {recent.map((b) => (
-              <tr>
+              <tr class={b.seeded ? 'seeded' : ''}>
                 <td class="m">{ago(b.ts)} ago</td>
-                <td><a class="tk" href={`/token/${b.mint}`}>${b.sym}</a></td>
+                <td><a class="tk" href={`/token/${b.mint}`}>${b.sym}</a>{b.seeded && <span class="badge flag" style="margin-left:8px" title="pushed into the wallets rather than bought by them; not counted">seeded</span>}</td>
                 <td class="r a">+{b.conviction.toFixed(1)} <span class="m">/ {minutes(b)}m</span></td>
                 <td class="m">{b.wallets} · {b.who.slice(0, 3).join(' · ')}{b.who.length > 3 ? ` +${b.who.length - 3}` : ''}</td>
                 <td class="r m">{b.age_s === null ? '—' : b.age_s < 5400 ? `${Math.round(b.age_s / 60)}m` : `${(b.age_s / 3600).toFixed(1)}h`}</td>
@@ -132,6 +132,8 @@ const tone = (v: number | null) => (v === null ? 'm' : v >= 2 ? 'g' : v < 0.5 ? 
   .bursts th, .bursts td { padding: 9px 10px; border-bottom: 1px solid var(--carbon); text-align: left; white-space: nowrap; }
   .bursts th { font-weight: 400; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--graphite); }
   .bursts .r { text-align: right; }
+  .bursts tr.seeded td { color: var(--carbon); text-decoration: line-through; }
+  .bursts tr.seeded td .badge { text-decoration: none; }
   .bursts .tk { color: #fff; text-decoration: none; font-weight: 700; }
   .bursts .tk:hover { color: var(--amber); }
   .who a { color: var(--graphite); }

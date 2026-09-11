@@ -46,10 +46,11 @@ def daily(conn: sqlite3.Connection, hours: int = 24, chain: str | None = None) -
     from .hot import recent
 
     bursts = recent(conn, chain, hours=hours, candles_for=_pool_candles(conn))
-    settled = [b for b in bursts if b["age_at_read_h"] >= 3 and b["best"] is not None]
+    settled = [b for b in bursts if b["age_at_read_h"] >= 3 and b["best"] is not None
+               and not b.get("seeded")]
     best = sorted(b["best"] for b in settled)
     scorecard = {
-        "n": len(bursts), "measured": len(settled),
+        "n": len(bursts), "measured": len(settled), "seeded": sum(1 for b in bursts if b.get("seeded")),
         "reached_2x": sum(b["best"] >= 2 for b in settled),
         "median_best": best[len(best) // 2] if best else None,
         "below_half": sum((b["last"] or 0) < 0.5 for b in settled),

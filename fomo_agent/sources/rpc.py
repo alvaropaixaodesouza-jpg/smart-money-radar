@@ -108,6 +108,17 @@ def routed_fills(transfers: list[dict], wallets: set[str], routers: set[str]) ->
     return fills
 
 
+def fill_kind(receipt: dict, routers: set[str]) -> str:
+    """`direct` when the transaction was sent to the router itself; `flow` when it came through
+    fomo's entrypoint the way every real app trade does.
+
+    A fomo user never calls the router: the app's relayers send to an entrypoint that calls it.
+    An outside key that wants a swap delivered to somebody else's wallet has to call the router
+    itself, and the receipt says so. Judged on `to` alone — the signer is a relayer either way.
+    """
+    return "direct" if (receipt.get("to") or "").lower() in routers else "flow"
+
+
 def quote_legs(receipt: dict) -> dict[str, float]:
     """The largest leg of each quote asset in the transaction, in human units.
 
@@ -395,6 +406,7 @@ class RobinhoodRPC:
                 side=f["side"], sol_amount=legs.get(WETH), usd_value=usd,
                 token_amount=f["raw"] / 10 ** dec.get(f["mint"], DEFAULT_DECIMALS),
                 ts=int(last_ts - (last - f["block"]) * per_block), source="rpc",
+                kind=fill_kind(receipt, self.routers) if receipt else None,
             ))
         log.info("rpc scan: blocks %d..%d (%.1fh), %d transfers, %d fills, %d priced, %d requests",
                  first, last, (last - first) * per_block / 3600,

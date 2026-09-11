@@ -40,10 +40,24 @@ const desc = t.is_quote
     <Ident seed={t.mint} size={34} />
     <h1 style="font-size:clamp(28px,5vw,44px)">${name}</h1>
     {t.is_quote && <span class="badge drop">quote asset</span>}
-    {!t.is_quote && hasFlow && <span class="badge follow">conviction {conv.toFixed(1)}</span>}
+    {t.seeded?.seeded && <span class="badge flag">seeded</span>}
+    {!t.is_quote && hasFlow && !t.seeded?.seeded && <span class="badge follow">conviction {conv.toFixed(1)}</span>}
     {!t.is_quote && !hasFlow && !hasBook && <span class="badge tag">untracked</span>}
   </div>
   <p class="addr" style="margin-bottom:20px">{t.mint}</p>
+
+  {t.seeded?.seeded && (
+    <p class="note flagged">
+      <b>This token was pushed into {t.seeded.wallets} trusted wallets rather than bought by them</b>
+      {' — '}{t.seeded.dust > 0 && `${t.seeded.dust} dust-sized fill${t.seeded.dust === 1 ? '' : 's'} through fomo`}
+      {t.seeded.dust > 0 && t.seeded.direct > 0 && ' and '}
+      {t.seeded.direct > 0 && `${t.seeded.direct} swap${t.seeded.direct === 1 ? '' : 's'} sent to the router by an outside key with the wallet named as recipient`}
+      {t.seeded.first_ts && `, starting ${ago(t.seeded.first_ts)} ago`}. Anyone can do that to any
+      address for a few dollars, and to a tracker it looks exactly like the cohort piling in. It is
+      excluded from the signal, burst and launch feeds while the pattern holds, and the fills below
+      are marked. The wallets named here did nothing.
+    </p>
+  )}
 
   {t.is_quote ? (
     <p class="note">
@@ -198,7 +212,9 @@ const desc = t.is_quote
                 {t.flow.slice(0, 25).map((f) => (
                   <tr>
                     <td class="m">{ago(f.ts)}</td>
-                    <td class={f.side === 'buy' ? 'g' : 'c'}>{f.side}</td>
+                    <td class={f.kind === 'dust' || f.kind === 'direct' ? 'm' : f.side === 'buy' ? 'g' : 'c'}>
+                      {f.side}{f.kind === 'dust' && <span class="kind" title="below this wallet's own size; not counted">dust</span>}{f.kind === 'direct' && <span class="kind" title="sent to the router by an outside key; not this wallet's trade">gift</span>}
+                    </td>
                     <td class="sym">{f.handle ?? '—'}</td>
                     <td class={`r ${(f.score ?? 0) >= 60 ? 'g' : 'm'}`}>{f.score ?? '—'}</td>
                     <td class="r">{usd(f.usd)}</td>
@@ -213,6 +229,15 @@ const desc = t.is_quote
   )}
 
   <div style="margin-top:25px"><Search /></div>
+
+<style>
+  .note.flagged { border-color: var(--crimson); }
+  .kind {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--crimson); border: 1px dashed var(--crimson); border-radius: 9999px;
+    padding: 0 6px; margin-left: 6px; vertical-align: 1px;
+  }
+</style>
 
   <style>
     .feedhead {

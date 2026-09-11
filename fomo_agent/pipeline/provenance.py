@@ -1,0 +1,148 @@
+"""Whose trade a fill really is.
+
+On 2026-09-11 a burst fired on a token seventeen trusted wallets had "bought" inside minutes.
+None of them had. Four outside keys had called the fomo router directly, paid with their own ETH,
+and named a trusted wallet as the recipient of each swap — and to a tracker that reads "token
+arrived from the router" as "wallet bought", that is indistinguishable from the cohort piling in.
+The same day a second token sat at the top of the signal feed on twenty-seven "buys" of fifty
+cents each, delivered to eighteen trusted wallets through fomo's own flow. Thirty-five dollars.
+
+Every fill on the chain is signed by a relayer rather than by the wallet — that is how fomo
+works, 142 signers in a day — so who signed is no help. What is:
+
+  · `direct`  the transaction was sent to the router itself rather than to fomo's entrypoint.
+    Structural, from the receipt: a fomo-app trade never looks like this. Such a fill is real
+    market activity and is not that wallet's trade; it counts for nothing.
+  · `dust`    a buy smaller than max(an absolute floor, a share of the wallet's own median buy).
+    Traders do make small probes, so this is stored and shown, and left out of conviction.
+  · `trade`   everything else, which is everything a fomo user actually did.
+
+And the rule that turns the attack on itself: a token where several trusted wallets received
+direct or dust buys inside a day is *seeded*, and leaves every feed. The more wallets a seeder
+touches to look like a cohort, the more certainly the token disappears.
+
+A NULL kind is a row from before any of this existed. It passes as a trade until `verify-fills`
+has fetched its receipt, which is a bounded backlog and not a permanent state.
+"""
+from __future__ import annotations
+
+import logging
+import sqlite3
+import time
+
+from .. import db
+from ..config import settings
+from .analyze import TRUSTED
+
+log = logging.getLogger(__name__)
+
+
+def refresh_medians(conn: sqlite3.Connection, days: int = 30) -> int:
+    """Each tracked wallet's median buy over the window, stored on the trader row.
+
+    Direct fills are left out; dust is left in, because on the first pass nothing is dust yet and
+    a wallet that mostly probes is a wallet whose probes are its size.
+    """
+    since = db.now() - days * 86400
+    rows = conn.execute(
+        "SELECT address, usd_value FROM trades WHERE side='buy' AND usd_value > 0 AND ts >= ? "
+        "AND COALESCE(kind,'trade') != 'direct' ORDER BY address, usd_value", (since,)).fetchall()
+    by: dict[str, list[float]] = {}
+    for r in rows:
+        by.setdefault(r["address"], []).append(r["usd_value"])
+    with db.tx(conn):
+        for address, sizes in by.items():
+            conn.execute("UPDATE traders SET median_buy_usd=? WHERE address=?",
+                         (sizes[len(sizes) // 2], address))
+    return len(by)
+
+
+def classify(conn: sqlite3.Connection, since: int) -> dict:
+    """Judge the size of every flow fill since `since` that has not been judged yet.
+
+    `flow` is what the scanner writes for a fill that came through fomo; this settles it into
+    `trade` or `dust`. A wallet with no median on record yet is judged against the floor alone.
+    """
+    floor, ratio = settings.dust_abs_usd, settings.dust_ratio
+    with db.tx(conn):
+        dust = conn.execute(
+            "UPDATE trades SET kind='dust' WHERE kind='flow' AND side='buy' AND ts >= ? "
+            "AND COALESCE(usd_value, 0) < MAX(?, ? * COALESCE("
+            "  (SELECT median_buy_usd FROM traders WHERE traders.address = trades.address), 0))",
+            (since, floor, ratio)).rowcount
+        trade = conn.execute(
+            "UPDATE trades SET kind='trade' WHERE kind='flow' AND ts >= ?", (since,)).rowcount
+    return {"dust": dust, "trade": trade}
+
+
+# Any query that counts buys toward a signal takes both of these.
+REAL = " AND COALESCE({t}.kind, 'trade') = 'trade'"
+NOT_SEEDED = (
+    " AND {t}.mint NOT IN ("
+    "  SELECT s.mint FROM trades s JOIN traders st ON st.address = s.address"
+    "  WHERE s.side = 'buy' AND s.kind IN ('dust', 'direct') AND st.score >= ? AND s.ts >= ?"
+    "  GROUP BY s.mint HAVING COUNT(DISTINCT s.address) >= ?)"
+)
+
+
+def seeded_params(now: int | None = None) -> list:
+    """The three placeholders NOT_SEEDED opens, in order."""
+    return [TRUSTED, (now or db.now()) - settings.seed_window_h * 3600, settings.seed_min_wallets]
+
+
+def seeded(conn: sqlite3.Connection, mint: str, now: int | None = None) -> dict:
+    """How this token has been seeded, for the page that shows it."""
+    now = now or db.now()
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT s.address) wallets, SUM(s.kind = 'dust') dust, "
+        "  SUM(s.kind = 'direct') direct, MIN(s.ts) first_ts "
+        "FROM trades s JOIN traders st ON st.address = s.address "
+        "WHERE s.mint = ? AND s.side = 'buy' AND s.kind IN ('dust', 'direct') AND st.score >= ? "
+        "AND s.ts >= ?", (mint, TRUSTED, now - settings.seed_window_h * 3600)).fetchone()
+    wallets = row["wallets"] or 0
+    return {"wallets": wallets, "dust": row["dust"] or 0, "direct": row["direct"] or 0,
+            "first_ts": row["first_ts"], "seeded": wallets >= settings.seed_min_wallets}
+
+
+def verify(conn: sqlite3.Connection, days: int = 7, rpc=None, max_per_min: int | None = None,
+           limit: int | None = None) -> dict:
+    """Fetch the receipt of every unjudged buy in the window and settle its kind.
+
+    Forty receipts a request; a week of buys is a few hundred requests. Runs beside the watcher
+    on a share of the allowance rather than all of it, and stops cleanly when the endpoint says
+    no, leaving the rest for the next run — the rows it did not reach are still NULL, still
+    passing as trades, still on the list.
+    """
+    from ..sources.rpc import RobinhoodRPC, RpcError
+
+    rpc = rpc or RobinhoodRPC()
+    if max_per_min:
+        rpc.limiter.max = max_per_min
+    routers = {r.lower() for r in settings.rpc_routers}
+    since = db.now() - days * 86400
+    rows = conn.execute(
+        "SELECT sig FROM trades WHERE kind IS NULL AND side='buy' AND chain='robinhood' AND ts >= ? "
+        "ORDER BY ts DESC" + (f" LIMIT {int(limit)}" if limit else ""), (since,)).fetchall()
+    txs = sorted({r["sig"].split(":")[0] for r in rows})
+    stats = {"pending": len(txs), "checked": 0, "direct": 0, "flow": 0, "stopped": None}
+    t0 = time.time()
+    for i in range(0, len(txs), settings.rpc_batch_size):
+        chunk = txs[i:i + settings.rpc_batch_size]
+        try:
+            receipts = rpc.batch("eth_getTransactionReceipt", [[tx] for tx in chunk])
+        except RpcError as e:
+            stats["stopped"] = str(e)
+            break
+        with db.tx(conn):
+            for tx, rc in zip(chunk, receipts):
+                if not rc:
+                    continue
+                kind = "direct" if (rc.get("to") or "").lower() in routers else "flow"
+                conn.execute("UPDATE trades SET kind=? WHERE sig LIKE ? AND kind IS NULL",
+                             (kind, tx + ":%"))
+                stats[kind] += 1
+                stats["checked"] += 1
+    stats.update(classify(conn, since))
+    stats["seconds"] = round(time.time() - t0)
+    log.info("verify-fills: %s", stats)
+    return stats

@@ -278,6 +278,8 @@ def fmt_digest(d: dict) -> str:
     if b.get("n"):
         # the feed's own scorecard: the backtest, continued live, one day at a time
         line = f"{b['n']} burst{'s' if b['n'] != 1 else ''}"
+        if b.get("seeded"):
+            line += f" ({b['seeded']} seeded, not counted)"
         if b["measured"]:
             line += (f" · of {b['measured']} old enough to judge, {b['reached_2x']} reached 2x, "
                      f"{b['below_half']} ended below half · median best {b['median_best']:.1f}x")

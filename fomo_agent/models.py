@@ -100,6 +100,9 @@ class Trade(BaseModel):
     usd_value: float | None = None
     ts: int
     source: str = "helius"
+    # whose trade it is: `flow` came through fomo and is judged for size on insert, `direct` was
+    # sent to the router by an outside key and is nobody's; see pipeline/provenance.py
+    kind: str | None = None
 
 
 class ScoreResult(BaseModel):

@@ -22,6 +22,8 @@ export type Burst = {
   usd: number; px: number | null; window_s: number; age_s: number | null;
   who: string[]; scores: number[]; age_at_read_h: number;
   best: number | null; last: number | null; now: number | null; fills: number;
+  /** Turned out to be pushed into the wallets rather than bought; kept on the record, out of the score. */
+  seeded: boolean;
 };
 
 export type HotNow = {
@@ -94,7 +96,11 @@ export type Token = {
   liquidity_usd: number | null; mcap_usd: number | null;
   holders: Holder[]; trusted_holders: number; avg_score: number | null; conviction: number;
   cohort_pnl: number | null; cohort_cost: number | null; cohort_value: number | null;
-  flow: { handle: string | null; score: number | null; side: string; usd: number | null; ts: number }[];
+  flow: { handle: string | null; score: number | null; side: string; usd: number | null; ts: number;
+          kind: 'trade' | 'dust' | 'direct' | 'flow' }[];
+  /** Trusted wallets that received dust or outside-key buys of this token inside the window.
+   *  Past the threshold the token is out of every feed. */
+  seeded: { wallets: number; dust: number; direct: number; first_ts: number | null; seeded: boolean };
   bought_usd: number; sold_usd: number; first_trusted_buy: number | null;
   trusted_buyers: number; hours: number;
   theses: Thesis[];

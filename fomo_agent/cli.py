@@ -373,6 +373,19 @@ def hot_cmd(
         conn.close()
 
 
+@app.command("verify-fills")
+def verify_fills_cmd(
+    days: int = typer.Option(7, "--days", help="how far back to fetch receipts for"),
+    per_min: int = typer.Option(20, "--per-min", help="RPC allowance to run on, beside the watcher"),
+    limit: int = typer.Option(None, "--limit", help="at most this many buys this run"),
+) -> None:
+    """Fetch the receipt of every unjudged buy and settle whose trade it was."""
+    from .pipeline.provenance import verify
+
+    got = _run("verify_fills", verify, days, None, per_min, limit)
+    typer.echo(got)
+
+
 @app.command("watch")
 def watch_cmd(
     once: bool = typer.Option(False, "--once", help="one tick, then exit"),

@@ -28,6 +28,16 @@ def conviction(scores: list[int]) -> float:
     return sum((s / 100) ** 2 for s in scores if s)
 
 
+def _real(t: str) -> str:
+    from .provenance import REAL, NOT_SEEDED
+    return REAL.format(t=t) + NOT_SEEDED.format(t=t)
+
+
+def _seed_params() -> list:
+    from .provenance import seeded_params
+    return seeded_params()
+
+
 def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
             min_buyers: int = 2, limit: int = 40) -> list[dict]:
     """Tokens that several trusted wallets bought inside the window, best conviction first.
@@ -51,10 +61,10 @@ def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
         "  FROM trades tr JOIN traders t ON t.address = tr.address "
         "  LEFT JOIN tokens tk ON tk.mint = tr.mint "
         f"  WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
-        + NOT_QUOTE.format(col="tr.mint") +
+        + NOT_QUOTE.format(col="tr.mint") + _real("tr") +
         "  GROUP BY tr.mint, tr.address"
         ") GROUP BY mint HAVING buyers >= ? ORDER BY conviction DESC, usd DESC LIMIT ?",
-        [*params, min_buyers, limit],
+        [*params, *_seed_params(), min_buyers, limit],
     )]
 
 
@@ -181,8 +191,8 @@ def fresh(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
         "  MIN(tr.ts) ts, SUM(tr.usd_value) usd "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
         f"WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
-        + NOT_QUOTE.format(col="tr.mint") +
-        " GROUP BY tr.mint, tr.address", params,
+        + NOT_QUOTE.format(col="tr.mint") + _real("tr") +
+        " GROUP BY tr.mint, tr.address", [*params, *_seed_params()],
     )]
 
     by_mint: dict[str, list[dict]] = {}
@@ -474,10 +484,13 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
         "WHERE p.token = ? ORDER BY COALESCE(t.score,0) DESC, p.unrealized_pnl DESC", (mint,),
     ) if r["address"] not in seen]
     flow = [dict(r) for r in conn.execute(
-        "SELECT t.fomo_handle handle, t.address, t.score, tr.side, tr.usd_value usd, tr.ts "
+        "SELECT t.fomo_handle handle, t.address, t.score, tr.side, tr.usd_value usd, tr.ts, "
+        "  COALESCE(tr.kind, 'trade') kind "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
         "WHERE tr.mint = ? AND tr.ts >= ? ORDER BY tr.ts DESC", (mint, since),
     )]
+    from .provenance import seeded as _seeded
+    seeded = _seeded(conn, mint)
     first = conn.execute(
         "SELECT MIN(tr.ts) ts, COUNT(DISTINCT tr.address) buyers FROM trades tr "
         "JOIN traders t ON t.address = tr.address "
@@ -519,7 +532,7 @@ def analyze_token(conn: sqlite3.Connection, mint: str, hours: int = 48) -> dict:
         "cohort_cost": sum(costs) or None,
         # what the tracked wallets' holdings are worth at the token's current price
         "cohort_value": sum(h["value"] for h in holders if h["value"]) or None,
-        "flow": flow,
+        "seeded": seeded, "flow": flow,
         "bought_usd": sum(f["usd"] or 0 for f in flow if f["side"] == "buy"),
         "sold_usd": sum(f["usd"] or 0 for f in flow if f["side"] == "sell"),
         "first_trusted_buy": first["ts"] if first else None,
