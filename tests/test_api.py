@@ -148,8 +148,9 @@ def test_the_site_talking_to_itself_is_not_one_visitor(client, monkeypatch):
     monkeypatch.setattr(api.limiter, "per_minute", 2)
     api.limiter.hits.clear()
     # loopback, no X-Forwarded-For: the renderer. Never limited.
+    loop = TestClient(api.app, client=("127.0.0.1", 40000))
     for _ in range(6):
-        assert client.get("/api/stats").status_code == 200
+        assert loop.get("/api/stats").status_code == 200
     # the same calls with a forwarded address are a visitor, and are
     codes = [client.get("/api/stats", headers={"x-forwarded-for": "203.0.113.9"}).status_code
              for _ in range(4)]
