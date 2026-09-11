@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro';
 import Meter from '../components/Meter.astro';
 import Search from '../components/Search.astro';
-import Scope from '../components/Scope.astro';
+import Brain from '../components/Brain.astro';
 import Spark from '../components/Spark.astro';
 import Panel from '../components/Panel.astro';
 import Ident from '../components/Ident.astro';
@@ -43,7 +43,7 @@ const lead = signals[0];
       </div>
     </div>
 
-    {signals.length > 0 && <Scope signals={signals} hours={hours} />}
+    <div class="hero-brain"><Brain /></div>
   </section>
 
   <!-- ── instrument strip ───────────────────────────────────── -->
@@ -144,17 +144,18 @@ const lead = signals[0];
 
 <style>
   /* ── hero ─────────────────────────────────────────────────── */
+  /* the headline over the brain: one column, the artwork gets the full width */
   .hero {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 440px);
-    gap: 30px;
-    align-items: center;
+    grid-template-columns: 1fr;
+    gap: 26px;
     border: 1px solid #ffffff;
-    padding: 34px 30px;
+    padding: 34px 30px 30px;
     margin-bottom: 25px;
     overflow: hidden;
   }
+  .hero-brain { position: relative; }
   /* the instrument grid: 1px lines only, no gradient, no wash */
   .hero .grid {
     position: absolute; inset: 0; pointer-events: none; opacity: 0.16;
@@ -192,7 +193,7 @@ const lead = signals[0];
   .hero-actions { position: relative; }
 
   @media (max-width: 900px) {
-    .hero { grid-template-columns: 1fr; padding: 25px 18px; }
+    .hero { padding: 25px 18px 18px; }
   }
 
   /* ── instrument rack ──────────────────────────────────────── */
