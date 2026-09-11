@@ -1,0 +1,178 @@
+"""The burst rule, live and replayed, and the watcher that runs it every few seconds."""
+from __future__ import annotations
+
+from fomo_agent import db
+from fomo_agent.bot import fmt_hot, fmt_hot_list
+from fomo_agent.config import settings
+from fomo_agent.models import Trade
+from fomo_agent.pipeline import hot, watch
+
+W = ["0x" + c * 40 for c in "abcdefgh"]
+TOKEN = "0x" + "1" * 40
+OTHER = "0x" + "2" * 40
+
+
+def buys(*rows):
+    """(minute, wallet index, score) -> the tuple _bursts reads: (ts, address, score, usd, px)."""
+    return [(m * 60, W[i], s, 1000.0, 1.0) for m, i, s in rows]
+
+
+# ---------------------------------------------------------------- the rule
+
+
+def test_a_burst_is_conviction_inside_the_window_not_over_the_day():
+    """Four 80s inside half an hour fire; the same four spread over five hours do not."""
+    quick = buys((0, 0, 80), (5, 1, 80), (12, 2, 80), (20, 3, 80))
+    slow = buys((0, 0, 80), (90, 1, 80), (180, 2, 80), (300, 3, 80))
+    assert len(hot._bursts(quick, 2.5, 30 * 60, 3)) == 1
+    assert hot._bursts(slow, 2.5, 30 * 60, 3) == []
+
+
+def test_it_fires_on_the_buy_that_tips_it_and_says_who():
+    b = hot._bursts(buys((0, 0, 80), (5, 1, 80), (12, 2, 80), (20, 3, 80)), 2.5, 30 * 60, 3)[0]
+    assert b.ts == 20 * 60, "the fourth buy is the one that crosses 2.5"
+    assert b.wallets == 4 and b.conviction == 2.56
+    assert b.who == W[:4] and b.usd == 4000.0
+
+
+def test_weak_scores_do_not_add_up_to_a_burst():
+    """Six wallets at 40 are 0.96 of conviction. Headcount is not the measure."""
+    six = buys(*((i, i, 40) for i in range(6)))
+    assert hot._bursts(six, 2.0, 30 * 60, 3) == []
+
+
+def test_once_fires_a_single_time_per_token_and_otherwise_rearms():
+    rows = buys((0, 0, 80), (5, 1, 80), (10, 2, 80), (12, 3, 80),
+                (200, 4, 80), (205, 5, 80), (210, 6, 80), (212, 7, 80))
+    assert len(hot._bursts(rows, 2.5, 30 * 60, 3, once=True)) == 1
+    assert len(hot._bursts(rows, 2.5, 30 * 60, 3, once=False)) == 2, "two separate bursts"
+
+
+# ---------------------------------------------------------------- live
+
+
+def seed(conn, now):
+    with db.tx(conn):
+        for i, (score, status) in enumerate(((88, "active"), (80, "active"), (76, "active"),
+                                             (70, "watch"), (30, "dropped"))):
+            db.upsert_trader(conn, W[i], chain="robinhood", fomo_handle=f"w{i}", score=score,
+                             status=status)
+        db.upsert_token(conn, TOKEN, chain="robinhood", symbol="BURST", liquidity_usd=50_000)
+        db.upsert_token(conn, OTHER, chain="robinhood", symbol="SLOW")
+        # BURST: four trusted wallets in twelve minutes, and a dud who does not count
+        for i, mins in ((0, 14), (1, 9), (2, 5), (3, 2), (4, 1)):
+            db.insert_trade(conn, sig=f"b{i}", address=W[i], chain="robinhood", mint=TOKEN,
+                            side="buy", usd_value=500.0 * (i + 1), token_amount=1000.0,
+                            ts=now - mins * 60, source="rpc")
+        # a wallet that bought BURST yesterday and again now is not a new entrant now
+        db.insert_trade(conn, sig="old", address=W[0], chain="robinhood", mint=TOKEN, side="buy",
+                        usd_value=100.0, token_amount=100.0, ts=now - 86400, source="rpc")
+        # SLOW: the same wallets over six hours
+        for i, mins in ((0, 350), (1, 240), (2, 120), (3, 3)):
+            db.insert_trade(conn, sig=f"s{i}", address=W[i], chain="robinhood", mint=OTHER,
+                            side="buy", usd_value=1000.0, token_amount=1000.0,
+                            ts=now - mins * 60, source="rpc")
+
+
+def test_hot_now_reports_what_is_bursting_and_ignores_what_drifted(tmp_path):
+    conn = db.connect(tmp_path / "hot.db")
+    now = db.now()
+    seed(conn, now)
+    out = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)
+    assert [h["sym"] for h in out] == ["BURST"]
+    h = out[0]
+    # W[0] first bought a day ago, so only three of the four are entrants inside the window
+    assert h["wallets"] == 3 and h["who"] == ["w1", "w2", "w3"]
+    assert h["conviction"] == round(0.8 ** 2 + 0.76 ** 2 + 0.70 ** 2, 2)
+    assert h["usd"] == 1000.0 + 1500.0 + 2000.0, "the dud's money is not counted"
+    assert h["age_s"] == 86400, "age is from the earliest fill anybody we track made"
+
+
+def test_the_message_leads_with_the_clock(tmp_path):
+    conn = db.connect(tmp_path / "hot.db")
+    now = db.now()
+    seed(conn, now)
+    h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)[0]
+    text = fmt_hot(h, now)
+    assert "burst" in text and "in 7 min" in text, "from the 9-minute buy to the 2-minute one"
+    assert "wallets in" in text and "3" in text
+    assert TOKEN in text, "the contract is there to copy"
+    assert "Nothing is bursting" in fmt_hot_list([], 30)
+
+
+# ---------------------------------------------------------------- the watcher
+
+
+class FakeChain:
+    """Stands in for the RPC: a head that advances and a scan that answers with fills."""
+
+    def __init__(self, head, fills):
+        self.head_block, self.fills, self.scans, self.decimals_loaded = head, fills, [], False
+
+    def head(self):
+        return self.head_block, 1_700_000_000
+
+    def scan(self, wallets, first, last):
+        self.scans.append((len(wallets), first, last))
+        return self.fills
+
+    def load_decimals(self, known):
+        self.decimals_loaded = True
+
+    def known_decimals(self):
+        return {}
+
+
+def test_one_tick_reads_only_the_blocks_since_last_time_and_writes_the_fills(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "w.db")
+    now = db.now()
+    seed(conn, now)
+    monkeypatch.setattr(settings, "hot_delta", 99.0)   # nothing bursts in this test
+    fill = Trade(sig="new1", address=W[1], chain="robinhood", mint=TOKEN, side="buy",
+                 usd_value=10.0, token_amount=10.0, ts=now, source="rpc")
+    chain = FakeChain(head=10_000, fills={W[1]: [fill]})
+    w = watch.Watch(rpc=chain)
+
+    first = watch.tick(conn, w, now)
+    assert first["from"] == 10_000 - settings.watch_start_back_blocks, "a minute back, not zero"
+    assert first["fills"] == 1 and chain.decimals_loaded
+    assert chain.scans[0][0] == 4, "the roster is the tracked robinhood wallets, dud excluded"
+
+    chain.head_block = 10_200
+    second = watch.tick(conn, w, now)
+    assert second["from"] == 10_001 and second["blocks"] == 200
+    assert second["fills"] == 0, "the same fill again is not a second fill"
+
+    chain.head_block = 10_200 + 50_000
+    third = watch.tick(conn, w, now)
+    assert third["from"] == chain.head_block - settings.watch_max_range_blocks, "a stall does not become a backfill"
+
+
+def test_a_burst_is_pushed_once_per_subscriber(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "w.db")
+    now = db.now()
+    seed(conn, now)
+    monkeypatch.setattr(settings, "hot_delta", 1.5)
+    monkeypatch.setattr(settings, "telegram_bot_token", "t")
+    from fomo_agent import bot
+    with db.tx(conn):
+        bot.subscribe(conn, "chat1", "one")
+        bot.subscribe(conn, "chat2", "two")
+    sent = []
+
+    class FakeTg:
+        def __init__(self):
+            pass
+
+        def send(self, chat_id, text):
+            sent.append((chat_id, text))
+
+    monkeypatch.setattr(bot, "Telegram", FakeTg)
+    chain = FakeChain(head=10_000, fills={})
+    w = watch.Watch(rpc=chain)
+    first = watch.tick(conn, w, now)
+    assert first["hot"] == 1 and first["sent"] == 2
+    assert {c for c, _ in sent} == {"chat1", "chat2"} and "BURST" in sent[0][1]
+    chain.head_block += 200
+    again = watch.tick(conn, w, now)
+    assert again["hot"] == 1 and again["sent"] == 0, "still bursting, already told"

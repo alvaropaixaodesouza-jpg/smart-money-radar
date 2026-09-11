@@ -240,8 +240,25 @@ class RobinhoodRPC:
     def block_number(self) -> int:
         return int(self.call("eth_blockNumber", []), 16)
 
+    def head(self) -> tuple[int, int]:
+        """The newest block and its timestamp in one request, remembered as a probe."""
+        b = self.call("eth_getBlockByNumber", ["latest", False])
+        n, ts = int(b["number"], 16), int(b["timestamp"], 16)
+        self._remember(n, ts)
+        return n, ts
+
     def block_timestamp(self, block: int) -> int:
-        return int(self.call("eth_getBlockByNumber", [hex(block), False])["timestamp"], 16)
+        if block not in self._probes:
+            self._remember(block, int(self.call("eth_getBlockByNumber", [hex(block), False])["timestamp"], 16))
+        return self._probes[block]
+
+    def _remember(self, block: int, ts: int) -> None:
+        """Every dated block is a probe. A process that dates a block every twenty seconds for a
+        week would otherwise hold thirty thousand of them for no reason."""
+        self._probes[block] = ts
+        if len(self._probes) > 64:
+            for b in sorted(self._probes)[:-48]:
+                del self._probes[b]
 
     def block_at(self, ts: int, tolerance_s: int = 20, max_probes: int = 6) -> int:
         """The block nearest a wall-clock time.
@@ -345,9 +362,19 @@ class RobinhoodRPC:
                      + self.transfers(wallets, first, last, outgoing=False))
         fills = routed_fills(transfers, set(wallets), self.routers)
 
-        # two probes date every log: blocks land on a fixed interval
-        last_ts, first_ts = self.block_timestamp(last), self.block_timestamp(first)
-        per_block = (last_ts - first_ts) / max(last - first, 1)
+        # Two probes date every log, because blocks land on a fixed interval. A short range next
+        # to one already dated - which is every tick of the watcher - borrows that probe's rate
+        # instead of spending a request on its own far end.
+        last_ts = self.block_timestamp(last)
+        near = [b for b in self._probes if b != last and 0 < abs(last - b) <= settings.rpc_window_blocks]
+        if near and last - first < 5_000:
+            ref = min(near, key=lambda b: abs(last - b))
+            per_block = (last_ts - self._probes[ref]) / (last - ref)
+            per_block = abs(per_block) or 0.1
+            first_ts = last_ts - (last - first) * per_block
+        else:
+            first_ts = self.block_timestamp(first)
+            per_block = (last_ts - first_ts) / max(last - first, 1)
 
         txs = list(fills)
         receipts = self.batch("eth_getTransactionReceipt", [[tx] for tx in txs]) if txs else []

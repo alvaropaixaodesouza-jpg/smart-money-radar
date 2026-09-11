@@ -57,6 +57,8 @@ Run from the repo root with the venv python (`.venv/Scripts/python` on Windows).
 | Name and price unknown tokens | `cli enrich-tokens` |
 | Turn collected fomo users into wallets | `cli resolve` |
 | Read fomo: board, verified wallets, notes | `cli fomo-api` |
+| Tokens several trusted wallets entered at once | `cli hot` (`--backtest` to pick the bar) |
+| Read the chain live and push bursts | `cli watch` |
 | Refresh everything once | `cli run --once` |
 
 Direct SQL is fine (tables: `traders`, `tokens`, `trades`, `holdings`, `fomo_users`, `fomo_swaps`,

@@ -107,6 +107,24 @@ class Settings:
     telegram_alert_interval_s: int = field(default_factory=lambda: _int("TELEGRAM_ALERT_INTERVAL_S", 120))
     # never tell the same chat about the same token twice inside this window
     telegram_realert_hours: int = field(default_factory=lambda: _int("TELEGRAM_REALERT_HOURS", 12))
+    # A burst: this much conviction from this many trusted wallets, all entering inside the
+    # window. 4.0 in 30 minutes is four wallets scoring 80 agreeing inside half an hour — the
+    # same bar the pushed signal uses, with a clock on it. From `cli hot --backtest` over 36
+    # days: about five a day, 39% reach 2x inside a day against 36% for the feed as it stands,
+    # and the feed as it stands fires fifty times a day. No age cap by default: nine in ten
+    # bursts are in a token's first hour, and the few that come in hours two to six did best.
+    hot_delta: float = field(default_factory=lambda: _float("HOT_DELTA", 4.0))
+    hot_window_min: int = field(default_factory=lambda: _int("HOT_WINDOW_MIN", 30))
+    hot_min_wallets: int = field(default_factory=lambda: _int("HOT_MIN_WALLETS", 3))
+    hot_max_age_h: int = field(default_factory=lambda: _int("HOT_MAX_AGE_H", 0))
+    # The watcher: how often it asks the chain for the blocks since last time, on how much of
+    # the RPC allowance, and how far it reads on its first tick or after a stall. The scheduled
+    # pass owns anything older than that.
+    watch_poll_s: int = field(default_factory=lambda: _int("WATCH_POLL_S", 20))
+    watch_rpc_max_per_min: int = field(default_factory=lambda: _int("WATCH_RPC_MAX_PER_MIN", 15))
+    watch_roster_refresh_s: int = field(default_factory=lambda: _int("WATCH_ROSTER_REFRESH_S", 600))
+    watch_start_back_blocks: int = field(default_factory=lambda: _int("WATCH_START_BACK_BLOCKS", 600))
+    watch_max_range_blocks: int = field(default_factory=lambda: _int("WATCH_MAX_RANGE_BLOCKS", 6000))
 
     # public HTTP API the site and any third-party client read from
     api_host: str = field(default_factory=lambda: _env("API_HOST", "127.0.0.1"))

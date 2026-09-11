@@ -331,6 +331,62 @@ def fomo_api_cmd(
     typer.echo(got)
 
 
+@app.command("hot")
+def hot_cmd(
+    backtest: bool = typer.Option(False, "--backtest", help="replay the rule over the whole tape"),
+    mode: str = typer.Option("current", "--scores", help="current | strict | first: which verdict judges a buy"),
+    horizon: int = typer.Option(24, "--horizon", help="hours after a burst to measure"),
+    window: int = typer.Option(None, "--window", help="minutes (live)"),
+    delta: float = typer.Option(None, "--delta", help="conviction gained inside the window (live)"),
+) -> None:
+    """Tokens several trusted wallets entered in a burst — live, or replayed to pick the bar."""
+    from .pipeline import hot
+
+    conn = db.connect()
+    chain = settings.dex_chains[0] if settings.dex_chains else None
+    try:
+        if backtest:
+            r = hot.backtest(conn, chain, horizon_s=horizon * 3600, mode=mode)
+            typer.echo(f"{r['days']} days the scores reach, {r['tokens_with_trusted_buys']} tokens with "
+                       f"trusted buys, horizon {r['horizon_h']}h, scores: {r['mode']}")
+            typer.echo(f"{'delta':>5} {'win':>4} {'n':>2} {'bursts':>6} {'/day':>5} {'meas':>5} {'quiet':>5} "
+                       f"{'med best':>8} {'>=2x':>5} {'>=3x':>5} {'med last':>8} {'<0.5':>5}")
+            for x in r["rows"]:
+                f = lambda v, w: f"{v:>{w}}" if v is not None else f"{'-':>{w}}"
+                typer.echo(f"{x['delta']:>5} {x['window_min']:>4} {x['min_wallets']:>2} {x['bursts']:>6} "
+                           f"{f(x['per_day'],5)} {x['measured']:>5} {x['silent']:>5} "
+                           f"{f(x['median_best'],8)} {f(x['p_best_2x'],5)} {f(x['p_best_3x'],5)} "
+                           f"{f(x['median_last'],8)} {f(x['p_last_half'],5)}"
+                           + (f"   <- {x['label']}" if x.get('label') else ""))
+            return
+        rows = hot.hot_now(conn, chain,
+                           delta=settings.hot_delta if delta is None else delta,
+                           window_s=(settings.hot_window_min if window is None else window) * 60,
+                           min_wallets=settings.hot_min_wallets,
+                           max_age_s=settings.hot_max_age_h * 3600)
+        if not rows:
+            typer.echo("nothing is bursting right now")
+        for h in rows:
+            typer.echo(f"{h['sym']:<12} conviction +{h['conviction']:.2f} from {h['wallets']} wallets "
+                       f"in {h['window_s'] // 60}min, ${h['usd']:,.0f}  {h['mint']}")
+    finally:
+        conn.close()
+
+
+@app.command("watch")
+def watch_cmd(
+    once: bool = typer.Option(False, "--once", help="one tick, then exit"),
+) -> None:
+    """Read the chain every few seconds and push a burst the moment it forms."""
+    from .pipeline.watch import run
+
+    conn = db.connect()
+    try:
+        typer.echo(run(conn, once=once))
+    finally:
+        conn.close()
+
+
 @app.command("digest")
 def digest_cmd(
     hours: int = typer.Option(24, "--hours", help="window the digest covers"),

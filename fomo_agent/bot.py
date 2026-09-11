@@ -188,6 +188,40 @@ def fmt_signal(s: dict, now: int | None = None) -> str:
     return "\n".join(out)
 
 
+def fmt_hot(h: dict, now: int | None = None) -> str:
+    """One burst. The clock is the headline: how much conviction arrived in how few minutes."""
+    mins = max(1, round((h["last_ts"] - h["first_ts"]) / 60))
+    age = h.get("age_s")
+    age_txt = ("\u2014" if age is None else f"{age // 60} min" if age < 5400 else f"{age / 3600:.1f}h")
+    out = [f"\u25b2 {token_link(h['mint'], h['sym'])} \u00b7 burst \u00b7 +{h['conviction']:.1f} in {mins} min", ""]
+    out.append(rows([
+        ("wallets in", str(h["wallets"])),
+        ("average score", f"{h['avg_score']:.0f}"),
+        ("first of them", ago(h["first_ts"], now) + " ago"),
+        ("token age", age_txt),
+        ("bought", analyze.usd(h["usd"])),
+        ("liquidity", analyze.usd(h.get("liq"))),
+    ]))
+    out.append(who_line(h.get("who"), h.get("scores")))
+    out.append("")
+    out.extend(token_lines(h["mint"]))
+    return "\n".join(out)
+
+
+def fmt_hot_list(hot: list[dict], window_min: int, now: int | None = None) -> str:
+    if not hot:
+        return (f"Nothing is bursting: no token gained {settings.hot_delta:.0f} conviction from "
+                f"{settings.hot_min_wallets}+ trusted wallets inside the last {window_min} min.")
+    out = [f"<b>BURSTS \u00b7 last {window_min} min \u00b7 Robinhood Chain</b>",
+           "<i>conviction that arrived all at once</i>", ""]
+    for i, h in enumerate(hot, 1):
+        mins = max(1, round((h["last_ts"] - h["first_ts"]) / 60))
+        out.append(f"{i:>2}. {token_link(h['mint'], h['sym'])}  +{h['conviction']:.1f} in {mins} min"
+                   f"  \u00b7  {h['wallets']} wallets, avg {h['avg_score']:.0f}")
+        out.append(f"    <i>{who_line(h.get('who'), h.get('scores'), 4)}</i>")
+    return "\n".join(out)
+
+
 def fmt_signals(sigs: list[dict], hours: int, now: int | None = None) -> str:
     if not sigs:
         return (f"No token has two trusted buyers in the last {hours}h.\n\n"
@@ -428,12 +462,13 @@ HELP = """<b>FOMO ROBINHOOD RADAR</b>
 <i>which fomo.family traders on Robinhood Chain actually know what they are doing</i>
 
 /signals — what trusted wallets are buying now
+/hot — where several of them went in at once, just now
 /fresh — launches they are entering right now
 /exits — where they are getting out
 /digest — the last day in one message
 /top — the scored leaderboard
 /watch, /dropped — the other two verdicts
-/subscribe — get launches and signals pushed as they happen
+/subscribe — get bursts, launches and signals pushed as they happen
 /unsubscribe — stop
 /status — what the database holds
 /health — what is quietly broken
@@ -577,6 +612,14 @@ def handle_text(conn, text: str, chat_id, username: str | None) -> str:
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None
         return fmt_signals(analyze.signals(conn, chain, hours=hours, limit=10), hours)
+    if cmd == "/hot":
+        from .pipeline.hot import hot_now
+
+        mins = int(args[0]) if args and args[0].isdigit() else settings.hot_window_min
+        chain = settings.dex_chains[0] if settings.dex_chains else None
+        return fmt_hot_list(hot_now(conn, chain, delta=settings.hot_delta, window_s=mins * 60,
+                                    min_wallets=settings.hot_min_wallets,
+                                    max_age_s=settings.hot_max_age_h * 3600 or None), mins)
     if cmd == "/fresh":
         hours = int(args[0]) if args and args[0].isdigit() else 24
         chain = settings.dex_chains[0] if settings.dex_chains else None

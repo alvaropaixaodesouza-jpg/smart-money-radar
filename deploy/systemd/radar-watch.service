@@ -1,0 +1,25 @@
+[Unit]
+Description=FOMO Robinhood Radar - the chain as it happens, and bursts pushed as they form
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=radar
+Group=radar
+WorkingDirectory=/opt/fomoradar/app
+EnvironmentFile=/opt/fomoradar/app/.env
+# Every twenty seconds: the blocks since last time, two eth_getLogs, and the burst rule. Keeps
+# no state across restarts on purpose - the fifteen-minute pass fills any gap it leaves.
+ExecStart=/opt/fomoradar/venv/bin/python -m fomo_agent.cli watch
+Restart=always
+RestartSec=10
+MemoryMax=512M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/fomoradar
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,147 @@
+"""Read the chain as it happens, and say so the moment a burst forms.
+
+The fifteen-minute pass reads the last 200k blocks every time it runs, which is the right shape
+for a tape that must not have holes in it and the wrong shape for an alert. FLYBRAIN's eight
+wallets went in between 20:10 and 20:18; the pass that noticed finished at 20:35. Blocks land every
+tenth of a second on this chain, and everything the roster did in the last twenty seconds is two
+`eth_getLogs` over two hundred blocks — cheaper than one page of the site.
+
+So this loop asks for only the blocks it has not seen, writes whatever fills they hold through
+the same `insert_trade` as everything else (the fill key makes the overlap with the fifteen-minute
+pass harmless), and runs the burst rule on every tick. It keeps no state across restarts on
+purpose: a gap of a minute or an hour is exactly what the fifteen-minute pass exists to fill.
+
+The RPC is the one shared resource. Two processes each allowed 45 requests a minute is 90 against
+an endpoint that already answers 429 to 45 now and then, so this one runs on a smaller allowance
+of its own.
+"""
+from __future__ import annotations
+
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass, field
+
+from .. import db
+from ..config import settings
+from ..sources.rpc import CHAIN, RobinhoodRPC, RpcError
+from .hot import hot_now
+from .track import TRACKED
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class Watch:
+    rpc: RobinhoodRPC
+    last_block: int = 0
+    wallets: list[str] = field(default_factory=list)
+    roster_at: float = 0.0
+    ticks: int = 0
+    fills: int = 0
+    alerts: int = 0
+
+
+def roster(conn: sqlite3.Connection) -> list[str]:
+    return sorted({r["address"].lower() for r in db.traders_by_status(conn, *TRACKED)
+                   if (r["chain"] or CHAIN) == CHAIN and r["address"].startswith("0x")})
+
+
+def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
+    """One pass: the blocks since last time, their fills, and whatever is bursting now.
+
+    The first tick of a process starts a minute back rather than at zero — anything older is the
+    scheduled pass's job — and a tick that finds itself far behind (a pause, a slow RPC) caps the
+    range for the same reason: an alert about half an hour ago is not an alert.
+    """
+    now = now or db.now()
+    if time.monotonic() - w.roster_at > settings.watch_roster_refresh_s or not w.wallets:
+        w.wallets = roster(conn)
+        w.roster_at = time.monotonic()
+        try:
+            w.rpc.load_decimals(db.token_decimals(conn))
+        except Exception as e:  # noqa: BLE001 - the chain can always be asked
+            log.warning("decimals cache unavailable: %s", e)
+
+    head, _ = w.rpc.head()   # number and timestamp in one call: the scan dates its logs from it
+    first = w.last_block + 1 if w.last_block else head - settings.watch_start_back_blocks
+    first = max(first, head - settings.watch_max_range_blocks, 0)
+    stats = {"head": head, "from": first, "blocks": 0, "fills": 0, "hot": 0, "sent": 0}
+    if head < first:
+        return stats
+
+    fills = w.rpc.scan(w.wallets, first, head)
+    with db.tx(conn):
+        for trades in fills.values():
+            for t in trades:
+                stats["fills"] += db.insert_trade(conn, **t.model_dump())
+        try:
+            db.save_token_decimals(conn, w.rpc.known_decimals())
+        except Exception as e:  # noqa: BLE001
+            log.warning("could not store decimals: %s", e)
+    w.last_block = head
+    stats["blocks"] = head - first + 1
+    w.ticks += 1
+    w.fills += stats["fills"]
+
+    burning = hot_now(conn, CHAIN, delta=settings.hot_delta, window_s=settings.hot_window_min * 60,
+                      min_wallets=settings.hot_min_wallets,
+                      max_age_s=settings.hot_max_age_h * 3600 or None, now=now)
+    stats["hot"] = len(burning)
+    if burning:
+        stats["sent"] = push(conn, burning)
+        w.alerts += stats["sent"]
+    return stats
+
+
+def push(conn: sqlite3.Connection, burning: list[dict]) -> int:
+    """Tell every subscriber about each burst once. Lazy import: the bot needs a token, this does
+    not, and a watcher with no bot configured is still a faster tape."""
+    from ..bot import Telegram, fmt_hot, subscribers, already_sent, mark_sent
+
+    subs = subscribers(conn)
+    if not subs or not settings.telegram_bot_token:
+        return 0
+    tg = Telegram()
+    quiet = settings.telegram_realert_hours * 3600
+    sent = 0
+    for h in burning:
+        key = f"hot:{h['mint']}"
+        text = fmt_hot(h)
+        for sub in subs:
+            if already_sent(conn, sub["chat_id"], key, quiet):
+                continue
+            try:
+                tg.send(sub["chat_id"], text)
+                mark_sent(conn, sub["chat_id"], key)
+                sent += 1
+            except Exception as e:  # noqa: BLE001 - one blocked chat must not stop the rest
+                log.warning("hot push to %s failed: %s", sub["chat_id"], e)
+    return sent
+
+
+def run(conn: sqlite3.Connection, once: bool = False, rpc: RobinhoodRPC | None = None) -> dict:
+    rpc = rpc or RobinhoodRPC()
+    rpc.limiter.max = settings.watch_rpc_max_per_min
+    w = Watch(rpc=rpc)
+    # Four thousand "rpc scan" lines a day would bury the ten that matter. A tick says something
+    # only when it found a fill or a burst; the source stays quiet unless it has a complaint.
+    for name in ("fomo_agent.sources.rpc", "fomo_agent.ratelimit"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    log.info("watch: every %ss, burst at +%.1f from %d wallets in %d min",
+             settings.watch_poll_s, settings.hot_delta, settings.hot_min_wallets,
+             settings.hot_window_min)
+    while True:
+        started = time.monotonic()
+        try:
+            s = tick(conn, w)
+            if s["fills"] or s["hot"]:
+                log.info("watch: %s", s)
+        except RpcError as e:
+            log.warning("watch: rpc says %s — waiting a minute", e)
+            time.sleep(60)
+        except Exception as e:  # noqa: BLE001 - a bad tick is a missed tick, not a dead watcher
+            log.exception("watch tick failed: %s", e)
+        if once:
+            return {"ticks": w.ticks, "fills": w.fills, "alerts": w.alerts}
+        time.sleep(max(0.0, settings.watch_poll_s - (time.monotonic() - started)))
