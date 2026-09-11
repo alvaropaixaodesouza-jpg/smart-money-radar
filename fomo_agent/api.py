@@ -260,7 +260,8 @@ def activity(
     rows = dict(conn.execute(
         "SELECT CAST((tr.ts - ?) / 3600 AS INTEGER) bucket, COUNT(*) n "
         "FROM trades tr JOIN traders t ON t.address = tr.address "
-        "WHERE tr.ts >= ? AND t.score >= ?" + analyze.NOT_QUOTE.format(col="tr.mint") +
+        "WHERE tr.ts >= ? AND t.score >= ?" + analyze.NOT_QUOTE.format(col="tr.mint")
+        + " AND COALESCE(tr.kind, 'trade') = 'trade'"
         " GROUP BY bucket", (since, since, analyze.TRUSTED)).fetchall())
     series = [rows.get(i, 0) for i in range(hours)]
     return {"hours": hours, "series": series, "total": sum(series), "peak": max(series or [0])}
@@ -370,7 +371,7 @@ def tape(
         "FROM trades tr JOIN traders t ON t.address = tr.address "
         "LEFT JOIN tokens tk ON tk.mint = tr.mint "
         "WHERE t.score >= ? AND tr.usd_value IS NOT NULL"
-        + analyze.NOT_QUOTE.format(col="tr.mint") +
+        + analyze.NOT_QUOTE.format(col="tr.mint") + " AND COALESCE(tr.kind, 'trade') = 'trade'"
         " ORDER BY tr.ts DESC LIMIT ?", (analyze.TRUSTED, limit))]
     return {"count": len(rows), "fills": rows}
 

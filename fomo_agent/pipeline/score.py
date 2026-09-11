@@ -65,8 +65,11 @@ def build_context(conn: sqlite3.Connection, address: str) -> dict[str, Any]:
         except (TypeError, ValueError):
             pass
     for days in (7, 30):
+        # only what the wallet did itself, at size: a swap delivered by an outside key or a
+        # dust push is somebody else's action and must not colour the verdict either way
         rows = conn.execute(
-            "SELECT side, sol_amount, usd_value, mint, ts FROM trades WHERE address=? AND ts>=? ORDER BY ts",
+            "SELECT side, sol_amount, usd_value, mint, ts FROM trades WHERE address=? AND ts>=? "
+            "AND COALESCE(kind,'trade') = 'trade' ORDER BY ts",
             (address, now - days * 86400),
         ).fetchall()
         buys = [r for r in rows if r["side"] == "buy"]
@@ -86,7 +89,8 @@ def build_context(conn: sqlite3.Connection, address: str) -> dict[str, Any]:
         # early entries: bought within 10 min of token creation (when tokens.created_at known)
         early = conn.execute(
             "SELECT COUNT(*) FROM trades tr JOIN tokens tk ON tk.mint=tr.mint "
-            "WHERE tr.address=? AND tr.side='buy' AND tr.ts>=? AND tk.created_at IS NOT NULL AND tr.ts-tk.created_at<=600",
+            "WHERE tr.address=? AND tr.side='buy' AND tr.ts>=? AND tk.created_at IS NOT NULL AND tr.ts-tk.created_at<=600 "
+            "AND COALESCE(tr.kind,'trade') = 'trade'",
             (address, now - days * 86400),
         ).fetchone()[0]
         ctx[f"last_{days}d"] = {
@@ -120,7 +124,8 @@ def build_context(conn: sqlite3.Connection, address: str) -> dict[str, Any]:
         } for r in rows]
 
     recent = conn.execute(
-        "SELECT side, mint, sol_amount, ts FROM trades WHERE address=? ORDER BY ts DESC LIMIT 10", (address,)
+        "SELECT side, mint, sol_amount, ts FROM trades WHERE address=? "
+        "AND COALESCE(kind,'trade') = 'trade' ORDER BY ts DESC LIMIT 10", (address,)
     ).fetchall()
     ctx["recent"] = [{"s": r["side"][0], "m": r["mint"][:6], "sol": r["sol_amount"], "ts": r["ts"]} for r in recent]
     return ctx

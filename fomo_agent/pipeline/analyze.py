@@ -38,6 +38,11 @@ def _seed_params() -> list:
     return seeded_params()
 
 
+def _own(t: str) -> str:
+    from .provenance import REAL
+    return REAL.format(t=t)
+
+
 def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
             min_buyers: int = 2, limit: int = 40) -> list[dict]:
     """Tokens that several trusted wallets bought inside the window, best conviction first.
@@ -102,7 +107,7 @@ def exits(conn: sqlite3.Connection, chain: str | None = None, hours: int = 6,
         "LEFT JOIN holdings h ON h.address = tr.address AND h.token = tr.mint "
         f"WHERE t.score >= ?{' AND tr.chain=?' if chain else ''}"
         "  AND tr.mint IN (SELECT DISTINCT mint FROM trades WHERE side='sell' AND ts >= ?)"
-        + NOT_QUOTE.format(col="tr.mint") +
+        + NOT_QUOTE.format(col="tr.mint") + _own("tr") +
         " GROUP BY tr.mint, tr.address HAVING out_usd > 0",
         params,
     )]
@@ -330,7 +335,9 @@ def ledger(conn: sqlite3.Connection, address: str) -> list[dict]:
         "  SUM(tr.side='buy') buys, SUM(tr.side='sell') sells, "
         "  MIN(tr.ts) first_ts, MAX(tr.ts) last_ts "
         "FROM trades tr LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        "WHERE tr.address = ?" + NOT_QUOTE.format(col="tr.mint") +
+        # a position is what the wallet bought at size: not a swap somebody else delivered to
+        # it, not fifty cents pushed through fomo - see pipeline/provenance.py
+        "WHERE tr.address = ?" + NOT_QUOTE.format(col="tr.mint") + _own("tr") +
         " GROUP BY tr.mint", (address,),
     )]
 
@@ -564,6 +571,7 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
     positions = book(conn, address, row["fomo_user_id"])
     fills = [dict(r) for r in conn.execute(
         "SELECT tr.ts, tr.side, tr.usd_value usd, tr.mint, tr.source, "
+        "  COALESCE(tr.kind, 'trade') kind, "
         "  COALESCE(tk.symbol, substr(tr.mint,1,10)) sym FROM trades tr "
         "LEFT JOIN tokens tk ON tk.mint = tr.mint "
         "WHERE tr.address = ? AND tr.ts >= ?" + NOT_QUOTE.format(col="tr.mint") +

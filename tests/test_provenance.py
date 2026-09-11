@@ -146,6 +146,24 @@ def test_verify_fills_settles_the_old_rows_from_their_receipts(tmp_path):
     assert kinds == {"0xgift:1": "direct", "0xreal:1": "trade", "0xreal": "trade"}
 
 
+def test_a_gifted_fill_is_not_a_position_in_the_book(tmp_path):
+    """The verdict reads the book. A honeypot delivered to the wallet must not sit in it at -100%,
+    and a gifted early entry must not read as the wallet being early."""
+    conn = db.connect(tmp_path / "p.db")
+    now = db.now()
+    seed(conn, now)
+    with db.tx(conn):
+        db.insert_trade(conn, sig="g1", address=W[0], chain="robinhood", mint=SEEDED, side="buy",
+                        usd_value=900.0, token_amount=1e9, ts=now - 200, source="rpc", kind="direct")
+    provenance.refresh_medians(conn)
+    provenance.classify(conn, since=now - 7200)
+    mints = {p["token"] for p in analyze.ledger(conn, W[0])}
+    assert HONEST in mints and OLD in mints
+    assert SEEDED not in mints, "fifty cents of dust and a gifted $900 are not a position"
+    fills = analyze.analyze_trader(conn, W[0], hours=24)["fills"]
+    assert {f["kind"] for f in fills if f["mint"] == SEEDED} == {"dust", "direct"}, "shown, and named"
+
+
 def test_the_token_page_says_it_is_seeded(tmp_path):
     conn = db.connect(tmp_path / "p.db")
     now = db.now()
