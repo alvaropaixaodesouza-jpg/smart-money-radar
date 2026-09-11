@@ -128,11 +128,19 @@ def verify(conn: sqlite3.Connection, days: int = 7, rpc=None, max_per_min: int |
     t0 = time.time()
     for i in range(0, len(txs), settings.rpc_batch_size):
         chunk = txs[i:i + settings.rpc_batch_size]
-        try:
-            receipts = rpc.batch("eth_getTransactionReceipt", [[tx] for tx in chunk])
-        except RpcError as e:
-            stats["stopped"] = str(e)
+        # The endpoint's limit is shared with the watcher and the collector, and it says no from
+        # time to time whatever allowance this runs on. A no is a pause, not the end: wait a
+        # minute and ask again, and only give up when it has said no six times in a row.
+        for attempt in range(6):
+            try:
+                receipts = rpc.batch("eth_getTransactionReceipt", [[tx] for tx in chunk])
+                break
+            except RpcError as e:
+                stats["stopped"] = str(e)
+                time.sleep(60)
+        else:
             break
+        stats["stopped"] = None
         with db.tx(conn):
             for tx, rc in zip(chunk, receipts):
                 if not rc:
