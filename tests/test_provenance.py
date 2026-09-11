@@ -77,7 +77,7 @@ def test_a_seeded_token_leaves_every_feed_and_the_honest_one_stays(tmp_path):
     provenance.refresh_medians(conn)
     provenance.classify(conn, since=now - 7200)
 
-    assert provenance.seeded(conn, SEEDED, now) == {"wallets": 3, "dust": 3, "direct": 0,
+    assert provenance.seeded(conn, SEEDED, now) == {"wallets": 3, "real": 1, "dust": 3, "direct": 0,
                                                     "first_ts": now - 602, "seeded": True}
     assert provenance.seeded(conn, HONEST, now)["seeded"] is False
 
@@ -100,6 +100,40 @@ def test_two_seeded_wallets_are_not_yet_a_pattern(tmp_path, monkeypatch):
     assert provenance.seeded(conn, SEEDED, now)["seeded"] is False
     # two dust buys and one real one: the real one alone is not two buyers, so no signal either way
     assert "SEED" not in [s["sym"] for s in analyze.signals(conn, "robinhood", hours=24)]
+
+
+def test_dust_cannot_hide_a_token_the_cohort_really_bought(tmp_path):
+    """The reverse attack: five dollars of dust into three famous wallets must not remove a token
+    forty wallets bought for real. Seeded wallets have to outnumber real buyers."""
+    conn = db.connect(tmp_path / "p.db")
+    now = db.now()
+    seed(conn, now)
+    with db.tx(conn):
+        # three more trusted wallets buy SEED for real, at size: real buyers now 4, seeded 3
+        for i in range(4, 7):
+            db.upsert_trader(conn, W[i], chain="robinhood", fomo_handle=f"w{i}", score=80,
+                             status="active")
+            db.insert_trade(conn, sig=f"big{i}", address=W[i], chain="robinhood", mint=SEEDED,
+                            side="buy", usd_value=800.0, token_amount=1e9, ts=now - 400 - i,
+                            source="rpc", kind="flow")
+    provenance.refresh_medians(conn)
+    provenance.classify(conn, since=now - 7200)
+    s = provenance.seeded(conn, SEEDED, now)
+    assert s["wallets"] == 3 and s["real"] == 4 and s["seeded"] is False
+    assert "SEED" in [x["sym"] for x in analyze.signals(conn, "robinhood", hours=24)]
+
+
+def test_a_scaled_in_buy_is_not_dust(tmp_path):
+    """A trader with a $500 median buying $150 is trading. Two percent of the median is $10."""
+    conn = db.connect(tmp_path / "p.db")
+    now = db.now()
+    seed(conn, now)
+    with db.tx(conn):
+        db.insert_trade(conn, sig="probe", address=W[0], chain="robinhood", mint=HONEST, side="buy",
+                        usd_value=150.0, token_amount=1.0, ts=now - 50, source="rpc", kind="flow")
+    provenance.refresh_medians(conn)
+    provenance.classify(conn, since=now - 7200)
+    assert conn.execute("SELECT kind FROM trades WHERE sig='probe'").fetchone()[0] == "trade"
 
 
 def test_a_direct_fill_counts_for_nothing_even_at_full_size(tmp_path):

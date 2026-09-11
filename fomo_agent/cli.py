@@ -386,6 +386,18 @@ def verify_fills_cmd(
     typer.echo(got)
 
 
+@app.command("resize-fills")
+def resize_fills_cmd() -> None:
+    """Judge every sized fill again under the current dust floor and ratio."""
+    from .pipeline.provenance import refresh_medians, resize
+
+    conn = db.connect()
+    try:
+        typer.echo({"medians": refresh_medians(conn), **resize(conn)})
+    finally:
+        conn.close()
+
+
 @app.command("watch")
 def watch_cmd(
     once: bool = typer.Option(False, "--once", help="one tick, then exit"),

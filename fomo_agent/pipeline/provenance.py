@@ -77,11 +77,17 @@ def classify(conn: sqlite3.Connection, since: int) -> dict:
 
 # Any query that counts buys toward a signal takes both of these.
 REAL = " AND COALESCE({t}.kind, 'trade') = 'trade'"
+# Seeded: enough trusted wallets received pushed fills, and they outnumber the ones that bought for
+# real. Both halves matter. The first is the pattern; the second is what keeps the pattern from
+# being turned around and used to hide a real token with a few dollars of dust.
 NOT_SEEDED = (
     " AND {t}.mint NOT IN ("
     "  SELECT s.mint FROM trades s JOIN traders st ON st.address = s.address"
-    "  WHERE s.side = 'buy' AND s.kind IN ('dust', 'direct') AND st.score >= ? AND s.ts >= ?"
-    "  GROUP BY s.mint HAVING COUNT(DISTINCT s.address) >= ?)"
+    "  WHERE s.side = 'buy' AND st.score >= ? AND s.ts >= ?"
+    "  GROUP BY s.mint"
+    "  HAVING COUNT(DISTINCT CASE WHEN s.kind IN ('dust', 'direct') THEN s.address END) >= ?"
+    "     AND COUNT(DISTINCT CASE WHEN s.kind IN ('dust', 'direct') THEN s.address END)"
+    "       > COUNT(DISTINCT CASE WHEN COALESCE(s.kind, 'trade') = 'trade' THEN s.address END))"
 )
 
 
@@ -94,14 +100,24 @@ def seeded(conn: sqlite3.Connection, mint: str, now: int | None = None) -> dict:
     """How this token has been seeded, for the page that shows it."""
     now = now or db.now()
     row = conn.execute(
-        "SELECT COUNT(DISTINCT s.address) wallets, SUM(s.kind = 'dust') dust, "
-        "  SUM(s.kind = 'direct') direct, MIN(s.ts) first_ts "
+        "SELECT COUNT(DISTINCT CASE WHEN s.kind IN ('dust','direct') THEN s.address END) wallets, "
+        "  COUNT(DISTINCT CASE WHEN COALESCE(s.kind,'trade') = 'trade' THEN s.address END) real, "
+        "  SUM(s.kind = 'dust') dust, SUM(s.kind = 'direct') direct, "
+        "  MIN(CASE WHEN s.kind IN ('dust','direct') THEN s.ts END) first_ts "
         "FROM trades s JOIN traders st ON st.address = s.address "
-        "WHERE s.mint = ? AND s.side = 'buy' AND s.kind IN ('dust', 'direct') AND st.score >= ? "
-        "AND s.ts >= ?", (mint, TRUSTED, now - settings.seed_window_h * 3600)).fetchone()
-    wallets = row["wallets"] or 0
-    return {"wallets": wallets, "dust": row["dust"] or 0, "direct": row["direct"] or 0,
-            "first_ts": row["first_ts"], "seeded": wallets >= settings.seed_min_wallets}
+        "WHERE s.mint = ? AND s.side = 'buy' AND st.score >= ? AND s.ts >= ?",
+        (mint, TRUSTED, now - settings.seed_window_h * 3600)).fetchone()
+    wallets, real = row["wallets"] or 0, row["real"] or 0
+    return {"wallets": wallets, "real": real, "dust": row["dust"] or 0, "direct": row["direct"] or 0,
+            "first_ts": row["first_ts"],
+            "seeded": wallets >= settings.seed_min_wallets and wallets > real}
+
+
+def resize(conn: sqlite3.Connection) -> dict:
+    """Judge every sized fill again under the current floor and ratio. For when the bar moves."""
+    with db.tx(conn):
+        conn.execute("UPDATE trades SET kind='flow' WHERE kind IN ('dust', 'trade')")
+    return classify(conn, since=0)
 
 
 def verify(conn: sqlite3.Connection, days: int = 7, rpc=None, max_per_min: int | None = None,

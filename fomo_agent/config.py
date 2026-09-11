@@ -118,12 +118,15 @@ class Settings:
     hot_min_wallets: int = field(default_factory=lambda: _int("HOT_MIN_WALLETS", 3))
     hot_max_age_h: int = field(default_factory=lambda: _int("HOT_MAX_AGE_H", 0))
     # Whose trade a fill is (pipeline/provenance.py). A buy under max(the floor, this share of the
-    # wallet's median buy) is dust; a token where this many trusted wallets received dust or
-    # direct buys inside the window is seeded and leaves every feed. Measured on 30 days: the
-    # floor drops about 7% of trusted buys, all probes; the cluster rule caught five seeded
-    # tokens in one day and no real one.
+    # wallet's median buy) is dust. Two percent, not ten: a trader with a $5,000 median scaling
+    # into a name at $150 to $380 is trading, and at ten percent three of those hid a token with
+    # $1.6M of liquidity and 43 real buyers. The pushes this exists for are under a dollar.
     dust_abs_usd: float = field(default_factory=lambda: _float("DUST_ABS_USD", 5.0))
-    dust_ratio: float = field(default_factory=lambda: _float("DUST_RATIO", 0.1))
+    dust_ratio: float = field(default_factory=lambda: _float("DUST_RATIO", 0.02))
+    # A token is seeded when this many trusted wallets received dust or direct fills inside the
+    # window AND they outnumber the trusted wallets that bought it for real. The second clause is
+    # what stops the rule being an attack of its own: without it, five dollars of dust into three
+    # famous wallets would hide anybody's token from every feed.
     seed_min_wallets: int = field(default_factory=lambda: _int("SEED_MIN_WALLETS", 3))
     seed_window_h: int = field(default_factory=lambda: _int("SEED_WINDOW_H", 24))
     # The watcher: how often it asks the chain for the blocks since last time, on how much of
