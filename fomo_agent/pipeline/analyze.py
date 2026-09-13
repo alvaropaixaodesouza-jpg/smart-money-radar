@@ -53,7 +53,8 @@ def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
     Each buyer's fills are collapsed before aggregating, so a wallet that bought five times counts
     once toward the headcount and once toward conviction.
     """
-    params: list = [db.now() - hours * 3600, TRUSTED]
+    observed_now = db.now()
+    params: list = [observed_now - hours * 3600, observed_now, TRUSTED]
     if chain:
         params.append(chain)
     return [dict(r) for r in conn.execute(
@@ -65,7 +66,7 @@ def signals(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
         "    SUM(tr.usd_value) usd, MIN(tr.ts) first_ts "
         "  FROM trades tr JOIN traders t ON t.address = tr.address "
         "  LEFT JOIN tokens tk ON tk.mint = tr.mint "
-        f"  WHERE tr.side='buy' AND tr.ts >= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
+        f"  WHERE tr.side='buy' AND tr.ts >= ? AND tr.ts <= ? AND t.score >= ?{' AND tr.chain=?' if chain else ''}"
         + NOT_QUOTE.format(col="tr.mint") + _real("tr") +
         "  GROUP BY tr.mint, tr.address"
         ") GROUP BY mint HAVING buyers >= ? ORDER BY conviction DESC, usd DESC LIMIT ?",

@@ -906,5 +906,8 @@ def run(once: bool = typer.Option(False, "--once", help="executa uma passagem de
         time.sleep(5)
 
 
+from .learning.cli import app as learning_app
+app.add_typer(learning_app, name="learning")
+
 if __name__ == "__main__":
     app()

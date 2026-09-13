@@ -43,3 +43,6 @@ traders-resumos*.json
 *.backup-*
 *.pre-*
 *.before-*
+# Research backups and per-database process locks
+backups/
+*.learning.lock

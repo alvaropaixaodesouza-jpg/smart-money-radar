@@ -1,5 +1,10 @@
 # FOMO Robinhood Radar
 
+**Novo módulo experimental:** [aprendizado, Outcome Tracker e Paper Trading](docs/ADAPTIVE.md).
+Ativação opcional pelo comando `fomo-radar learning`. Inclui backup, registro de
+sinais, simulação com custos, risco e estatísticas; não envia ordens reais nem
+promove modelos automaticamente. Leia o guia antes de iniciar o worker.
+
 ![tests](https://github.com/alvaropaixaodesouza-jpg/smart-money-radar/actions/workflows/tests.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-MIT-00ff85)
 ![cost](https://img.shields.io/badge/runs%20on-%240%20%2F%20month-00ff85)

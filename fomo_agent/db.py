@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import settings
+from .learning.schema import SCHEMA as LEARNING_SCHEMA
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -220,6 +221,7 @@ MIGRATIONS: dict[int, str] = {
     -- ai_summary_pt é criada de forma condicional em migrate(),
     -- para funcionar tanto em bancos antigos quanto em instalações novas.
     """,
+    20: LEARNING_SCHEMA,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
