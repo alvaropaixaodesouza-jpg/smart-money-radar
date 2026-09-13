@@ -261,7 +261,7 @@ def fresh(conn: sqlite3.Connection, chain: str | None = None, hours: int = 24,
 def leaderboard(conn: sqlite3.Connection, limit: int = 25, status: str = "active") -> list[dict]:
     """The scored roster, best first — our own ranking by judgement rather than by headline PnL."""
     return [dict(r) for r in conn.execute(
-        "SELECT fomo_handle handle, address, score, status, ai_summary summary, "
+        "SELECT fomo_handle handle, address, score, status, COALESCE(ai_summary_pt, ai_summary) summary, "
         "  COALESCE(pnl_30d, pnl_7d, pnl_24h) fomo_pnl, tags "
         "FROM traders WHERE score IS NOT NULL AND (? = 'all' OR status = ?) "
         "ORDER BY score DESC, fomo_pnl DESC LIMIT ?", (status, status, limit),
@@ -593,7 +593,7 @@ def analyze_trader(conn: sqlite3.Connection, who: str, hours: int = 168) -> dict
     stats = json.loads(row["stats_json"]) if row["stats_json"] else {}
     return {
         "address": address, "handle": row["fomo_handle"], "chain": row["chain"],
-        "score": row["score"], "status": row["status"], "summary": row["ai_summary"],
+        "score": row["score"], "status": row["status"], "summary": row["ai_summary_pt"] or row["ai_summary"],
         "model": row["ai_model"], "style": tags.get("style") or [],
         "red_flags": tags.get("red_flags") or [], "stats": stats,
         "fomo_pnl": row["pnl_30d"] or row["pnl_7d"] or row["pnl_24h"],
@@ -620,77 +620,244 @@ def usd(v) -> str:
 
 
 def format_token(a: dict) -> str:
+    lado_pt = {
+        "buy": "compra",
+        "sell": "venda",
+    }
+
     name = a["symbol"] or a["mint"][:10]
     out = [f"# {name}  {a['mint']}"]
+
     if a["is_quote"]:
-        out.append("\n**This is a quote asset.** Every swap passes through it, so holdings and buys "
-                   "here are plumbing, not conviction.")
-    out.append(f"\nliquidity {usd(a['liquidity_usd'])} · mcap {usd(a['mcap_usd'])}")
-    out.append(f"\n## Who holds it\n")
+        out.append(
+            "\n**Este é um ativo de cotação.** Toda troca passa por ele; "
+            "portanto, posições e compras aqui representam a infraestrutura "
+            "da negociação, não convicção."
+        )
+
+    out.append(
+        f"\nliquidez {usd(a['liquidity_usd'])} · "
+        f"valor de mercado {usd(a['mcap_usd'])}"
+    )
+
+    out.append("\n## Quem mantém posição\n")
+
     if not a["holders"]:
-        out.append("_nobody on the watchlist_")
+        out.append("_nenhuma carteira da lista de acompanhamento_")
     else:
-        out.append(f"{len(a['holders'])} holders, {a['trusted_holders']} of them scoring {TRUSTED}+ · "
-                   f"avg score {a['avg_score']:.0f} · conviction {a['conviction']:.2f}"
-                   if a["avg_score"] else f"{len(a['holders'])} holders, none scored")
-        out.append(f"cohort cost {usd(a['cohort_cost'])} → open PnL {usd(a['cohort_pnl'])}")
+        out.append(
+            f"{len(a['holders'])} carteiras com posição, "
+            f"{a['trusted_holders']} delas com pontuação {TRUSTED}+ · "
+            f"pontuação média {a['avg_score']:.0f} · "
+            f"convicção {a['conviction']:.2f}"
+            if a["avg_score"]
+            else f"{len(a['holders'])} carteiras com posição, nenhuma pontuada"
+        )
+
+        out.append(
+            f"custo do grupo {usd(a['cohort_cost'])} → "
+            f"PnL aberto {usd(a['cohort_pnl'])}"
+        )
         out.append("")
+
         for h in a["holders"][:15]:
-            out.append(f"  {str(h['score'] or '--'):>3}  {(h['handle'] or h['address'][:10]):<20} "
-                       f"{usd(h['pnl']):>9} open   cost {usd(h['cost'])}")
-    out.append(f"\n## Flow, last {a['hours']}h\n")
+            out.append(
+                f"  {str(h['score'] or '--'):>3}  "
+                f"{(h['handle'] or h['address'][:10]):<20} "
+                f"{usd(h['pnl']):>9} PnL aberto   "
+                f"custo {usd(h['cost'])}"
+            )
+
+    out.append(f"\n## Fluxo, últimas {a['hours']}h\n")
+
     if not a["flow"]:
-        out.append("_no fills recorded_")
+        out.append("_nenhuma operação registrada_")
     else:
-        out.append(f"bought {usd(a['bought_usd'])} · sold {usd(a['sold_usd'])} · "
-                   f"{len(a['flow'])} fills by {len({f['address'] for f in a['flow']})} wallets")
+        out.append(
+            f"comprado {usd(a['bought_usd'])} · "
+            f"vendido {usd(a['sold_usd'])} · "
+            f"{len(a['flow'])} operações por "
+            f"{len({f['address'] for f in a['flow']})} carteiras"
+        )
+
         for f in a["flow"][:15]:
-            out.append(f"  {f['side']:<4} {usd(f['usd']):>9}  {(f['handle'] or f['address'][:10]):<20} "
-                       f"score {f['score'] or '--'}")
+            lado = lado_pt.get(f["side"], f["side"])
+            out.append(
+                f"  {lado:<6} {usd(f['usd']):>9}  "
+                f"{(f['handle'] or f['address'][:10]):<20} "
+                f"pontuação {f['score'] or '--'}"
+            )
+
     return "\n".join(out)
 
 
 def format_trader(a: dict) -> str:
-    out = [f"# {a['handle'] or a['address']}  ({a['status']}, score {a['score']})", a["address"]]
+    status_pt = {
+        "candidate": "candidato",
+        "tracking": "em acompanhamento",
+        "active": "acompanhado",
+        "watch": "observado",
+        "dropped": "descartado",
+    }
+
+    estado_pt = {
+        "open": "aberta",
+        "trimmed": "reduzida",
+        "held": "mantida",
+        "unknown": "desconhecida",
+        "pre-tape": "anterior ao histórico",
+        "closed": "encerrada",
+    }
+
+    lado_pt = {
+        "buy": "compra",
+        "sell": "venda",
+    }
+
+    estilo_pt = {
+        "holder": "Holder (mantém posição)",
+        "swing": "Swing",
+        "scalper": "Scalper",
+        "sniper": "Sniper (entrada seletiva)",
+        "copy-follower": "Copy follower (segue outras carteiras)",
+    }
+
+    alerta_pt = {
+        "bot": "comportamento automatizado",
+        "bundler": "atividade associada a bundler",
+        "insider-like": "comportamento semelhante a insider",
+        "wash": "possível wash trading",
+        "one-hit": "resultado concentrado em uma única posição",
+    }
+
+    status = status_pt.get(a["status"], a["status"])
+
+    out = [
+        f"# {a['handle'] or a['address']}  "
+        f"({status}, pontuação {a['score']})",
+        a["address"],
+    ]
+
     if a["summary"]:
         out.append(f"\n{a['summary']}")
+
     if a["style"] or a["red_flags"]:
-        out.append("style: " + ", ".join(a["style"]) + ("  flags: " + ", ".join(a["red_flags"]) if a["red_flags"] else ""))
-    out.append(f"\nfomo 30d {usd(a['fomo_pnl'])} · open bags {len(a['positions'])} "
-               f"worth {usd(a['open_pnl'])} unrealised")
+        estilos = [estilo_pt.get(x, x) for x in a["style"]]
+        alertas = [alerta_pt.get(x, x) for x in a["red_flags"]]
+
+        linha = "estilo: " + ", ".join(estilos) if estilos else ""
+        if alertas:
+            linha += (
+                ("  " if linha else "")
+                + "alertas: "
+                + ", ".join(alertas)
+            )
+        out.append(linha)
+
+    out.append(
+        f"\nFOMO 30d {usd(a['fomo_pnl'])} · "
+        f"posições abertas {len(a['positions'])} · "
+        f"valor {usd(a['open_pnl'])} não realizado"
+    )
+
     s = a["stats"]
     if s:
-        bits = [f"{k} {v}" for k, v in (("fills", s.get("fills")),
-                                        ("volume", usd(s["volume"]) if s.get("volume") else None)) if v]
+        bits = [
+            f"{k} {v}"
+            for k, v in (
+                ("operações", s.get("fills")),
+                ("volume", usd(s["volume"]) if s.get("volume") else None),
+            )
+            if v
+        ]
+
         if a["round_trips"] >= 5 and a["win_rate"] is not None:
-            bits.append(f"win {a['win_rate']*100:.0f}% of {a['round_trips']} round trips")
+            bits.append(
+                f"acerto {a['win_rate'] * 100:.0f}% em "
+                f"{a['round_trips']} operações completas"
+            )
+
         out.append(" · ".join(bits))
 
-    out.append(f"\n## The book — {len(a['positions'])} names open\n")
-    for p in a["positions"][:15] or [None]:
-        out.append(f"  {p['sym'][:14]:<14} {usd(p['pnl']):>9} open   cost {usd(p['cost']):<9} "
-                   f"{p['state']}" if p else "_none_")
+    out.append(
+        f"\n## Carteira — {len(a['positions'])} posições abertas\n"
+    )
+
+    for pos in a["positions"][:15] or [None]:
+        if pos:
+            estado = estado_pt.get(pos["state"], pos["state"])
+            out.append(
+                f"  {pos['sym'][:14]:<14} "
+                f"{usd(pos['pnl']):>9} PnL aberto   "
+                f"custo {usd(pos['cost']):<9} "
+                f"{estado}"
+            )
+        else:
+            out.append("_nenhuma_")
+
     if a["pre_tape"]:
-        out.append(f"\n  ({a['pre_tape']} more sold down from an entry older than our tape, so "
-                   "neither size nor profit can be stated)")
-    out.append("\n## What came back out\n")
+        out.append(
+            f"\n  ({a['pre_tape']} outras posições tiveram vendas de uma "
+            "entrada anterior ao nosso histórico; por isso, tamanho e lucro "
+            "não podem ser determinados)"
+        )
+
+    out.append("\n## O que já voltou das posições\n")
+
     if not a["closed"]:
-        out.append("_nothing sold yet inside our tape_")
+        out.append("_nada foi vendido ainda dentro do nosso histórico_")
     else:
-        line = f"realised {usd(a['realized_usd'])} over {len(a['closed'])} positions"
+        line = (
+            f"realizado {usd(a['realized_usd'])} em "
+            f"{len(a['closed'])} posições"
+        )
+
         if a["round_trips"]:
-            line += f", {a['wins']} of {a['round_trips']} sold out entirely for a profit"
+            line += (
+                f", {a['wins']} de {a['round_trips']} foram encerradas "
+                "totalmente com lucro"
+            )
+
         out.append(line)
-        for p in a["closed"][:10]:
-            exit_at = "all" if p["state"] == "closed" else f"{(p['exit_pct'] or 0) * 100:.0f}%"
-            out.append(f"  {p['sym'][:14]:<14} {usd(p['realized']):>9} realised   "
-                       f"in {usd(p['bought_usd']):<9} out {usd(p['sold_usd']):<9} sold {exit_at}")
-    out.append(f"\n## Fills, last {a['hours']}h\n")
-    out.append(f"bought {usd(a['bought_usd'])} · sold {usd(a['sold_usd'])} · {len(a['fills'])} fills")
+
+        for pos in a["closed"][:10]:
+            exit_at = (
+                "tudo"
+                if pos["state"] == "closed"
+                else f"{(pos['exit_pct'] or 0) * 100:.0f}%"
+            )
+
+            out.append(
+                f"  {pos['sym'][:14]:<14} "
+                f"{usd(pos['realized']):>9} realizado   "
+                f"entrada {usd(pos['bought_usd']):<9} "
+                f"saída {usd(pos['sold_usd']):<9} "
+                f"vendido {exit_at}"
+            )
+
+    out.append(f"\n## Operações, últimas {a['hours']}h\n")
+
+    out.append(
+        f"comprado {usd(a['bought_usd'])} · "
+        f"vendido {usd(a['sold_usd'])} · "
+        f"{len(a['fills'])} operações"
+    )
+
     for f in a["fills"][:15]:
-        out.append(f"  {f['side']:<4} {usd(f['usd']):>9}  {f['sym']:<14} via {f['source']}")
+        lado = lado_pt.get(f["side"], f["side"])
+        out.append(
+            f"  {lado:<6} {usd(f['usd']):>9}  "
+            f"{f['sym']:<14} via {f['source']}"
+        )
+
     if a["company"]:
-        out.append("\n## Sits in the same names as\n")
+        out.append("\n## Também mantém posições nos mesmos tokens que\n")
+
         for c in a["company"]:
-            out.append(f"  {str(c['score']):>3}  {c['handle']:<20} {c['shared']} shared positions")
+            out.append(
+                f"  {str(c['score']):>3}  "
+                f"{c['handle']:<20} "
+                f"{c['shared']} posições em comum"
+            )
+
     return "\n".join(out)

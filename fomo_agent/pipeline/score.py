@@ -21,7 +21,14 @@ third-party indexer's stats. Respond with ONLY a JSON object matching exactly th
 {"score": <int 0-100>, "status": "active"|"watch"|"dropped",
  "style": [subset of "sniper","swing","scalper","holder","copy-follower"],
  "red_flags": [subset of "bot","bundler","insider-like","wash","one-hit"],
- "summary": "<2-3 sentences>", "confidence": <float 0-1>}
+ "summary": "<2-3 sentences in English>",
+ "summary_pt": "<same analysis in Brazilian Portuguese>",
+ "confidence": <float 0-1>}
+
+Keep status, style and red_flags using exactly the technical codes above.
+`summary` must be in English. `summary_pt` must be natural Brazilian Portuguese.
+Both summaries must contain the same facts, numbers and judgement; do not add claims to one language
+that are absent from the other.
 
 How to weigh the evidence:
 - fomo PnL (pnl_30d / pnl_7d / pnl_24h) is the primary signal. It is profit in USD **including open
@@ -140,7 +147,7 @@ def call_claude(ctx: dict, model: str) -> tuple[ScoreResult, float]:
     cost = 0.0
     for attempt in range(2):
         msg = client.messages.create(
-            model=model, max_tokens=400, system=SYSTEM,
+            model=model, max_tokens=600, system=SYSTEM,
             messages=[{"role": "user", "content": user}],
         )
         pin, pout = PRICES.get(model, (0, 0))
@@ -174,7 +181,11 @@ EXPORT_INSTRUCTIONS = (
     '{"address": "<address>", "score": 0-100, "status": "active|watch|dropped", '
     '"style": ["sniper"|"swing"|"scalper"|"holder"|"copy-follower"], '
     '"red_flags": ["bot"|"bundler"|"insider-like"|"wash"|"one-hit"], '
-    '"summary": "2-3 sentences", "confidence": 0-1}. '
+    '"summary": "2-3 sentences in English", '
+    '"summary_pt": "same analysis in Brazilian Portuguese", '
+    '"confidence": 0-1}. '
+    "Keep status/style/red_flags as the exact technical codes above. "
+    "summary and summary_pt must express the same facts and judgement. "
     "Weigh fomo PnL first: it is USD profit INCLUDING open positions, which is where memecoin results sit. "
     "On-chain buy/sell flow is only a sanity check — an accumulating trader shows negative flow while being "
     "profitable. `open_positions` shows the book behind the number: several winners beat one, and a high "
@@ -272,9 +283,13 @@ def drop_automated(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> tuple[l
         with db.tx(conn):
             db.set_status(conn, r["address"], "dropped")
             conn.execute(
-                "UPDATE traders SET score=?, tags=?, ai_summary=?, ai_model=?, ai_scored_at=? WHERE address=?",
+                "UPDATE traders SET score=?, tags=?, ai_summary=?, ai_summary_pt=?, "
+                "ai_model=?, ai_scored_at=? WHERE address=?",
                 (settings.bot_score, json.dumps({"style": ["scalper"], "red_flags": ["bot"]}),
-                 reason, "heuristic:bot", db.now(), r["address"]),
+                 reason,
+                 "Carteira descartada automaticamente por apresentar comportamento "
+                 "compatível com automação ou bot.",
+                 "heuristic:bot", db.now(), r["address"]),
             )
         log.info("bot heuristic dropped %s: %s", r["address"][:10], reason)
     return keep, dropped
@@ -338,9 +353,11 @@ def import_results(conn: sqlite3.Connection, path: Path, model: str = "manual") 
 def apply_score(conn: sqlite3.Connection, address: str, res: ScoreResult, model: str) -> None:
     with db.tx(conn):
         conn.execute(
-            "UPDATE traders SET score=?, status=?, tags=?, ai_summary=?, ai_scored_at=?, ai_model=? WHERE address=?",
+            "UPDATE traders SET score=?, status=?, tags=?, ai_summary=?, "
+            "ai_summary_pt=COALESCE(?, ai_summary_pt), ai_scored_at=?, ai_model=? "
+            "WHERE address=?",
             (res.score, res.status, json.dumps({"style": res.style, "red_flags": res.red_flags}),
-             res.summary, db.now(), model, address),
+             res.summary, res.summary_pt, db.now(), model, address),
         )
         db.add_score_history(conn, address, res.score, res.status, model, res.summary)
 

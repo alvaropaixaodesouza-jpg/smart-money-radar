@@ -260,10 +260,10 @@ def banner(name: str, w: int, h: int, note: str = "",
     draw_runs(d, tx, base, [("FOMO ", f7), ("ROBINHOOD", f3)], WHITE, track)
     draw_runs(d, tx, base + big * 1.24, [("RADAR", f7)], WHITE, track)
 
-    fm, tm = mono_fit("WHO THE GOOD TRADERS ARE BUYING, WHILE IT IS STILL EARLY",
+    fm, tm = mono_fit("O QUE OS MELHORES TRADERS ESTÃO COMPRANDO, AINDA CEDO",
                       inner, H * 0.042)
     draw_runs(d, pad, H * 0.60 + dy,
-              [("WHO THE GOOD TRADERS ARE BUYING, WHILE IT IS STILL EARLY", fm)], WHITE, tm)
+              [("O QUE OS MELHORES TRADERS ESTÃO COMPRANDO, AINDA CEDO", fm)], WHITE, tm)
 
     # the hairline the whole system is built from
     d.line([pad, H * 0.685 + dy, W - pad, H * 0.685 + dy], fill=CARBON, width=max(1, round(H / 320)))
@@ -271,7 +271,7 @@ def banner(name: str, w: int, h: int, note: str = "",
     # the readout strip: the verdict vocabulary in the three colours it is published in
     row = H * 0.795 + dy
     x = pad
-    for text, colour in (("FOLLOW", GREEN), ("WATCH", YELLOW), ("DROP", CRIMSON)):
+    for text, colour in (("ACOMPANHAR", GREEN), ("OBSERVAR", YELLOW), ("DESCARTAR", CRIMSON)):
         x = pill(d, x, row, text, colour, H * 0.040) + W * 0.020
     meter_w = W * 0.095
     meter(d, x, row - H * 0.034, meter_w, H * 0.032, 7, 10)
@@ -290,7 +290,7 @@ if __name__ == "__main__":
     avatar("tg-avatar-512.png")
     avatar("tg-avatar-solid-512.png", solid=True)
     banner("tg-description-640x360.png", 640, 360)
-    banner("tg-start-1280x640.png", 1280, 640, note="/signals  /fresh  /token  /trader")
+    banner("tg-start-1280x640.png", 1280, 640, note="/sinais  /novos  /quente  /top")
     # The link preview is written straight into the site so there is one file rather than two
     # copies that can drift; Base.astro imports it, and the build hashes the name so a new
     # rendering is a new URL — which is the only thing Telegram's preview cache respects. No

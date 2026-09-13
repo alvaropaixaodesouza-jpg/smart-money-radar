@@ -114,7 +114,7 @@ def checks(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> list[di
 def report(conn: sqlite3.Connection, rpc: RobinhoodRPC | None = None) -> dict:
     rows = checks(conn, rpc)
     bad = [c for c in rows if not c["ok"]]
-    log.info("health: %d checks, %d failing", len(rows), len(bad))
+    log.info("saúde: %d verificações, %d com falha", len(rows), len(bad))
     return {"checks": rows, "failing": len(bad), "ok": not bad}
 
 
@@ -137,6 +137,6 @@ def heartbeat(ok: bool, url: str | None = None, timeout: float = 8.0) -> str:
             r = c.get(target)
         return f"pinged {'ok' if ok else 'fail'} ({r.status_code})"
     except Exception as e:  # noqa: BLE001 - monitoring must never break the thing it monitors
-        log.warning("heartbeat failed: %s", e)
+        log.warning("falha no sinal de atividade: %s", e)
         return f"heartbeat unreachable: {str(e)[:80]}"
 

@@ -62,7 +62,7 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
         try:
             w.rpc.load_decimals(db.token_decimals(conn))
         except Exception as e:  # noqa: BLE001 - the chain can always be asked
-            log.warning("decimals cache unavailable: %s", e)
+            log.warning("cache de decimais indisponível: %s", e)
 
     head, _ = w.rpc.head()   # number and timestamp in one call: the scan dates its logs from it
     first = w.last_block + 1 if w.last_block else head - settings.watch_start_back_blocks
@@ -79,7 +79,7 @@ def tick(conn: sqlite3.Connection, w: Watch, now: int | None = None) -> dict:
         try:
             db.save_token_decimals(conn, w.rpc.known_decimals())
         except Exception as e:  # noqa: BLE001
-            log.warning("could not store decimals: %s", e)
+            log.warning("não foi possível salvar os decimais: %s", e)
     if stats["fills"]:
         classify(conn, now - 3600)
     w.last_block = head
@@ -117,7 +117,7 @@ def name(conn: sqlite3.Connection, burning: list[dict]) -> int:
     try:
         found, _ = lookup_tokens(CHAIN, [h["mint"] for h in unnamed])
     except Exception as e:  # noqa: BLE001 - an alert without a name still carries the contract
-        log.warning("naming %d bursting tokens failed: %s", len(unnamed), e)
+        log.warning("falha ao nomear %d tokens em BURST: %s", len(unnamed), e)
         return 0
     by_mint = {t.mint.lower(): t for t in found}
     named = 0
@@ -156,7 +156,7 @@ def push(conn: sqlite3.Connection, burning: list[dict]) -> int:
                 mark_sent(conn, sub["chat_id"], key)
                 sent += 1
             except Exception as e:  # noqa: BLE001 - one blocked chat must not stop the rest
-                log.warning("hot push to %s failed: %s", sub["chat_id"], e)
+                log.warning("falha ao enviar BURST para %s: %s", sub["chat_id"], e)
     return sent
 
 
@@ -168,7 +168,7 @@ def run(conn: sqlite3.Connection, once: bool = False, rpc: RobinhoodRPC | None =
     # only when it found a fill or a burst; the source stays quiet unless it has a complaint.
     for name in ("fomo_agent.sources.rpc", "fomo_agent.ratelimit"):
         logging.getLogger(name).setLevel(logging.WARNING)
-    log.info("watch: every %ss, burst at +%.1f from %d wallets in %d min",
+    log.info("monitor: a cada %ss, BURST em +%.1f com %d carteiras em %d min",
              settings.watch_poll_s, settings.hot_delta, settings.hot_min_wallets,
              settings.hot_window_min)
     while True:
@@ -176,12 +176,19 @@ def run(conn: sqlite3.Connection, once: bool = False, rpc: RobinhoodRPC | None =
         try:
             s = tick(conn, w)
             if s["fills"] or s["hot"]:
-                log.info("watch: %s", s)
+                log.info(
+                    "monitor: blocos=%s operações=%s BURSTs=%s registrados=%s enviados=%s",
+                    s["blocks"],
+                    s["fills"],
+                    s["hot"],
+                    s.get("recorded", 0),
+                    s["sent"],
+                )
         except RpcError as e:
-            log.warning("watch: rpc says %s — waiting a minute", e)
+            log.warning("monitor: RPC informou %s — aguardando um minuto", e)
             time.sleep(60)
         except Exception as e:  # noqa: BLE001 - a bad tick is a missed tick, not a dead watcher
-            log.exception("watch tick failed: %s", e)
+            log.exception("falha no ciclo do monitor: %s", e)
         if once:
             return {"ticks": w.ticks, "fills": w.fills, "alerts": w.alerts}
         time.sleep(max(0.0, settings.watch_poll_s - (time.monotonic() - started)))

@@ -215,6 +215,11 @@ MIGRATIONS: dict[int, str] = {
     -- each wallet's own idea of a normal buy, which is what a dust floor is relative to
     ALTER TABLE traders ADD COLUMN median_buy_usd REAL;
     """,
+
+    19: """
+    -- ai_summary_pt é criada de forma condicional em migrate(),
+    -- para funcionar tanto em bancos antigos quanto em instalações novas.
+    """,
 }
 
 STATUSES = ("candidate", "tracking", "active", "watch", "dropped", "needs_review")
@@ -244,10 +249,28 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
 
 def migrate(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+
     for v in sorted(MIGRATIONS):
-        if v > version:
+        if v <= version:
+            continue
+
+        if v == 19:
+            # Bancos atuais podem já possuir ai_summary_pt porque a tradução
+            # foi importada antes desta migração existir oficialmente.
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(traders)")
+            }
+
+            if "ai_summary_pt" not in columns:
+                conn.execute(
+                    "ALTER TABLE traders ADD COLUMN ai_summary_pt TEXT"
+                )
+        else:
             conn.executescript(MIGRATIONS[v])
-            conn.execute(f"PRAGMA user_version={v}")
+
+        conn.execute(f"PRAGMA user_version={v}")
+
     conn.commit()
 
 

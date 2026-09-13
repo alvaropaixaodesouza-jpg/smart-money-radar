@@ -112,4 +112,6 @@ class ScoreResult(BaseModel):
     style: list[Literal["sniper", "swing", "scalper", "holder", "copy-follower"]] = []
     red_flags: list[Literal["bot", "bundler", "insider-like", "wash", "one-hit"]] = []
     summary: str
+    # Português é opcional para manter compatibilidade com resultados antigos.
+    summary_pt: str | None = None
     confidence: float = Field(ge=0, le=1)

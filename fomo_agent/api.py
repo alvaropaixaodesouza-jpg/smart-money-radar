@@ -79,18 +79,18 @@ async def lifespan(app: FastAPI):
     conn = db.connect()
     n = conn.execute("SELECT COUNT(*) FROM traders WHERE score IS NOT NULL").fetchone()[0]
     conn.close()
-    log.info("api up: chain=%s, %d scored traders", chain(), n)
+    log.info("API ativa: rede=%s, %d traders pontuados", chain(), n)
     yield
 
 
 app = FastAPI(
     title="FOMO Robinhood Radar",
     version="0.1.0",
-    summary="Which fomo.family traders on Robinhood Chain actually know what they are doing.",
+    summary="Quais traders da fomo.family na Robinhood Chain realmente sabem o que estão fazendo.",
     description=(
-        "Research over Robinhood Chain. Every trader here was resolved from a fomo "
-        "profile to a real on-chain wallet, tracked, and judged by Claude. Nothing on this API "
-        "places a trade, and none of it is financial advice."
+        "Pesquisa sobre a Robinhood Chain. Cada trader aqui foi associado de um perfil FOMO "
+        "a uma carteira on-chain real, acompanhado e avaliado pelo Claude. Nada nesta API "
+        "executa negociações, e nenhuma informação constitui aconselhamento financeiro."
     ),
     lifespan=lifespan,
 )
@@ -209,7 +209,7 @@ def live_lookup(conn: sqlite3.Connection, mint: str) -> bool:
     try:
         tokens, _ = lookup_tokens(chain() or "robinhood", [mint], gecko=gecko(), dex=dex())
     except Exception as e:  # noqa: BLE001 - an unknown token is still answerable without this
-        log.warning("live lookup for %s failed: %s", mint[:10], e)
+        log.warning("falha na consulta ao vivo de %s: %s", mint[:10], e)
         return False
     for t in tokens:
         if t.mint.lower() == mint.lower():
@@ -277,7 +277,7 @@ def candles_for(pool: str, chain_name: str, span: str) -> list[list[float]]:
     try:
         rows = gecko().ohlcv(chain_name, pool, timeframe, aggregate, limit)
     except Exception as e:  # noqa: BLE001 - a page without a chart is still a page
-        log.warning("candles for %s failed: %s", pool[:12], e)
+        log.warning("falha ao obter candles de %s: %s", pool[:12], e)
         return hit[1] if hit else []
     _evict_stale()
     _candles[key] = (time.monotonic(), rows)
@@ -288,6 +288,7 @@ def candles_for(pool: str, chain_name: str, span: str) -> list[list[float]]:
 
 @app.get("/api/health", tags=["meta"])
 def health(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    """Resumo operacional da saúde do radar e dos componentes que alimentam os dados."""
     last = conn.execute("SELECT MAX(ts) FROM trades").fetchone()[0]
     return {"ok": True, "chain": chain(), "last_fill_ts": last,
             "stale_seconds": (db.now() - last) if last else None}
@@ -295,7 +296,7 @@ def health(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
 
 @app.get("/api/stats", tags=["meta"])
 def stats(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
-    """The numbers the masthead shows. Quote assets are excluded from the fill count."""
+    """Números exibidos no cabeçalho do radar. Ativos de cotação são excluídos da contagem de operações."""
     not_quote = analyze.NOT_QUOTE.format(col="mint")
 
     def one(sql: str, *args):
@@ -320,11 +321,9 @@ def activity(
     hours: int = Query(48, ge=6, le=336),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Fills per hour by trusted wallets — the pulse the masthead draws as a sparkline.
+    """Operações por hora realizadas por carteiras confiáveis — a atividade usada no minigráfico do cabeçalho.
 
-    Empty hours are returned as zeros rather than skipped, otherwise a quiet night reads as a
-    gap in the chart instead of as quiet.
-    """
+Horas sem operações são retornadas como zero, em vez de serem omitidas, para que períodos de mercado parado não pareçam falhas ou lacunas no gráfico."""
     since = db.now() - hours * 3600
     rows = dict(conn.execute(
         "SELECT CAST((tr.ts - ?) / 3600 AS INTEGER) bucket, COUNT(*) n "
@@ -338,7 +337,7 @@ def activity(
 
 @app.get("/api/distribution", tags=["meta"])
 def distribution(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
-    """How the roster's scores are shaped — ten buckets of ten points each."""
+    """Mostra como as pontuações das carteiras acompanhadas estão distribuídas, em dez faixas de dez pontos cada."""
     buckets = [0] * 10
     for (score,) in conn.execute("SELECT score FROM traders WHERE score IS NOT NULL"):
         buckets[min(int(score) // 10, 9)] += 1
@@ -352,11 +351,9 @@ def signals(
     min_buyers: int = Query(2, ge=2, le=50),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Tokens several trusted wallets bought in the window, ranked by conviction.
+    """Tokens comprados por várias carteiras confiáveis dentro da janela, ranqueados por convicção.
 
-    Conviction is the sum of each buyer's (score/100)^2 — it answers *whose* money moved rather
-    than how many wallets did, because anyone can open a wallet.
-    """
+A convicção é a soma da contribuição de cada comprador, calculada a partir da pontuação da carteira. O objetivo é responder de quem é o capital que se moveu, e não apenas quantas carteiras participaram."""
     rows = analyze.signals(conn, chain(), hours=hours, min_buyers=min_buyers, limit=limit)
     # which of these arrived in a burst rather than drifting in over the day
     burst_at = {r["mint"]: dict(r) for r in conn.execute(
@@ -374,12 +371,9 @@ def hot_route(
     hours: int = Query(24, ge=1, le=168),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Bursts: several trusted wallets entering one token inside minutes rather than over a day.
+    """BURSTs: várias carteiras confiáveis entrando no mesmo token em poucos minutos, em vez de ao longo de um dia.
 
-    `now` is what is bursting this minute, straight from the tape. `recent` is every burst the
-    watcher wrote down in the window, each with what the price did afterwards in the price the
-    cohort itself paid — so the feed carries its own scorecard.
-    """
+`now` mostra o que está em BURST neste momento, diretamente do fluxo ao vivo. `recent` mostra os BURSTs registrados recentemente e o que aconteceu com o preço depois de cada evento."""
     from .pipeline import hot
 
     return {
@@ -413,16 +407,11 @@ def exits(
     min_exit: float = Query(0.5, ge=0.05, le=1.0),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Tokens the trusted wallets are leaving, heaviest departure first.
+    """Tokens dos quais as carteiras confiáveis estão saindo, com as maiores saídas primeiro.
 
-    The mirror of /api/signals, and the half nobody publishes. An entry feed cannot tell you that
-    the wallets you copied have gone — a token sits on it as long as the buy is inside the window,
-    whether or not the buyer is still there.
+É o complemento do feed de sinais: uma compra recente não informa se a carteira continua posicionada. Aqui, uma carteira só conta como saída depois de vender uma parte suficiente da posição observada.
 
-    A sale is not an exit: a wallet counts once it has sold `min_exit` of what the tape watched it
-    buy, measured in tokens rather than dollars because dollars move with the price. `gone` is how
-    many of the sellers are out entirely.
-    """
+A saída é medida pela quantidade de tokens vendidos, e não apenas pelo valor em dólar, porque o preço pode mudar durante o período."""
     rows = analyze.exits(conn, chain(), hours=hours, min_sellers=min_sellers,
                          min_exit=min_exit, limit=limit)
     return {"hours": hours, "count": len(rows), "exits": rows}
@@ -433,7 +422,7 @@ def tape(
     limit: int = Query(60, ge=1, le=200),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Every recent fill by a wallet scoring 60+, newest first."""
+    """Todas as operações recentes realizadas por carteiras com pontuação 60 ou superior, da mais recente para a mais antiga."""
     rows = [dict(r) for r in conn.execute(
         "SELECT tr.ts, tr.side, tr.usd_value usd, tr.mint, t.fomo_handle handle, t.score, "
         "  COALESCE(tk.symbol, substr(tr.mint,1,8)) sym "
@@ -454,12 +443,9 @@ def fresh(
     limit: int = Query(40, ge=1, le=100),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Tokens the cohort has just started buying, ranked by heat.
+    """Tokens que o grupo de carteiras confiáveis começou a comprar recentemente, ranqueados pela intensidade do movimento.
 
-    The signal feed ranks everything trusted wallets bought today, however long they have held it.
-    This one only lists tokens whose first trusted buy landed inside the window — the cohort
-    entering rather than sitting — and weights each buyer by how soon after the launch they got in.
-    """
+Diferentemente do feed geral de sinais, esta rota considera apenas tokens cuja primeira compra confiável ocorreu dentro da janela analisada."""
     return analyze.fresh(conn, chain(), hours, max_age_h, min_liquidity, min_buyers, limit)
 
 
@@ -469,7 +455,7 @@ def leaderboard(
     limit: int = Query(50, ge=1, le=400),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Our own ranking — by judgement of the process, not by the headline PnL fomo shows."""
+    """Nosso próprio ranking — baseado na avaliação do processo, não apenas no PnL exibido pelo FOMO."""
     rows = [trader_row(r) for r in analyze.leaderboard(conn, limit, status)]
     return {"status": status, "count": len(rows), "traders": rows}
 
@@ -480,10 +466,10 @@ def trader(
     hours: int = Query(168, ge=1, le=8760),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """A handle or a wallet address: the verdict, the open book, recent fills, the company kept."""
+    """Nome do trader ou endereço da carteira: avaliação, posições abertas, operações recentes e carteiras relacionadas."""
     a = analyze.analyze_trader(conn, who, hours)
     if a is None:
-        raise HTTPException(404, f"no trader matches {who!r}")
+        raise HTTPException(404, f"nenhum trader corresponde a {who!r}")
     return a
 
 
@@ -493,12 +479,12 @@ def token(
     hours: int = Query(48, ge=1, le=720),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Whose money is in this token, what it cost them, and who traded it in the window.
+    """Mostra quais carteiras estão neste token, quanto custou a entrada e quem negociou dentro da janela.
 
-    An address nobody tracked has touched still gets an answer: we look it up live, then say so.
+    Mesmo um endereço ainda não acompanhado recebe uma resposta: fazemos uma consulta ao vivo e informamos o resultado.
     """
     if not (mint.startswith("0x") and len(mint) == ADDRESS_LEN) and len(mint) < 32:
-        raise HTTPException(400, "that is not a token address")
+        raise HTTPException(400, "isso não é um endereço de token")
     a = analyze.analyze_token(conn, mint, hours)
     if a["symbol"] is None and not a["holders"] and not a["flow"]:
         if live_lookup(conn, a["mint"]):
@@ -514,17 +500,17 @@ def token_chart(
     span: str = Query("7d", pattern="^(24h|7d|30d)$"),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """Candles for the token's deepest pool: [ts, open, high, low, close, volume], oldest first.
+    """Candles do pool com maior liquidez do token: [ts, abertura, máxima, mínima, fechamento, volume], do mais antigo para o mais recente.
 
-    Every third-party chart widget was tried against this chain and none of them draws, so the
-    page draws its own from these. An unknown pool answers with an empty list and a reason, not a
-    404: a token page without a chart is a smaller answer, not a broken one.
+    Os widgets de gráfico de terceiros testados não renderizam corretamente nesta blockchain, então
+    a página monta o próprio gráfico com estes dados. Um pool desconhecido retorna uma lista vazia e um motivo, não um
+    erro 404: uma página de token sem gráfico é uma resposta limitada, não uma página quebrada.
     """
     mint = mint.lower() if mint.startswith("0x") else mint
     row = conn.execute("SELECT pool_address, chain, symbol FROM tokens WHERE mint=?", (mint,)).fetchone()
     if row is None or not row["pool_address"]:
         return {"mint": mint, "span": span, "pool": None, "candles": [],
-                "why": "no pool on record for this token yet"}
+                "why": "ainda não há pool registrado para este token"}
     rows = candles_for(row["pool_address"], row["chain"] or chain() or "robinhood", span)
     return {"mint": mint, "span": span, "pool": row["pool_address"],
             "symbol": row["symbol"], "candles": rows, "source": "geckoterminal"}
@@ -535,7 +521,7 @@ def search(
     q: str = Query(..., min_length=1, max_length=64),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict:
-    """One box for both questions: an address or a handle, resolved to where it should go."""
+    """Uma única busca para endereço ou nome de trader, direcionando para o resultado correspondente."""
     q = q.strip()
     row = analyze.find_trader(conn, q)
     if row:
