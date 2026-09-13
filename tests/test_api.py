@@ -191,7 +191,7 @@ def test_chart_answers_with_candles_and_says_why_when_it_cannot(client, monkeypa
     """A token page without a chart is a smaller answer, not a broken one."""
     body = client.get(f"/api/token/{TOKEN}/chart").json()
     assert body["candles"] == [] and body["pool"] is None
-    assert "no pool" in body["why"], "the reason is stated rather than 404'd"
+    assert "não há pool" in body["why"], "the reason is stated rather than 404'd"
 
     conn = db.connect()
     with db.tx(conn):

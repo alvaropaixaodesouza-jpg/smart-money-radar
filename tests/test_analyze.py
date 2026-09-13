@@ -62,13 +62,13 @@ def test_token_report_reads_holders_and_flow(conn):
 def test_token_report_flags_a_quote_asset(conn):
     a = analyze_token(conn, USDG)
     assert a["is_quote"]
-    assert "quote asset" in format_token(a)
+    assert "ativo de cotação" in format_token(a)
 
 
 def test_token_report_survives_an_unknown_address(conn):
     a = analyze_token(conn, "0x" + "9" * 40)
     assert a["holders"] == [] and a["flow"] == [] and a["conviction"] == 0
-    assert "nobody on the watchlist" in format_token(a)
+    assert "nenhuma carteira da lista de acompanhamento" in format_token(a)
 
 
 def test_trader_lookup_takes_a_handle_or_an_address(conn):

@@ -1,5 +1,15 @@
 # fomo-agent — состояние проекта и фронт работ
 
+**Sessão 20 (2026-09-13): sincronização Termux ↔ GitHub ↔ Codex e estabilização da tradução.**
+
+O repositório operacional passou a ser `github.com/alvaropaixaodesouza-jpg/smart-money-radar`,
+branch `main`, a partir do commit `bd542aa`. O badge do README e `PUBLIC_REPO_URL` foram alinhados
+ao novo endereço. A tradução para português havia deixado 15 testes procurando textos antigos em
+inglês; as expectativas foram atualizadas sem alterar as regras de negócio. O `.gitignore` agora
+cobre lotes locais de score/resumos, logs, PIDs e snapshots criados durante edições no Termux.
+
+Validação da sessão: 192 testes Python e build Astro.
+
 Обновлено: 2026-09-11 (сессия 19). Исходный ТЗ: `C:\Users\Honor\Downloads\fomo-agent-claude-code-prompt_1.md` (фазы 0–5). Этот файл — единственный источник правды о том, что сделано и что дальше. Обновляй его в конце каждой сессии.
 
 **Сессия 19: мозг на главной, сайт под нагрузкой, GitHub.**

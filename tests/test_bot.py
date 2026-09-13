@@ -93,7 +93,7 @@ def test_signal_message_carries_the_names_not_just_a_count(conn):
 
     sig = analyze.signals(conn, "robinhood", hours=24)[0]
     msg = bot.fmt_signal(sig)
-    assert "$PONS" in msg and "conviction" in msg
+    assert "$PONS" in msg and "convicção" in msg
     assert "ace 88" in msg and "mid 74" in msg
     assert "dud" not in msg, "a wallet scoring 30 is not part of the signal"
 
@@ -113,8 +113,8 @@ def test_a_bare_handle_returns_the_verdict(conn):
 
 def test_a_bare_address_returns_the_token(conn):
     out = bot.handle_text(conn, TOKEN, 1, None)
-    assert "$PONS" in out and "conviction" in out
-    assert "holders" in out
+    assert "$PONS" in out and "convicção" in out
+    assert "detentores" in out
 
 
 def test_a_wallet_address_returns_its_trader_not_a_token(conn):
@@ -128,28 +128,28 @@ def test_the_deep_link_from_a_signal_message_works(conn):
 
 def test_unknown_things_say_so_without_pretending(conn):
     out = bot.handle_text(conn, "definitelynobody", 1, None)
-    assert "No trader called" in out
+    assert "Nenhum trader chamado" in out
     out = bot.handle_text(conn, "0x" + "9" * 40, 1, None)
-    assert "Nobody on the watchlist" in out
+    assert "Nenhuma carteira acompanhada" in out
 
 
 def test_a_quote_asset_is_refused_with_a_reason(conn):
     from fomo_agent.sources.rpc import USDG
 
     out = bot.handle_text(conn, USDG, 1, None)
-    assert "quote asset" in out and "plumbing" in out
+    assert "ativo de cotação" in out and "infraestrutura" in out
 
 
 def test_leaderboard_commands(conn):
-    assert "FOLLOW" in bot.handle_text(conn, "/top", 1, None)
-    assert "DROPPED" in bot.handle_text(conn, "/dropped", 1, None)
+    assert "ACOMPANHADOS" in bot.handle_text(conn, "/top", 1, None)
+    assert "DESCARTADOS" in bot.handle_text(conn, "/dropped", 1, None)
     top = bot.handle_text(conn, "/top 1", 1, None)
     assert "ace" in top and "mid" not in top, "the limit is respected"
 
 
 def test_status_counts_what_is_actually_there(conn):
     out = bot.handle_text(conn, "/status", 1, None)
-    assert "traders" in out and "subscribers" in out
+    assert "traders" in out and "assinantes" in out
 
 
 def test_a_broken_question_does_not_kill_the_bot(conn, monkeypatch):
@@ -264,7 +264,7 @@ def test_fresh_command_reads_the_launch_feed(conn):
     from fomo_agent.bot import fmt_fresh, handle_text
 
     empty = fmt_fresh({"tokens": [], "hours": 24, "min_buyers": 2})
-    assert "sitting in what it already holds" in empty
+    assert "mantendo principalmente posições já existentes" in empty
 
     feed = {
         "hours": 24, "drained": 3, "min_buyers": 2,
@@ -272,13 +272,13 @@ def test_fresh_command_reads_the_launch_feed(conn):
                     "lead_minutes": 8.0, "who": ["fibs", "cissy"], "scores": [78, 80]}],
     }
     text = fmt_fresh(feed)
-    assert "$PORT" in text and "heat 1.83" in text
-    assert "first 8m after launch" in text
+    assert "$PORT" in text and "intensidade 1,83" in text
+    assert "8 min após o lançamento" in text
     assert "fibs 78" in text and "cissy 80" in text, "a list of names works as well as a string"
-    assert "3 more had trusted buying" in text
+    assert "3 outros tiveram compras confiáveis" in text
 
-    assert "FRESH" in handle_text(conn, "/fresh", 1, "u")
-    assert "/fresh" in handle_text(conn, "/help", 1, "u")
+    assert "TOKENS RECENTES" in handle_text(conn, "/fresh", 1, "u")
+    assert "/novos" in handle_text(conn, "/help", 1, "u")
 
 
 def test_a_hot_launch_is_pushed_once_and_not_again_by_the_other_feed(conn, monkeypatch):
@@ -302,8 +302,8 @@ def test_a_hot_launch_is_pushed_once_and_not_again_by_the_other_feed(conn, monke
     assert stats["sent"] == 1 and stats["launches"] == 1
     assert len(tg.sent) == 1
     text = tg.sent[0][1]
-    assert "$HOT" in text and "launch" in text and "heat 4.20" in text
-    assert "first wallet in" in text and "6 min" in text, "the lead time is the headline"
+    assert "$HOT" in text and "TOKEN RECENTE" in text and "intensidade 4,20" in text
+    assert "primeira entrada" in text and "6 min" in text, "the lead time is the headline"
     assert "COLD" not in text, "below the heat floor, so no message"
 
     # the signal feed knows the same token; the dedup is per token, not per feed
@@ -322,10 +322,10 @@ def test_a_launch_with_no_known_open_time_does_not_claim_to_be_first(conn):
                    "lead_minutes": None}],
          "health": {"ok": True, "checks": []}}
     text = bot.fmt_digest(d)
-    assert "launch time unknown" in text and "0m after" not in text
+    assert "horário de lançamento desconhecido" in text and "0 min após" not in text
 
     d["fresh"][0]["lead_minutes"] = 7.4
-    assert "first in 7m after the pool opened" in bot.fmt_digest(d)
+    assert "primeira entrada 7 min após a abertura" in bot.fmt_digest(d)
 
 
 def test_a_quiet_day_says_so_in_one_line(conn):
@@ -333,5 +333,5 @@ def test_a_quiet_day_says_so_in_one_line(conn):
          "joined_n": 0, "signals": [], "fresh": [], "exits": [], "theses": [],
          "health": {"ok": True, "checks": []}}
     text = bot.fmt_digest(d)
-    assert "Nothing moved" in text and "That is information too" in text
-    assert "169 follow" in text, "the roster is still worth stating"
+    assert "Nenhuma movimentação relevante" in text and "Mercado parado também é informação" in text
+    assert "169 acompanhados" in text, "the roster is still worth stating"

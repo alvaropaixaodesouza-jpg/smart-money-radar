@@ -1,6 +1,6 @@
 # FOMO Robinhood Radar
 
-![tests](https://github.com/cvxv666/fomo-robinhood-radar/actions/workflows/tests.yml/badge.svg)
+![tests](https://github.com/alvaropaixaodesouza-jpg/smart-money-radar/actions/workflows/tests.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-MIT-00ff85)
 ![cost](https://img.shields.io/badge/runs%20on-%240%20%2F%20month-00ff85)
 

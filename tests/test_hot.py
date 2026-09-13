@@ -94,10 +94,10 @@ def test_the_message_leads_with_the_clock(tmp_path):
     seed(conn, now)
     h = hot.hot_now(conn, "robinhood", delta=1.5, window_s=30 * 60, min_wallets=3, now=now)[0]
     text = fmt_hot(h, now)
-    assert "burst" in text and "in 7 min" in text, "from the 9-minute buy to the 2-minute one"
-    assert "wallets in" in text and "3" in text
+    assert "BURST" in text and "em 7 min" in text, "from the 9-minute buy to the 2-minute one"
+    assert "carteiras" in text and "3" in text
     assert TOKEN in text, "the contract is there to copy"
-    assert "Nothing is bursting" in fmt_hot_list([], 30)
+    assert "Nenhum BURST ativo" in fmt_hot_list([], 30)
 
 
 # ---------------------------------------------------------------- the watcher
@@ -278,4 +278,4 @@ def test_the_digest_carries_the_scorecard(tmp_path, monkeypatch):
     assert d["bursts"]["n"] == 1 and d["bursts"]["measured"] == 1
     assert d["bursts"]["reached_2x"] == 1 and d["bursts"]["median_best"] == 2.5
     text = fmt_digest(d)
-    assert "Bursts" in text and "1 reached 2x" in text and "best 2.5x" in text
+    assert "BURSTs" in text and "1 chegaram a 2x" in text and "melhor 2,5x" in text

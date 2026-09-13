@@ -27,3 +27,19 @@ id_*
 
 # fetched once for assets/brand/make_brand.py, not worth versioning
 assets/brand/.fonts/
+
+# local runtime state
+*.pid
+*.log
+logs/
+
+# manual scoring and translated-summary batches
+scores-pendentes*.json
+scores-prontos*.json
+traders-resumos*.json
+
+# local snapshots created while editing in Termux
+*.bak
+*.backup-*
+*.pre-*
+*.before-*
