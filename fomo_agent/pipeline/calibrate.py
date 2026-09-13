@@ -70,6 +70,25 @@ def positions_after_verdict(conn: sqlite3.Connection, address: str, since: int) 
     return out
 
 
+def first_entry_price(conn: sqlite3.Connection, address: str, token: str,
+                      since: int) -> float | None:
+    """Preço implícito da primeira compra real feita depois do veredito.
+
+    O benchmark precisa começar no instante em que a carteira decidiu entrar. Usar o custo médio
+    de todas as compras deslocaria o ponto de partida para depois da decisão e favoreceria quem
+    aumentou posição somente após o preço já ter se movido.
+    """
+    row = conn.execute(
+        "SELECT usd_value / token_amount price FROM trades "
+        "WHERE address=? AND mint=? AND side='buy' AND ts>=? "
+        "  AND usd_value > 0 AND token_amount > 0 "
+        "  AND COALESCE(kind, 'trade') = 'trade' "
+        "ORDER BY ts, rowid LIMIT 1",
+        (address, token, since),
+    ).fetchone()
+    return float(row["price"]) if row and row["price"] and row["price"] > 0 else None
+
+
 def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
     """Group every post-verdict closed position by the band its wallet was in, and count.
 
@@ -82,7 +101,12 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
                # closed and trimmed, counted at what actually came back
                "closed": 0, "wins": 0, "in_usd": 0.0, "out_usd": 0.0, "returns": [],
                # every position, with what is still held marked at the token's current price
-               "all": 0, "unpriced": 0, "in_all": 0.0, "out_all": 0.0}
+               "all": 0, "unpriced": 0, "in_all": 0.0, "out_all": 0.0,
+               # Paired benchmark: what the wallet returned versus putting the same dollars into
+               # the same token at its first entry and simply holding it to today's price.
+               "benchmark_positions": 0, "benchmark_unpriced": 0,
+               "paired_in": 0.0, "paired_out": 0.0, "benchmark_out": 0.0,
+               "token_returns": []}
         for lo, hi, name in BANDS
     }
 
@@ -110,10 +134,30 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
             still_held = p["state"] in ("open", "trimmed")
             if still_held and p["value"] is None:
                 b["unpriced"] += 1          # cannot be marked, so it joins neither total
+                b["benchmark_unpriced"] += 1
                 continue
             b["all"] += 1
             b["in_all"] += p["bought_usd"]
             b["out_all"] += p["sold_usd"] + (p["value"] or 0)
+
+            # --- matched token benchmark: the same token, the same entry moment, same dollars.
+            # Closed positions keep what the wallet actually sold for; open/trimmed positions add
+            # the current value of what remains. The passive side ignores the wallet's exits and
+            # holds the whole hypothetical entry to the current token price.
+            entry_price = first_entry_price(conn, address, p["token"], v["ts"])
+            current_price = p.get("price")
+            current_at = p.get("price_at")
+            if (entry_price is None or current_price is None or current_price <= 0
+                    or current_at is None or current_at < p["first_ts"]):
+                b["benchmark_unpriced"] += 1
+                continue
+            token_return = current_price / entry_price
+            actual_out = p["sold_usd"] + (p["value"] or 0)
+            b["benchmark_positions"] += 1
+            b["paired_in"] += p["bought_usd"]
+            b["paired_out"] += actual_out
+            b["benchmark_out"] += p["bought_usd"] * token_return
+            b["token_returns"].append(token_return)
 
     for b in bands.values():
         b["win_rate"] = b["wins"] / b["closed"] if b["closed"] else None
@@ -122,7 +166,20 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
         # position that paid for all the others, and in this market that position is the business.
         b["pooled_return"] = (b["out_usd"] / b["in_usd"]) if b["in_usd"] else None
         b["marked_return"] = (b["out_all"] / b["in_all"]) if b["in_all"] else None
+        b["paired_return"] = (b["paired_out"] / b["paired_in"]) if b["paired_in"] else None
+        b["benchmark_return"] = (
+            b["benchmark_out"] / b["paired_in"] if b["paired_in"] else None
+        )
+        b["benchmark_median_return"] = (
+            statistics.median(b["token_returns"]) if b["token_returns"] else None
+        )
+        b["excess_return"] = (
+            b["paired_return"] / b["benchmark_return"]
+            if b["paired_return"] is not None and b["benchmark_return"]
+            else None
+        )
         b.pop("returns")
+        b.pop("token_returns")
 
     ranked = [bands[n] for _, _, n in BANDS]
     ages = sorted((db.now() - v["ts"]) / 86400 for v in verdicts.values())
@@ -144,6 +201,11 @@ def calibrate(conn: sqlite3.Connection, min_usd: float = 100.0) -> dict:
         "separates_marked": (
             None if not (ranked[0]["marked_return"] and ranked[-1]["marked_return"])
             else ranked[0]["marked_return"] > ranked[-1]["marked_return"]
+        ),
+        "separates_excess": (
+            None if (ranked[0]["excess_return"] is None
+                     or ranked[-1]["excess_return"] is None)
+            else ranked[0]["excess_return"] > ranked[-1]["excess_return"]
         ),
     }
 
@@ -168,6 +230,19 @@ def report(result: dict) -> str:
     out.append("realized — closed and trimmed positions only, at what actually came back.")
     out.append("marked   — every position, with what is still held valued at today's price.")
     out.append("")
+    out.append("Matched token benchmark — the same dollars buy the same token at the wallet's "
+               "first entry and hold it to today's price.")
+    out.append(f"{'band':<9}{'paired':>8}{'actual':>10}{'token':>10}{'excess':>10}{'missing':>10}")
+    for b in result["bands"]:
+        actual = f"{b['paired_return']:.2f}x" if b["paired_return"] is not None else "—"
+        token = f"{b['benchmark_return']:.2f}x" if b["benchmark_return"] is not None else "—"
+        excess = f"{b['excess_return']:.2f}x" if b["excess_return"] is not None else "—"
+        out.append(f"{b['band']:<9}{b['benchmark_positions']:>8}{actual:>10}{token:>10}"
+                   f"{excess:>10}{b['benchmark_unpriced']:>10}")
+    out.append("actual — wallet exits plus the current value of anything it still holds.")
+    out.append("token  — passive buy-and-hold return from the wallet's first entry price.")
+    out.append("excess — actual divided by token; above 1.00x means the wallet beat holding it.")
+    out.append("")
     if result["separates"] is None:
         out.append("Not enough closed positions to say anything yet. That is the honest answer.")
     elif result["separates"]:
@@ -185,9 +260,14 @@ def report(result: dict) -> str:
                "that by trusting a price quote.")
     out.append("Small counts mean nothing; wallets that stopped trading stop contributing.")
     out.append("")
-    out.append("READ THE COLUMNS AGAINST EACH OTHER, NOT AGAINST 1.00x. There is no market "
-               "benchmark here yet, so an absolute figure below a dollar does not mean the cohort "
-               "lost to the market — over a week when every token fell, 0.88x could be the best "
-               "result on the chain. What the table can support is the comparison between bands, "
-               "and only that.")
+    if result["separates_excess"] is None:
+        out.append("Not enough paired token prices to compare the top and bottom bands yet.")
+    elif result["separates_excess"]:
+        out.append("Matched benchmark: the top band beat its own tokens by more than the bottom "
+                   "band did.")
+    else:
+        out.append("Matched benchmark: the top band did NOT add more value over holding the same "
+                   "tokens than the bottom band did.")
+    out.append("This is a matched token benchmark, not a chain-wide index: it separates wallet "
+               "selection and exits from the move of the assets each wallet actually chose.")
     return "\n".join(out)
