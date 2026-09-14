@@ -134,6 +134,14 @@ priorizando os menos recentemente consultados. Ativos sem resposta também
 avançam na fila para não bloquear os demais. Mais ativos ou lentidão do provedor
 podem impedir resolução de um minuto; o relatório mede essas lacunas.
 
+O intervalo da fila é contado desde o início do ciclo, como o agendamento do
+worker. O preço continua datado no recebimento da resposta. Isso evita que uma
+consulta de 2s faça o ciclo seguinte enxergar apenas 58s transcorridos e pular
+uma consulta inteira. Logs incluem `cycle_started_at` e `observed_at` para
+verificar a duração da consulta. A correção não reabre simulações já marcadas
+como incompletas nem preenche lacunas antigas. Depois de atualizar o código,
+reinicie somente o processo `fomo_agent.cli learning run` para aplicar a mudança.
+
 Cotação inicial precisa ter no máximo 120s. Os provedores atuais retornam preço
 indicativo: o timestamp registrado é o recebimento da resposta, não um horário
 de negócio garantido pela exchange. Respostas podem refletir caches do provedor.

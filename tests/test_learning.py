@@ -266,6 +266,27 @@ def test_worker_integration_and_restart(conn, monkeypatch):
     assert len(calls) == 8
 
 
+def test_polling_with_network_latency_does_not_skip_alternate_cycles(conn, monkeypatch):
+    """The worker sleeps from cycle start; quote timestamps must stay at response time."""
+    monkeypatch.setattr(runner, "signals", lambda *a, **kw: [candidate()])
+    current = [START]
+    delays = iter([2, 1, 3, 2, 1, 2, 1, 2])
+
+    def lookup(chain, assets):
+        current[0] += next(delays)
+        return [NewToken(mint="token", chain=chain, price_usd=100, liquidity_usd=100000)], 1
+
+    for offset in range(0, 421, 60):
+        current[0] = START + offset
+        stats = runner.tick(conn, clock=lambda: current[0], lookup=lookup)
+        assert stats["requested"] == 1, "network latency must not suppress the next minute's poll"
+        assert stats["quotes"] == 1
+        row = conn.execute("SELECT observed_at,received_at FROM learning_observations ORDER BY id DESC LIMIT 1").fetchone()
+        assert tuple(row) == (current[0], current[0]), "do not backdate observations to request start"
+    assert conn.execute("SELECT state FROM learning_paper").fetchone()[0] == "open"
+    assert conn.execute("SELECT state FROM learning_outcomes WHERE horizon_s=300").fetchone()[0] == "measured"
+
+
 def test_missing_price_can_create_fresh_later_detection(conn):
     assert capture(conn, [candidate()], "robinhood", START) == 1
     assert capture(conn, [candidate()], "robinhood", START + 30) == 0

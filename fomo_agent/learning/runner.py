@@ -57,6 +57,7 @@ def tick(conn, chain="robinhood", limit=40, offline=False, clock=None, lookup=No
     clock = clock or (lambda: int(time.time()))
     lookup = lookup or lookup_tokens
     now = int(clock())
+    poll_started_at = now
     run_id = conn.execute("INSERT INTO learning_runs(started_at) VALUES(?)", (now,)).lastrowid
     conn.commit()
     try:
@@ -73,7 +74,8 @@ def tick(conn, chain="robinhood", limit=40, offline=False, clock=None, lookup=No
         now = int(clock())  # response time, never the request-start timestamp
         candidates = signals(conn, chain=chain, limit=limit)
         stats = {"candidates": len(candidates), "active_assets": len(assets), "quotes": 0,
-                 "requested": 0 if offline else len(due), "requests": requests, "offline": offline}
+                 "requested": 0 if offline else len(due), "requests": requests, "offline": offline,
+                 "cycle_started_at": poll_started_at, "observed_at": now}
         conn.execute("BEGIN IMMEDIATE")
         ensure_version(conn, now)
         seen = set()
@@ -90,8 +92,11 @@ def tick(conn, chain="robinhood", limit=40, offline=False, clock=None, lookup=No
             seen.add(token.mint)
             stats["quotes"] += 1
         if not offline:
+            # run schedules from cycle START. Stamping the response time here makes
+            # a 2s request only 58s old next cycle, suppressing every other poll.
+            # Observations above still retain their actual response timestamps.
             conn.executemany("INSERT INTO learning_poll VALUES(?,?,?) ON CONFLICT(chain,asset) "
-                             "DO UPDATE SET checked_at=excluded.checked_at", [(chain, a, now) for a in due])
+                             "DO UPDATE SET checked_at=excluded.checked_at", [(chain, a, poll_started_at) for a in due])
         stats["unavailable"] = 0 if offline else len(due) - len(seen)
         stats["signals_new"] = capture(conn, candidates, chain, now)
         stats["outcomes_completed"] = finish_due(conn, now)
